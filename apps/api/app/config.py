@@ -64,7 +64,8 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [self.web_origin, *self.extra_cors_origins]
+        # Browser Origin never has a trailing slash — strip it or exact-match fails.
+        return [self.web_origin.rstrip("/") or "/", *(o.rstrip("/") for o in self.extra_cors_origins if o.rstrip("/"))]
 
     @property
     def is_production(self) -> bool:
