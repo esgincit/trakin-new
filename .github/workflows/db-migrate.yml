@@ -1,0 +1,31 @@
+name: Database migrations
+
+# Applies supabase/migrations to a Supabase project. Run it by hand (Actions → Database
+# migrations → Run workflow) after merging, first for staging, then for production.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "staging or production"
+        required: true
+        default: staging
+        type: choice
+        options: [staging, production]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}     # add required reviewers on "production" in GitHub settings
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - name: Show what will run
+        run: supabase migration list
+      - run: supabase db push --password "$SUPABASE_DB_PASSWORD"

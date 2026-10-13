@@ -1,0 +1,86 @@
+"use client";
+
+import { useParams, useRouter } from "next/navigation";
+import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
+import { api } from "@/lib/api";
+import { date, label, money, num } from "@/lib/format";
+import { allows, useSession } from "@/lib/session";
+import { useApi } from "@/lib/useApi";
+import { dayLabels } from "@/lib/weeks";
+
+export default function TimesheetReview() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const { workspace } = useSession();
+  const { data: ts, error, loading, reload } = useApi(`/timesheets/${id}`);
+  const { run, busy } = useAction();
+  const canApprove = allows(workspace, "approver", "account_manager", "hr", "finance");
+
+  if (loading) return <Loading rows={6} />;
+  if (error) return <ErrorBox error={error} retry={reload} />;
+  const days = dayLabels(ts.week_start);
+  const total = ts.rows.reduce((s: number, r: any) => s + r.hours.reduce((a: number, h: any) => a + Number(h), 0), 0);
+
+  return (
+    <>
+      <PageHead title={`${ts.full_name} · week of ${date(ts.week_start)}`}
+        sub={<>{label(ts.engagement)}{ts.employer && ` via ${ts.employer}`} · <Chip status={ts.status} /> · {ts.summary.label}</>}
+        actions={<>
+          <button className="btn" onClick={() => router.back()}>Back</button>
+          {canApprove && ["submitted", "approved"].includes(ts.status) && (
+            <button className="btn" disabled={busy} onClick={async () => {
+              const reason = prompt("What should the consultant fix? They'll see this message.");
+              if (reason && await run(() => api(`/timesheets/${id}/reject`, { body: { reason } }), "Returned to the consultant")) reload();
+            }}>Return for changes</button>
+          )}
+          {canApprove && ts.status === "submitted" && (
+            <button className="btn pri" disabled={busy} onClick={async () => {
+              if (await run(() => api(`/timesheets/${id}/approve`, { method: "POST" }), "Approved")) reload();
+            }}>Approve</button>
+          )}
+        </>} />
+
+      <div className="tw ts">
+        <table>
+          <thead><tr><th>Project</th>{days.map((d) => <th key={d} className="num">{d}</th>)}<th className="num">Total</th></tr></thead>
+          <tbody>
+            {ts.rows.map((r: any) => (
+              <tr key={r.placement_id ?? "internal"}>
+                <td>{r.project}</td>
+                {r.hours.map((h: any, i: number) => <td key={i} className="num">{Number(h) ? num(h, 2) : "–"}</td>)}
+                <td className="num"><b>{num(r.hours.reduce((a: number, h: any) => a + Number(h), 0), 2)}</b></td>
+              </tr>
+            ))}
+            <tr><td><b>Total</b></td>{days.map((d) => <td key={d} />)}<td className="num"><b>{num(total, 2)}</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+      {ts.note && <p className="note">Consultant's note: {ts.note}</p>}
+      {ts.reject_reason && <p className="err">Returned: {ts.reject_reason}</p>}
+
+      <div className="grid c2 mt">
+        <div className="card">
+          <h3>Checks</h3>
+          {ts.checks.map((c: any) => (
+            <div key={c.key} className="alert">
+              <Chip status={c.result === "pass" ? "ok" : c.result === "fail" ? "rejected" : "pending"}>{c.result}</Chip>
+              <div><b>{c.label}</b><div className="muted" style={{ fontSize: 12.5 }}>{c.detail}</div></div>
+            </div>
+          ))}
+        </div>
+        {ts.creates && (
+          <div className="card">
+            <h3>What approval creates</h3>
+            <div className="split">
+              <div><small>Client invoice (AR) to {ts.creates.ar_to.join(", ") || "–"}</small><b>{money(ts.creates.ar_amount)}</b></div>
+              {ts.creates.ap_to.length
+                ? <div><small>Payable (AP) to {ts.creates.ap_to.join(", ")}</small><b>{money(ts.creates.ap_amount)}</b></div>
+                : <div><small>No AP payable</small><b>W-2 payroll</b></div>}
+            </div>
+            <p className="note">Only your own two links. Other layers of the chain are never shown or stored.</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}

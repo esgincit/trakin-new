@@ -1,0 +1,28 @@
+# Supabase CLI settings for local development (`supabase start`) and linking.
+# Hosted projects are configured in the dashboard; see docs/deployment.md.
+project_id = "mytrakin"
+
+[api]
+# The mytrakin schema is deliberately NOT listed: browsers never query it directly.
+schemas = ["public", "graphql_public"]
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/login"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+otp_length = 6
+otp_expiry = 600
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
