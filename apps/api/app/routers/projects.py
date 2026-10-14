@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.exc import IntegrityError
 
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, not_found
@@ -17,7 +18,7 @@ router = APIRouter(tags=["projects"])
 
 
 class ProjectIn(BaseModel):
-    code: str = Field(min_length=2, max_length=30)
+    code: str | None = Field(None, min_length=2, max_length=30)   # blank = auto-assigned (PRJ-01, PRJ-02, ...)
     name: str = Field(min_length=2, max_length=200)
     client_company_id: UUID | None = None
     prime_company_id: UUID | None = None
@@ -69,6 +70,25 @@ class PlacementPatch(BaseModel):
 
 
 # ----------------------------------------------------------------------------- projects
+async def _suggest_project_code(db: TenantDb) -> str:
+    """Next PRJ- code from the highest trailing number in use (PRJ-05, PRJ-ESG-01 → PRJ-06)."""
+    import re
+
+    codes = await db.all("select code from projects")
+    best = 0
+    for row in codes:
+        m = re.search(r"(\d+)\s*$", row["code"] or "")
+        if m:
+            best = max(best, int(m.group(1)))
+    return f"PRJ-{best + 1:02d}"
+
+
+@router.get("/projects/next-code")
+async def next_project_code(db: TenantDb = Depends(tenant_db)):
+    """Suggested code for the New project form (the field stays editable)."""
+    return {"code": await _suggest_project_code(db)}
+
+
 @router.get("/projects")
 async def list_projects(db: TenantDb = Depends(tenant_db)):
     show_money = db.ctx.allows("finance")
@@ -93,13 +113,23 @@ async def list_projects(db: TenantDb = Depends(tenant_db)):
 @router.post("/projects", status_code=201)
 async def create_project(body: ProjectIn, db: TenantDb = Depends(tenant_db)):
     db.ctx.require("account_manager")
-    return await db.one(
-        """insert into projects (tenant_id, code, name, client_company_id, prime_company_id, description, start_date, end_date,
-                                 client_approver, status)
-           values (:t, :code, :name, :client, :prime, :desc, :start, :end, :approver, :status) returning *""",
-        {"t": db.ctx.tenant_id, "code": body.code.upper(), "name": body.name, "client": body.client_company_id,
-         "prime": body.prime_company_id, "desc": body.description, "start": body.start_date, "end": body.end_date,
-         "approver": body.client_approver, "status": body.status})
+    code = (body.code or "").strip().upper() or None
+    for _ in range(5):   # blank code, or a suggestion taken in the meantime: pick the next free one
+        if code is None:
+            code = await _suggest_project_code(db)
+        try:
+            # Savepoint: a colliding insert rolls back to here, not the whole request.
+            async with db.conn.begin_nested():
+                return await db.one(
+                    """insert into projects (tenant_id, code, name, client_company_id, prime_company_id, description, start_date, end_date,
+                                             client_approver, status)
+                       values (:t, :code, :name, :client, :prime, :desc, :start, :end, :approver, :status) returning *""",
+                    {"t": db.ctx.tenant_id, "code": code, "name": body.name, "client": body.client_company_id,
+                     "prime": body.prime_company_id, "desc": body.description, "start": body.start_date, "end": body.end_date,
+                     "approver": body.client_approver, "status": body.status})
+        except IntegrityError:
+            code = None   # collision: recompute and try again
+    raise bad_request("That project code is already in use — try another")
 
 
 @router.get("/projects/{project_id}")
@@ -129,11 +159,13 @@ async def get_project(project_id: UUID, db: TenantDb = Depends(tenant_db)):
 @router.patch("/projects/{project_id}")
 async def update_project(project_id: UUID, body: ProjectIn, db: TenantDb = Depends(tenant_db)):
     db.ctx.require("account_manager")
+    if not (body.code or "").strip():
+        raise bad_request("The project code can't be empty")
     row = await db.one(
         """update projects set code = :code, name = :name, client_company_id = :client, prime_company_id = :prime,
                   description = :desc, start_date = :start, end_date = :end, client_approver = :approver, status = :status
             where id = :id returning *""",
-        {"id": project_id, "code": body.code.upper(), "name": body.name, "client": body.client_company_id,
+        {"id": project_id, "code": (body.code or "").strip().upper(), "name": body.name, "client": body.client_company_id,
          "prime": body.prime_company_id, "desc": body.description, "start": body.start_date, "end": body.end_date,
          "approver": body.client_approver, "status": body.status})
     if row is None:

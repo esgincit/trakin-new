@@ -60,13 +60,14 @@ export default function Projects() {
 
 function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: any) => void }) {
   const companies = useApi<any[]>("/companies");
+  const nextCode = useApi<{ code: string }>("/projects/next-code");
   const { run, busy } = useAction();
   const opts = (kinds: string[]) => [["", "–"] as [string, string], ...(companies.data ?? []).filter((c) => kinds.includes(c.kind)).map((c) => [c.id, c.name] as [string, string])];
   return (
     <Modal title="New project" onClose={onClose}>
       <form className="form" onSubmit={async (e) => { e.preventDefault(); const r = await run(() => api("/projects", { body: formValues(e.currentTarget) }), "Project created"); if (r) onDone(r); }}>
         <div className="fields">
-          <Field label="Code" name="code" required placeholder="PRJ-05" />
+          <Field label="Code" name="code" required placeholder="PRJ-05" defaultValue={nextCode.data?.code} key={nextCode.data?.code ?? "loading"} />
           <Field label="Name" name="name" required />
           <Field label="Client (end client)" name="client_company_id" as="select" options={opts(["client", "end_client"])} />
           <Field label="Prime vendor (if you're a sub)" name="prime_company_id" as="select" options={opts(["prime_vendor"])} />
