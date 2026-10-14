@@ -152,7 +152,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
           <button className="btn sm" onClick={() => setMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={menuOpen}
                   style={{ display: "flex", gap: 8, alignItems: "center", border: 0, background: "none" }}>
-            <Avatar name={name} size={30} />
+            <Avatar name={name} url={me?.profile?.avatar_url ?? null} size={30} />
             <span className="hide-sm">{name}</span>
           </button>
         </header>

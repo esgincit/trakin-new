@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import TenantDb, tenant_db, user_db
 from ..errors import ApiError, bad_request, not_found
+from ..services import storage
 
 router = APIRouter(tags=["me"])
 
@@ -23,6 +24,10 @@ async def me(db: TenantDb = Depends(user_db)):
     """Profile, the workspaces this person can open, and whether they own the platform."""
     uid = db.ctx.user_id
     profile = await db.one("select id, email, full_name, headline, avatar_path, preferences from profiles where id = :u", {"u": uid})
+    if profile is not None and profile.get("avatar_path"):
+        profile["avatar_url"] = storage.public_url("avatars", profile["avatar_path"])
+    elif profile is not None:
+        profile["avatar_url"] = None
     tenants = await db.all("select * from mytrakin.my_tenants(:u)", {"u": uid})
     is_admin = await db.val("select mytrakin.is_platform_admin_user(:u)", {"u": uid})
     return {"profile": profile, "tenants": tenants, "is_platform_admin": bool(is_admin)}

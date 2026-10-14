@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { ProfileView } from "@/components/ProfileView";
 import { ErrorBox, Field, formValues, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
+import { useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
 /** My LinkedIn-style profile: photo, cover, headline, about, experience, skills — and who can see it. */
@@ -13,6 +14,7 @@ export default function MyProfile() {
   const photo = useRef<HTMLInputElement>(null);
   const cover = useRef<HTMLInputElement>(null);
   const { run, busy } = useAction();
+  const { refresh } = useSession();
   const [experience, setExperience] = useState<any[] | null>(null);
 
   if (loading) return <Loading rows={6} />;
@@ -23,7 +25,11 @@ export default function MyProfile() {
     if (!file) return;
     const form = new FormData();
     form.set("file", file);
-    if (await run(() => api("/network/me/photo", { form, query: { kind } }), kind === "avatar" ? "Photo updated" : "Cover updated")) reload();
+    if (await run(() => api("/network/me/photo", { form, query: { kind } }), kind === "avatar" ? "Photo updated" : "Cover updated")) { reload(); refresh(); }
+  };
+
+  const remove = async (kind: "avatar" | "cover") => {
+    if (await run(() => api("/network/me/photo", { method: "DELETE", query: { kind } }), kind === "avatar" ? "Photo removed" : "Cover removed")) { reload(); refresh(); }
   };
 
   return (
@@ -33,6 +39,8 @@ export default function MyProfile() {
         <input ref={cover} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => upload("cover", e.target.files?.[0])} />
         <button className="btn" onClick={() => photo.current?.click()}>Change photo</button>
         <button className="btn" onClick={() => cover.current?.click()}>Change cover</button>
+        {p.avatar_url && <button className="btn" disabled={busy} onClick={() => remove("avatar")}>Remove photo</button>}
+        {p.cover_url && <button className="btn" disabled={busy} onClick={() => remove("cover")}>Remove cover</button>}
         <button className="btn pri" onClick={() => { setEditing((x) => !x); setExperience(null); }}>{editing ? "Close editor" : "Edit profile"}</button>
       </>} />
       {editing ? (

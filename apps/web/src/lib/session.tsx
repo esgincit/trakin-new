@@ -22,7 +22,7 @@ export type Workspace = {
 };
 
 type Me = {
-  profile: { id: string; email: string; full_name: string; headline?: string; avatar_path?: string; preferences?: Record<string, any> };
+  profile: { id: string; email: string; full_name: string; headline?: string; avatar_path?: string; avatar_url?: string | null; preferences?: Record<string, any> };
   tenants: { tenant_id: string; tenant_name: string; role: Role; tenant_status: string }[];
   is_platform_admin: boolean;
 };
