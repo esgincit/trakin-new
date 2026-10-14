@@ -110,8 +110,10 @@ async def test_last_owner_is_protected_and_members_managed(client, auth):
     owner = next(m for m in (await client.get(f"/companies/{cid}/members", headers=admin)).json()
                  if m["company_role"] == "owner")
 
+    # A second owner with an account is active immediately (a bare e-mail invite stays
+    # "invited" until they sign up, and pending invites don't satisfy the owner rule).
     invited = await client.post(f"/companies/{cid}/members", headers=admin,
-                                json={"email": "second.owner@example.com", "company_role": "owner"})
+                                json={"email": "finance@example.com", "company_role": "owner"})
     assert invited.status_code == 201, invited.text
 
     # Demoting the only *other* owner down to one is fine; removing the last one is not.
