@@ -28,8 +28,11 @@ export default function CompanyDetail() {
   const canEdit = allows(workspace, "account_manager", "finance", "legal");
   const canDecideW9 = allows(workspace, "finance", "legal");
   const myRole = c?.my_company_role;
-  const canManage = canEdit || myRole === "owner" || myRole === "admin";
-  const taxFull = allows(workspace, "finance", "legal") || myRole === "owner" || myRole === "admin";
+  const isTenantAdmin = allows(workspace, "tenant_admin");
+  const canManage = canEdit || ["super_admin", "owner", "admin"].includes(myRole);
+  const canGrantSuper = myRole === "super_admin" || isTenantAdmin;
+  const canGrantOwner = canGrantSuper || myRole === "owner";
+  const taxFull = allows(workspace, "finance", "legal") || ["super_admin", "owner", "admin"].includes(myRole);
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
@@ -37,7 +40,7 @@ export default function CompanyDetail() {
   return (
     <>
       <PageHead title={c.name}
-        sub={<>{c.logo_url && <img src={c.logo_url} alt="" style={{ height: 26, borderRadius: 6, verticalAlign: "middle", marginRight: 8 }} />}{c.business_code} · {label(c.kind)} · <Chip status={c.status} />{c.inactive_since && ` since ${date(c.inactive_since)} — ${c.inactive_reason ?? ""}`}</>}
+        sub={<>{c.logo_url && <img src={c.logo_url} alt="" style={{ height: 26, borderRadius: 6, verticalAlign: "middle", marginRight: 8 }} />}{c.business_code} · {c.country} · {label(c.kind)} · <Chip status={c.status} />{c.inactive_since && ` since ${date(c.inactive_since)} — ${c.inactive_reason ?? ""}`}</>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
@@ -72,6 +75,8 @@ export default function CompanyDetail() {
           <h3>Details</h3>
           <dl className="dl">
             <dt>Business ID</dt><dd><code>{c.business_code}</code></dd>
+            <dt>Country</dt><dd>{c.country === "IN" ? "India" : "United States"}</dd>
+            {c.cin && <><dt>CIN</dt><dd>{taxFull ? c.cin : `${c.cin.slice(0, 5)}••••••••••••••`}</dd></>}
             <dt>Domain</dt><dd>{c.domain ?? "–"}</dd>
             {c.business_type && <><dt>Business type</dt><dd>{c.business_type}</dd></>}
             {c.dba && <><dt>DBA</dt><dd>{c.dba}</dd></>}
@@ -171,6 +176,8 @@ export default function CompanyDetail() {
             {canManage && m.status === "active" && <>
               {m.company_role === "member" && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "admin" } }), "Made admin")) reload(); }}>Make admin</button>}
               {m.company_role === "admin" && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "member" } }), "Made member")) reload(); }}>Make member</button>}
+              {(m.company_role === "member" || m.company_role === "admin") && canGrantOwner && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "owner" } }), "Made owner")) reload(); }}>Make owner</button>}
+              {m.company_role === "super_admin" && canGrantSuper && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "owner" } }), "Made owner")) reload(); }}>Make owner</button>}
               <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "DELETE" }), "Removed")) reload(); }}>Remove</button>
             </>}
           </div>
@@ -186,6 +193,7 @@ export default function CompanyDetail() {
               <input className="ctl" name="email" type="email" required placeholder="person@company.com" style={{ flex: 2 }} aria-label="E-mail" />
               <select className="ctl" value={memberRole} onChange={(e) => setMemberRole(e.target.value)} aria-label="Role" style={{ flex: 1 }}>
                 <option value="member">Member</option><option value="admin">Admin</option><option value="owner">Owner</option>
+                {canGrantSuper && <option value="super_admin">Super Admin</option>}
               </select>
               <button className="btn sm pri" disabled={busy}>Invite</button>
             </div>

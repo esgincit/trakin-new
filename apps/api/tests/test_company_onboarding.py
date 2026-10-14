@@ -8,7 +8,7 @@ import itertools
 from fpdf import FPDF
 
 
-def w9_pdf() -> bytes:
+def w9_pdf(ein: str = "12-3456789") -> bytes:
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
@@ -20,7 +20,7 @@ def w9_pdf() -> bytes:
         "5 Address (number, street): 4100 Commerce Street\n"
         "6 City, state, and ZIP code: Dallas, TX 75207\n"
         "Part I Taxpayer Identification Number\n"
-        "Employer identification number: 12-3456789")
+        f"Employer identification number: {ein}")
     return bytes(pdf.output())
 
 
@@ -44,7 +44,7 @@ async def _new_company(client, auth) -> dict:
 async def test_company_gets_business_id_and_owner(client, auth):
     company = await _new_company(client, auth)
     members = (await client.get(f"/companies/{company['id']}/members", headers=auth("admin"))).json()
-    assert [m for m in members if m["company_role"] == "owner" and m["status"] == "active"], members
+    assert [m for m in members if m["company_role"] in ("owner", "super_admin") and m["status"] == "active"], members
 
 
 async def test_activation_is_blocked_until_verified(client, auth):
@@ -116,13 +116,14 @@ async def test_last_owner_is_protected_and_members_managed(client, auth):
                                 json={"email": "finance@example.com", "company_role": "owner"})
     assert invited.status_code == 201, invited.text
 
-    # Demoting the only *other* owner down to one is fine; removing the last one is not.
+    # Demoting the invited owner is fine while the creator (Super Admin) remains;
+    # removing the last privileged member is not.
     demote = await client.patch(f"/companies/{cid}/members/{owner['id']}", headers=admin,
                                 json={"company_role": "member"})
     assert demote.status_code == 200, demote.text
-    second = (await client.get(f"/companies/{cid}/members", headers=admin)).json()
-    second_owner = next(m for m in second if m["company_role"] == "owner")
-    remove_last = await client.delete(f"/companies/{cid}/members/{second_owner['id']}", headers=admin)
+    members = (await client.get(f"/companies/{cid}/members", headers=admin)).json()
+    creator = next(m for m in members if m["company_role"] == "super_admin")
+    remove_last = await client.delete(f"/companies/{cid}/members/{creator['id']}", headers=admin)
     assert remove_last.status_code == 400, remove_last.text
 
 
@@ -133,6 +134,95 @@ async def test_my_businesses_lists_every_role(client, auth):
     assert any(b["company_name"] == "BrightPath Tech LLC" for b in consultant_businesses), consultant_businesses
     outsider = await client.get("/my/businesses", headers=auth("outsider"))
     assert outsider.status_code == 200 and outsider.json() == []
+
+
+async def _us_company(client, auth, n: int, ein: str | None = None) -> dict:
+    """Full US flow: session → W-9 → details → OTP → authorize → created."""
+    admin = auth("admin")
+    session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "US"})).json()
+    sid = session["id"]
+    uploaded = await client.post(f"/onboarding/sessions/{sid}/w9", headers=admin,
+                                 files={"file": ("w9.pdf", w9_pdf(), "application/pdf")})
+    assert uploaded.status_code == 200, uploaded.text
+    body = {"kind": "vendor", "domain": f"flow{n}.example", "company_email": f"billing@flow{n}.example",
+            "dba": "Flow"}
+    if ein:
+        body["ein"] = ein
+    details = await client.patch(f"/onboarding/sessions/{sid}", headers=admin, json=body)
+    assert details.status_code == 200, details.text
+    code = (await client.post(f"/onboarding/sessions/{sid}/email-code", headers=admin, json={})).json()
+    assert "test_code" in code, code
+    verified = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=admin,
+                                 json={"code": code["test_code"]})
+    assert verified.status_code == 200, verified.text
+    created = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
+                                json={"authorized": True})
+    assert created.status_code == 201, created.text
+    return created.json()
+
+
+async def test_us_flow_creates_company_and_super_admin(client, auth):
+    company = await _us_company(client, auth, 1, ein="22-3334401")
+    assert company["business_code"].startswith("C-"), company
+    assert company["status"] == "onboarding"
+    assert company["company_role"] == "super_admin"
+    members = (await client.get(f"/companies/{company['id']}/members", headers=auth("admin"))).json()
+    assert any(m["company_role"] == "super_admin" and m["status"] == "active" for m in members), members
+    businesses = (await client.get("/my/businesses", headers=auth("admin"))).json()
+    assert any(b["company_id"] == company["id"] and b["company_role"] == "super_admin" for b in businesses)
+
+
+async def test_us_flow_rejects_duplicate_ein(client, auth):
+    admin = auth("admin")
+    await _us_company(client, auth, 2, ein="22-3334407")
+    session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "US"})).json()
+    dup = await client.post(f"/onboarding/sessions/{session['id']}/w9", headers=admin,
+                            files={"file": ("w9.pdf", w9_pdf("22-3334407"), "application/pdf")})
+    assert dup.status_code == 409 and "already registered" in dup.text, dup.text
+
+
+async def test_india_flow_moa_cin_otp(client, auth):
+    admin = auth("admin")
+    session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "IN"})).json()
+    sid = session["id"]
+
+    bad = await client.patch(f"/onboarding/sessions/{sid}", headers=admin, json={
+        "kind": "vendor", "legal_name": "Mumbai Labs Pvt Ltd", "cin": "bogus",
+        "street": "1 Linking Road", "city": "Mumbai", "state": "Maharashtra", "pin": "400050"})
+    assert bad.status_code == 422, bad.text
+
+    good = await client.patch(f"/onboarding/sessions/{sid}", headers=admin, json={
+        "kind": "vendor", "legal_name": "Mumbai Labs Pvt Ltd", "cin": "U72900MH2020PTC123456",
+        "street": "1 Linking Road", "city": "Mumbai", "state": "Maharashtra", "pin": "400050",
+        "domain": "mumbailabs.example", "company_email": "hello@mumbailabs.example", "dba": "Mumbai Labs"})
+    assert good.status_code == 200, good.text
+
+    # MOA is mandatory.
+    no_auth = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
+                                json={"authorized": True})
+    assert no_auth.status_code == 422 and "MOA" in no_auth.text, no_auth.text
+    moa = await client.post(f"/onboarding/sessions/{sid}/moa", headers=admin,
+                            files={"file": ("moa.pdf", w9_pdf(), "application/pdf")})
+    assert moa.status_code == 200, moa.text
+
+    code = (await client.post(f"/onboarding/sessions/{sid}/email-code", headers=admin, json={})).json()
+    wrong = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=admin,
+                              json={"code": "000000"})
+    assert wrong.status_code == 400, wrong.text
+    verified = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=admin,
+                                 json={"code": code["test_code"]})
+    assert verified.status_code == 200, verified.text
+
+    refused = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
+                                json={"authorized": False})
+    assert refused.status_code == 400, refused.text
+    created = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
+                                json={"authorized": True})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    detail = (await client.get(f"/companies/{body['id']}", headers=admin)).json()
+    assert detail["country"] == "IN" and detail["cin"] == "U72900MH2020PTC123456", detail
+    assert body["company_role"] == "super_admin"
 
 
 def w9_form_pdf() -> bytes:

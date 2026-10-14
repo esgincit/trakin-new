@@ -24,7 +24,7 @@ from ..services import w9 as w9svc
 router = APIRouter(prefix="/companies", tags=["companies"])
 
 KINDS = "^(client|prime_vendor|vendor|end_client)$"
-COMPANY_ROLES = "^(owner|admin|member)$"
+COMPANY_ROLES = "^(super_admin|owner|admin|member)$"
 DOMAIN_RE = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*\.[a-z]{2,}$")
 W9_STATUSES = ("draft", "submitted", "under_review", "verified", "rejected")
 
@@ -45,6 +45,8 @@ class CompanyIn(BaseModel):
     domain: str | None = Field(None, max_length=253)
     business_type: str | None = Field(None, max_length=120)
     dba: str | None = Field(None, max_length=200)
+    country: str = Field("US", pattern="^(US|IN)$")
+    cin: str | None = Field(None, max_length=25)
 
 
 class CompanyPatch(BaseModel):
@@ -61,6 +63,8 @@ class CompanyPatch(BaseModel):
     domain: str | None = Field(None, max_length=253)
     business_type: str | None = Field(None, max_length=120)
     dba: str | None = Field(None, max_length=200)
+    country: str | None = Field(None, pattern="^(US|IN)$")
+    cin: str | None = Field(None, max_length=25)
     onboarding_stage: int | None = Field(None, ge=0, le=8)
 
 
@@ -96,7 +100,7 @@ async def _tax_privileged(db: TenantDb, company_id: UUID) -> bool:
     if db.ctx.company_id == company_id and db.ctx.role in ("vendor_admin", "client_user"):
         return True
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    return role in ("owner", "admin")
+    return role in ("super_admin", "owner", "admin")
 
 
 def _shield(company: dict, privileged: bool) -> dict:
@@ -153,15 +157,16 @@ async def create_company(body: CompanyIn, db: TenantDb = Depends(tenant_db)):
         async with db.conn.begin_nested():
             company = await db.one(
                 """insert into companies (tenant_id, business_code, name, kind, ein, state, address, contact_name, contact_email,
-                                          contact_phone, default_terms, notes, domain, business_type, dba,
+                                          contact_phone, default_terms, notes, domain, business_type, dba, country, cin,
                                           status, onboarding_stage, created_by)
                    values (:t, :code, :name, :kind, :ein, upper(:state), :address, :cn, :ce, :cp, :terms, :notes,
-                           :domain, :btype, :dba, 'onboarding', 1, :u)
+                           :domain, :btype, :dba, :country, :cin, 'onboarding', 1, :u)
                    returning *""",
                 {"t": db.ctx.tenant_id, "code": code, "name": body.name.strip(), "kind": body.kind, "ein": body.ein,
                  "state": body.state, "address": body.address, "cn": body.contact_name, "ce": body.contact_email,
                  "cp": body.contact_phone, "terms": body.default_terms, "notes": body.notes,
                  "domain": _normalize_domain(body.domain), "btype": body.business_type, "dba": body.dba,
+                 "country": body.country, "cin": body.cin.upper() if body.cin else None,
                  "u": db.ctx.user_id})
     except IntegrityError as exc:
         raise conflict(f"A company named '{body.name.strip()}' already exists") from exc
@@ -184,7 +189,8 @@ async def get_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
         """select cm.id, cm.company_role, cm.title, cm.status, coalesce(p.full_name, cm.invited_email::text) as name,
                   coalesce(p.email, cm.invited_email) as email
              from company_members cm left join profiles p on p.id = cm.user_id
-            where cm.company_id = :id and cm.status <> 'removed' order by cm.company_role, name""",
+            where cm.company_id = :id and cm.status <> 'removed'
+            order by case cm.company_role when 'super_admin' then 0 when 'owner' then 1 when 'admin' then 2 else 3 end, name""",
         {"id": company_id}) if (privileged or company["my_company_role"]) else []
     _shield(company, privileged)
     company["agreements"] = await db.all(
@@ -256,7 +262,12 @@ async def _company_or_404(db: TenantDb, company_id: UUID) -> dict:
 
 
 def _can_manage_company(db: TenantDb, company_id: UUID, role: str | None) -> bool:
-    return db.ctx.allows("tenant_admin") or role in ("owner", "admin")
+    return db.ctx.allows("tenant_admin") or role in ("super_admin", "owner", "admin")
+
+
+def _privileged_granter(db: TenantDb, role: str | None) -> bool:
+    """May hand out owner/super_admin roles (or touch a super_admin's row)."""
+    return db.ctx.allows("tenant_admin") or role in ("super_admin", "owner")
 
 
 @router.post("/{company_id}/logo")
@@ -501,7 +512,7 @@ class MemberPatch(BaseModel):
 async def _active_owners(db: TenantDb, company_id: UUID, exclude: UUID | None = None) -> int:
     return await db.val(
         """select count(*) from company_members
-            where company_id = :c and company_role = 'owner' and status = 'active'
+            where company_id = :c and company_role in ('super_admin', 'owner') and status = 'active'
               and (cast(:x as uuid) is null or id <> :x)""", {"c": company_id, "x": exclude})
 
 
@@ -518,7 +529,7 @@ async def list_members(company_id: UUID, db: TenantDb = Depends(tenant_db)):
              from company_members cm left join profiles p on p.id = cm.user_id
              left join user_codes uc on uc.user_id = cm.user_id
             where cm.company_id = :id and cm.status <> 'removed'
-            order by cm.company_role, name""", {"id": company_id})
+            order by case cm.company_role when 'super_admin' then 0 when 'owner' then 1 when 'admin' then 2 else 3 end, name""", {"id": company_id})
 
 
 @router.post("/{company_id}/members", status_code=201)
@@ -528,6 +539,10 @@ async def add_member(company_id: UUID, body: MemberIn, db: TenantDb = Depends(te
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
     if not _can_manage_company(db, company_id, role):
         raise forbidden()
+    if body.company_role == "super_admin" and not (db.ctx.allows("tenant_admin") or role == "super_admin"):
+        raise forbidden("Only a Super Admin can grant that role")
+    if body.company_role == "owner" and not _privileged_granter(db, role):
+        raise forbidden("Only an owner or above can grant the owner role")
     existing = await db.val("select id from profiles where email = :e", {"e": body.email})
     try:
         async with db.conn.begin_nested():
@@ -558,8 +573,15 @@ async def update_member(company_id: UUID, member_id: UUID, body: MemberPatch, db
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         raise bad_request("Nothing to change")
-    if (target["company_role"] == "owner" and (fields.get("company_role", "owner") != "owner"
-                                               or fields.get("status", "active") != "active")
+    if target["company_role"] == "super_admin" and not (db.ctx.allows("tenant_admin") or role == "super_admin"):
+        raise forbidden("Only a Super Admin can change a Super Admin")
+    if fields.get("company_role") == "super_admin" and not (db.ctx.allows("tenant_admin") or role == "super_admin"):
+        raise forbidden("Only a Super Admin can grant that role")
+    if fields.get("company_role") == "owner" and not _privileged_granter(db, role):
+        raise forbidden("Only an owner or above can grant the owner role")
+    if (target["company_role"] in ("owner", "super_admin")
+            and (fields.get("company_role", target["company_role"]) not in ("owner", "super_admin")
+                 or fields.get("status", "active") != "active")
             and await _active_owners(db, company_id, exclude=member_id) < 1):
         raise bad_request("A company needs at least one active owner — assign another first")
     sets = ", ".join(f"{k} = :{k}" for k in fields)
@@ -577,7 +599,9 @@ async def remove_member(company_id: UUID, member_id: UUID, db: TenantDb = Depend
                           {"m": member_id, "c": company_id})
     if target is None:
         raise not_found("Member")
-    if target["company_role"] == "owner" and await _active_owners(db, company_id, exclude=member_id) < 1:
+    if target["company_role"] == "super_admin" and not (db.ctx.allows("tenant_admin") or role == "super_admin"):
+        raise forbidden("Only a Super Admin can remove a Super Admin")
+    if target["company_role"] in ("owner", "super_admin") and await _active_owners(db, company_id, exclude=member_id) < 1:
         raise bad_request("A company needs at least one active owner — assign another first")
     await db.run("update company_members set status = 'removed' where id = :m", {"m": member_id})
     return {"id": member_id, "removed": True}

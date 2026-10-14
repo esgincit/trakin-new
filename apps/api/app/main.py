@@ -32,6 +32,7 @@ from .routers import (
     invoices,
     me,
     network,
+    onboarding,
     people_pay,
     platform,
     projects,
@@ -80,7 +81,7 @@ async def security_headers(request: Request, call_next):
 
 v1 = APIRouter(prefix="/v1")
 for module in (me, dashboard, companies, contracts, projects, timesheets, invoices, people_pay, esign, compliance, data,
-               admin, network, insights, platform, public, cron, uploads):
+               admin, network, insights, platform, public, cron, uploads, onboarding):
     v1.include_router(module.router)
 v1.include_router(consultants.router)
 app.include_router(v1)

@@ -2,137 +2,240 @@
 
 import { useRef, useState } from "react";
 import { Chip, Field, formValues, Modal, useAction } from "./ui";
-import { api } from "@/lib/api";
-import { allows, useSession } from "@/lib/session";
+import { api, ApiError } from "@/lib/api";
 
-/** Company onboarding: details → W-9 upload + extraction → tax review → verify & activate.
- *  Each step saves to the server, so closing and reopening loses nothing already done. */
+type Country = "US" | "IN";
+
+/** Country-first business creation.
+ *  US: W-9 upload (parsed + validated) → domain/e-mail/DBA → OTP → authorize → created.
+ *  IN: manual details + mandatory MOA → domain/e-mail/DBA → OTP → authorize → created.
+ *  Nothing is created until every gate passes; the creator becomes Super Admin. */
 export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone: (c: any) => void }) {
-  const { workspace } = useSession();
   const { run, busy } = useAction();
+  const [country, setCountry] = useState<Country | null>(null);
+  const [session, setSession] = useState<any>(null);
   const [step, setStep] = useState(1);
-  const [company, setCompany] = useState<any>(null);
-  const [extraction, setExtraction] = useState<any>(null);
-  const [verify, setVerify] = useState<any>(null);
+  const [parsed, setParsed] = useState<any>(null);
+  const [otpSent, setOtpSent] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const w9file = useRef<HTMLInputElement>(null);
-  const canDecideW9 = allows(workspace, "finance", "legal");
+  const moafile = useRef<HTMLInputElement>(null);
 
-  const create = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const c = await run(() => api("/companies", { body: formValues(e.currentTarget) }), "Company drafted — Business ID assigned");
-    if (c) { setCompany(c); setStep(2); }
+  const start = async (c: Country) => {
+    setError(null);
+    const s = await run(() => api("/onboarding/sessions", { body: { country: c } }));
+    if (s) { setCountry(c); setSession(s); setStep(1); }
   };
+
+  const fail = (e: unknown) => setError((e as ApiError).message);
 
   const uploadW9 = async (file?: File) => {
-    if (!file || !company) return;
+    if (!file || !session) return;
+    setError(null);
     const form = new FormData();
     form.set("file", file);
-    const r = await run(() => api(`/companies/${company.id}/w9`, { form }), "W-9 uploaded — review the extracted details");
-    if (r) { setExtraction(r.extraction); setStep(3); }
+    try {
+      const r = await api(`/onboarding/sessions/${session.id}/w9`, { form });
+      setParsed(r.parsed);
+    } catch (e) { fail(e); }
   };
 
-  const saveTax = async (e: React.FormEvent<HTMLFormElement>) => {
+  const uploadMoa = async (file?: File) => {
+    if (!file || !session) return;
+    setError(null);
+    const form = new FormData();
+    form.set("file", file);
+    try {
+      await api(`/onboarding/sessions/${session.id}/moa`, { form });
+      setSession({ ...session, has_moa: true });
+    } catch (e) { fail(e); }
+  };
+
+  const saveDetails = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const r = await run(() => api(`/companies/${company.id}/tax`, { method: "PATCH", body: formValues(e.currentTarget) }), "Tax details saved");
-    if (r) { setCompany(r); setStep(4); check(); }
+    setError(null);
+    try {
+      const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: formValues(e.currentTarget) });
+      setSession(s);
+      setStep(3);
+    } catch (e) { fail(e); }
   };
 
-  const check = async () => {
-    const r = await run(() => api(`/companies/${company.id}/verify`, { method: "POST", body: {} }));
-    if (r) setVerify(r);
+  const sendCode = async () => {
+    setError(null);
+    try {
+      await api(`/onboarding/sessions/${session.id}/email-code`, { method: "POST", body: {} });
+      setOtpSent(true);
+    } catch (e) { fail(e); }
   };
 
-  const decide = async (decision: "verified" | "rejected") => {
-    const note = decision === "rejected" ? prompt("What's wrong with this W-9?") : undefined;
-    if (decision === "rejected" && !note) return;
-    if (await run(() => api(`/companies/${company.id}/w9/decision`, { body: { decision, note } }), decision === "verified" ? "W-9 verified" : "W-9 sent back")) check();
+  const verifyCode = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError(null);
+    const code = new FormData(e.currentTarget).get("code") as string;
+    try {
+      await api(`/onboarding/sessions/${session.id}/email-verify`, { body: { code } });
+      setSession({ ...session, email_verified: true });
+    } catch (e) { fail(e); }
   };
 
-  const activate = async () => {
-    const r = await run(() => api(`/companies/${company.id}/activate`, { method: "POST", body: {} }), "Company activated");
-    if (r) onDone({ ...company, status: "active", business_code: r.business_code });
+  const create = async () => {
+    setError(null);
+    try {
+      const c = await api(`/onboarding/sessions/${session.id}/complete`, { body: { authorized } }, );
+      onDone(c);
+    } catch (e) { fail(e); }
   };
+
+  if (!country || !session) {
+    return (
+      <Modal title="New company" onClose={onClose}>
+        <p className="muted">Where is the business registered? Fields and checks differ by country.</p>
+        <div className="row mt">
+          <button className="btn pri" disabled={busy} style={{ flex: 1 }} onClick={() => start("US")}>United States<div className="muted" style={{ fontSize: 12 }}>W-9 + EIN</div></button>
+          <button className="btn pri" disabled={busy} style={{ flex: 1 }} onClick={() => start("IN")}>India<div className="muted" style={{ fontSize: 12 }}>MOA + CIN</div></button>
+        </div>
+      </Modal>
+    );
+  }
+
+  const steps = country === "US" ? ["W-9 upload", "Company details", "E-mail verification", "Authorize & create"] : ["Details & MOA", "Company details", "E-mail verification", "Authorize & create"];
 
   return (
-    <Modal title={`New company — step ${step} of 4`} onClose={onClose}>
+    <Modal title={`New ${country === "US" ? "US" : "Indian"} company — step ${step} of 4`} onClose={onClose}>
       <div className="steps" style={{ marginBottom: 12 }}>
-        {["Details", "W-9 upload", "Tax review", "Verify & activate"].map((s, i) => (
+        {steps.map((s, i) => (
           <div key={s} className={`step ${i + 1 < step ? "done" : i + 1 === step ? "cur" : ""}`}>
             <span className="dot">{i + 1 < step ? "✓" : i + 1}</span><div><b style={{ fontSize: 12.5 }}>{s}</b></div>
           </div>
         ))}
       </div>
+      {error && <p className="err" role="alert">{error}</p>}
 
-      {step === 1 && (
-        <form className="form" onSubmit={create}>
-          <div className="fields">
-            <Field label="Legal name" name="name" required full />
-            <Field label="Type" name="kind" as="select" options={["client", "prime_vendor", "vendor", "end_client"]} defaultValue="vendor" />
-            <Field label="Company domain" name="domain" required placeholder="acme.com" />
-            <Field label="Business type" name="business_type" placeholder="LLC / Corporation / …" />
-            <Field label="DBA (if different)" name="dba" />
-            <Field label="Business address" name="address" required full />
-            <Field label="State" name="state" maxLength={2} placeholder="TX" />
-            <Field label="Contact name" name="contact_name" />
-            <Field label="Contact e-mail (must be on the domain)" name="contact_email" type="email" required />
-            <Field label="Contact phone" name="contact_phone" />
-            <Field label="Payment terms" name="default_terms" defaultValue="Net 30" />
-          </div>
-          <button className="btn pri mt" disabled={busy}>Create draft & continue</button>
-        </form>
-      )}
-
-      {step === 2 && company && (
+      {step === 1 && country === "US" && !parsed && (
         <>
-          <p className="muted">Business ID <b>{company.business_code}</b> is reserved. Now upload the signed W-9 — details are extracted automatically (scanned pages use OCR when available, otherwise type them in the next step).</p>
-          <input ref={w9file} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden
-                 onChange={(e) => uploadW9(e.target.files?.[0])} />
-          <div className="row">
-            <button className="btn pri" disabled={busy} onClick={() => w9file.current?.click()}>Upload W-9</button>
-            <button className="btn" disabled={busy} onClick={() => setStep(3)}>Skip — enter manually</button>
-          </div>
+          <p className="muted">First, the signed W-9 (PDF or photo). Legal name, business type, EIN and address are read automatically and the EIN is checked for duplicates.</p>
+          <input ref={w9file} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadW9(e.target.files?.[0])} />
+          <button className="btn pri mt" disabled={busy} onClick={() => w9file.current?.click()}>Upload W-9</button>
         </>
       )}
 
-      {step === 3 && company && (
-        <form className="form" onSubmit={saveTax}>
-          {extraction && (
-            <p className="muted">Extracted from {extraction.engine === "ocr" ? "a scan (OCR)" : extraction.engine === "form-fields" ? "the form's filled fields" : "the document text"}{extraction.note ? ` — ${extraction.note}` : ". Check every field."}</p>
-          )}
+      {step === 1 && country === "US" && parsed && (
+        <form className="form" onSubmit={async (e) => {
+          e.preventDefault();
+          setError(null);
+          try {
+            const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { kind: (formValues(e.currentTarget) as any).kind, ...parsed } });
+            setSession(s); setStep(2);
+          } catch (e) { fail(e); }
+        }}>
+          <p className="muted">Read from the W-9{parsed.engine === "ocr" ? " (scan)" : parsed.engine === "form-fields" ? " (form fields)" : ""} — correct anything misread.</p>
           <div className="fields">
-            {extraction?.legal_name && (
-            <p className="muted" style={{ gridColumn: "1 / -1" }}>W-9 line 1 (legal name): <b>{extraction.legal_name}</b> — correct the company name if it differs.</p>
-          )}
-          <Field label="Business name / DBA (W-9 line 2)" name="dba" defaultValue={extraction?.dba ?? company.dba ?? ""} full />
-            <Field label="Federal tax classification" name="tax_classification" defaultValue={extraction?.tax_classification ?? ""} placeholder="S Corporation / LLC / …" />
-            <Field label="TIN type" name="tin_type" as="select" defaultValue={extraction?.tin_type ?? "ein"} options={[["ein", "EIN"], ["ssn", "SSN"]]} />
-            <Field label="TIN" name="tin" defaultValue={extraction?.tin ?? ""} placeholder="12-3456789" required />
-            <Field label="Tax address" name="tax_address" defaultValue={[extraction?.address, extraction?.city, extraction?.state, extraction?.zip].filter(Boolean).join(", ")} full />
-            <Field label="EIN (company record)" name="ein" defaultValue={company.ein ?? extraction?.tin ?? ""} />
+            <Field label="Legal name" name="legal_name" required defaultValue={parsed.legal_name ?? ""} full />
+            <Field label="Business type" name="business_type" defaultValue={parsed.tax_classification ?? ""} />
+            <Field label="EIN" name="ein" required defaultValue={parsed.tin ?? ""} />
+            <Field label="Address" name="address" defaultValue={parsed.address ?? ""} full />
+            <Field label="City" name="city" defaultValue={parsed.city ?? ""} />
+            <Field label="State" name="state" defaultValue={parsed.state ?? ""} maxLength={2} />
+            <Field label="ZIP" name="zip" defaultValue={parsed.zip ?? ""} />
+            <Field label="Business role" name="kind" as="select" required options={[["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
           </div>
           <div className="row mt">
-            <button className="btn" disabled={busy} onClick={() => setStep(2)}>Back</button>
+            <button className="btn" disabled={busy} onClick={() => setParsed(null)}>Re-upload</button>
+            <button className="btn pri" disabled={busy}>Confirm & continue</button>
+          </div>
+        </form>
+      )}
+
+      {step === 1 && country === "IN" && (
+        <form className="form" onSubmit={async (e) => {
+          e.preventDefault();
+          setError(null);
+          const v: any = formValues(e.currentTarget);
+          try {
+            const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...v, kind: v.kind } });
+            setSession(s);
+            if (!s.details?.cin || !s.details?.legal_name) return;
+            setStep(2);
+          } catch (e) { fail(e); }
+        }}>
+          <p className="muted">Enter the business details as per the MCA records, and attach the Memorandum of Association (mandatory, stored as-is in Phase 1).</p>
+          <div className="fields">
+            <Field label="Legal name (as per MCA)" name="legal_name" required full />
+            <Field label="CIN" name="cin" required placeholder="L12345MH2020PLC123456" full />
+            <Field label="Street address" name="street" required full />
+            <Field label="City" name="city" required />
+            <Field label="State" name="state" required />
+            <Field label="PIN code" name="pin" required placeholder="400001" />
+            <Field label="Business role" name="kind" as="select" required options={[["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
+          </div>
+          <input ref={moafile} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadMoa(e.target.files?.[0])} />
+          <div className="row mt">
+            <button type="button" className="btn" disabled={busy} onClick={() => moafile.current?.click()}>
+              {session.has_moa ? "MOA attached ✓ — replace" : "Attach MOA (required)"}
+            </button>
+            <button className="btn pri" disabled={busy || !session.has_moa}>Save & continue</button>
+          </div>
+          {!session.has_moa && <p className="note">Attach the MOA to continue.</p>}
+        </form>
+      )}
+
+      {step === 2 && (
+        <form className="form" onSubmit={saveDetails}>
+          <div className="fields">
+            {country === "IN" && <p className="muted" style={{ gridColumn: "1 / -1" }}>CIN verified{session.details?.cin ? ` (${session.details.cin})` : ""}. Now the online identity.</p>}
+            <Field label="Business role" name="kind" as="select" required options={[["vendor", "Vendor"], ["client", "Client"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue={session.details?.kind ?? "vendor"} full />
+            <Field label="Company domain" name="domain" required placeholder={country === "US" ? "acme.com" : "acme.in"} />
+            <Field label="Company e-mail" name="company_email" type="email" required defaultValue={session.company_email ?? ""} />
+            <Field label="DBA (if different)" name="dba" defaultValue={session.details?.dba ?? ""} full />
+            <Field label="Contact person" name="contact_name" />
+            <Field label="Contact phone" name="contact_phone" />
+          </div>
+          <div className="row mt">
+            <button className="btn" disabled={busy} onClick={() => setStep(1)}>Back</button>
             <button className="btn pri" disabled={busy}>Save & continue</button>
           </div>
         </form>
       )}
 
-      {step === 4 && company && (
+      {step === 3 && (
         <>
-          {!verify && <p className="muted">Running verification…</p>}
-          {verify && <CheckList checks={verify.checks} blockers={verify.blockers} />}
-          {canDecideW9 && <p className="mt"><button className="btn sm" disabled={busy} onClick={() => decide("verified")}>Mark W-9 verified</button></p>}
+          <p className="muted">We prove the e-mail belongs to the business. {session.email_verified ? "Verified ✓" : "Send a 6-digit code, then enter it."}</p>
+          {!session.email_verified && (
+            <>
+              {!otpSent
+                ? <button className="btn pri mt" disabled={busy} onClick={sendCode}>Send verification code</button>
+                : <form className="form mt" onSubmit={verifyCode}>
+                    <Field label="6-digit code" name="code" required inputMode="numeric" maxLength={6} autoFocus />
+                    <div className="row mt">
+                      <button className="btn pri" disabled={busy}>Verify e-mail</button>
+                      <button type="button" className="btn" disabled={busy} onClick={sendCode}>Send again</button>
+                    </div>
+                  </form>}
+            </>
+          )}
+          <div className="row mt">
+            <button className="btn" disabled={busy} onClick={() => setStep(2)}>Back</button>
+            {session.email_verified && <button className="btn pri" disabled={busy} onClick={() => setStep(4)}>Continue</button>}
+          </div>
+        </>
+      )}
+
+      {step === 4 && (
+        <>
+          <div className="alert"><Chip status="ok" /><div><b>Ready to create</b><div className="muted" style={{ fontSize: 12.5 }}>
+            {country === "US" ? "W-9 parsed, EIN unique" : "Details entered, CIN unique, MOA attached"} · e-mail verified · {session.details?.domain} · {session.company_email}
+          </div></div></div>
+          <label className="row mt" style={{ alignItems: "flex-start", gap: 8 }}>
+            <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} style={{ marginTop: 4 }} />
+            <span>I confirm I am authorized to register this business on myTrakIn, and the details above are true and complete.</span>
+          </label>
           <div className="row mt">
             <button className="btn" disabled={busy} onClick={() => setStep(3)}>Back</button>
-            {verify && !verify.blockers.length ? (
-              <button className="btn pri" disabled={busy} onClick={activate}>Activate {company.business_code}</button>
-            ) : (
-              <button className="btn" disabled={busy} onClick={check}>Re-check</button>
-            )}
+            <button className="btn pri" disabled={busy || !authorized} onClick={create}>Create business</button>
           </div>
-          {verify && !!verify.blockers.length && (
-            <p className="note">Activation stays locked until every check passes — including staff W-9 approval{canDecideW9 ? " (use the button above)" : " (ask finance or legal)"}.</p>
-          )}
+          {!authorized && <p className="note">Tick the authorization box to create the business. You become its Super Admin.</p>}
         </>
       )}
     </Modal>
