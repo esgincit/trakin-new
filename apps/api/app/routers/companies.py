@@ -146,9 +146,8 @@ async def list_companies(db: TenantDb = Depends(tenant_db), kind: str | None = N
 
 @router.post("", status_code=201)
 async def create_company(body: CompanyIn, db: TenantDb = Depends(tenant_db)):
-    """Start onboarding: creates the company as a draft with its Business ID and makes
-    the creator its owner. Activation happens only through /companies/{id}/activate."""
-    db.ctx.require("account_manager", "finance", "legal")
+    """Start onboarding: any workspace member can draft a company — it gets its Business ID
+    and the creator becomes its owner. Activation stays staff-only through /activate."""
     code = await _assign_business_code(db)
     try:
         async with db.conn.begin_nested():
@@ -166,10 +165,8 @@ async def create_company(body: CompanyIn, db: TenantDb = Depends(tenant_db)):
                  "u": db.ctx.user_id})
     except IntegrityError as exc:
         raise conflict(f"A company named '{body.name.strip()}' already exists") from exc
-    await db.run(
-        """insert into company_members (tenant_id, company_id, user_id, invited_email, company_role, status)
-           values (:t, :c, :u, null, 'owner', 'active') on conflict do nothing""",
-        {"t": db.ctx.tenant_id, "c": company["id"], "u": db.ctx.user_id})
+    # The companies_owner trigger crowns created_by as owner (a WITH CHECK
+    # subquery could never see the membership row being inserted).
     return _shield(company, True)
 
 
@@ -467,7 +464,7 @@ async def verify_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
     """Re-run the verification checks without activating. Shows what still blocks."""
     company = await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.internal or role in ("owner", "admin", "member")):
+    if not (db.ctx.internal or role in ("owner", "admin")):
         raise forbidden()
     return await _run_verification(db, company)
 
