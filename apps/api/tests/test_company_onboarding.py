@@ -8,13 +8,13 @@ import itertools
 from fpdf import FPDF
 
 
-def w9_pdf(ein: str = "12-3456789") -> bytes:
+def w9_pdf(ein: str = "12-3456789", name: str = "Acme Staffing LLC") -> bytes:
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
     pdf.multi_cell(0, 10,
         "Form W-9 (Rev. 2018) Request for Taxpayer Identification Number\n"
-        "1 Name (as shown on your income tax return): Acme Staffing LLC\n"
+        f"1 Name (as shown on your income tax return): {name}\n"
         "2 Business name/disregarded entity name: Acme Staffing\n"
         "3a Check appropriate box: Limited liability company\n"
         "5 Address (number, street): 4100 Commerce Street\n"
@@ -136,18 +136,16 @@ async def test_my_businesses_lists_every_role(client, auth):
     assert outsider.status_code == 200 and outsider.json() == []
 
 
-async def _us_company(client, auth, n: int, ein: str | None = None) -> dict:
+async def _us_company(client, auth, n: int, ein: str = "22-3334401") -> dict:
     """Full US flow: session → W-9 → details → OTP → authorize → created."""
     admin = auth("admin")
     session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "US"})).json()
     sid = session["id"]
     uploaded = await client.post(f"/onboarding/sessions/{sid}/w9", headers=admin,
-                                 files={"file": ("w9.pdf", w9_pdf(), "application/pdf")})
+                                 files={"file": ("w9.pdf", w9_pdf(ein, f"Flow {n} Staffing LLC"), "application/pdf")})
     assert uploaded.status_code == 200, uploaded.text
     body = {"kind": "vendor", "domain": f"flow{n}.example", "company_email": f"billing@flow{n}.example",
-            "dba": "Flow"}
-    if ein:
-        body["ein"] = ein
+            "dba": "Flow", "ein": ein}
     details = await client.patch(f"/onboarding/sessions/{sid}", headers=admin, json=body)
     assert details.status_code == 200, details.text
     code = (await client.post(f"/onboarding/sessions/{sid}/email-code", headers=admin, json={})).json()
@@ -162,7 +160,7 @@ async def _us_company(client, auth, n: int, ein: str | None = None) -> dict:
 
 
 async def test_us_flow_creates_company_and_super_admin(client, auth):
-    company = await _us_company(client, auth, 1, ein="22-3334401")
+    company = await _us_company(client, auth, 1)
     assert company["business_code"].startswith("C-"), company
     assert company["status"] == "onboarding"
     assert company["company_role"] == "super_admin"
@@ -197,14 +195,7 @@ async def test_india_flow_moa_cin_otp(client, auth):
         "domain": "mumbailabs.example", "company_email": "hello@mumbailabs.example", "dba": "Mumbai Labs"})
     assert good.status_code == 200, good.text
 
-    # MOA is mandatory.
-    no_auth = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
-                                json={"authorized": True})
-    assert no_auth.status_code == 422 and "MOA" in no_auth.text, no_auth.text
-    moa = await client.post(f"/onboarding/sessions/{sid}/moa", headers=admin,
-                            files={"file": ("moa.pdf", w9_pdf(), "application/pdf")})
-    assert moa.status_code == 200, moa.text
-
+    # MOA is mandatory (checked after the e-mail gate).
     code = (await client.post(f"/onboarding/sessions/{sid}/email-code", headers=admin, json={})).json()
     wrong = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=admin,
                               json={"code": "000000"})
@@ -212,6 +203,12 @@ async def test_india_flow_moa_cin_otp(client, auth):
     verified = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=admin,
                                  json={"code": code["test_code"]})
     assert verified.status_code == 200, verified.text
+    no_moa = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
+                               json={"authorized": True})
+    assert no_moa.status_code == 422 and "MOA" in no_moa.text, no_moa.text
+    moa = await client.post(f"/onboarding/sessions/{sid}/moa", headers=admin,
+                            files={"file": ("moa.pdf", w9_pdf(), "application/pdf")})
+    assert moa.status_code == 200, moa.text
 
     refused = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
                                 json={"authorized": False})
