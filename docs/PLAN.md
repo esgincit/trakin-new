@@ -1,0 +1,606 @@
+# myTrakIn — complete requirements & delivery plan
+
+Status: 2026-10-13 · Keep this file current: when an item ships, change its status and add the PR/commit.
+
+**Three documents, read in this order:**
+1. **This file** — requirement IDs, status (built / partly / not built) and the work order.
+2. [prototype-spec.md](prototype-spec.md) — the full written spec of every screen, field, button, message, formula,
+   list and constant in the prototype. Section tags like `[AR]` match the ID prefixes here. **Before building any
+   item, read its section there.**
+3. [prototype/mytrakin-prototype.html](prototype/mytrakin-prototype.html) — the customer's original clickable
+   prototype (open in a browser, switch "Demo role"). The final word when the spec is unclear.
+Business rules as built are in [functional.md](functional.md).
+
+---
+
+## 0. How to use this document
+
+- Every requirement has an ID (`AUTH-03`, `AP-07` …). Use the ID in branch names, commits and PRs
+  (`feat/AP-07-nacha-file`, `AP-07: NACHA file for payment runs`).
+- **Status** — ✅ done in code · 🟡 partly done (the note says what is missing) · ❌ not built.
+  Statuses come from reading the code (routes, tables, pages) on 2026-10-13, not from click-testing. Phase 0
+  confirms every ✅ by hand; downgrade anything that fails.
+- **Work order** is §7 (backlog). Pick the top open item, finish it, tick it, take the next.
+- **Definition of done** for every item:
+  1. Works for every role listed in §3 for that screen, and *hides* what other roles must not see.
+  2. API endpoint has a test in `apps/api/tests`; RLS policy for any new table.
+  3. Every write lands in the audit log (DB trigger — don't bypass).
+  4. Lists have search, filters, sort, list/cards and CSV export (use `DataTable`).
+  5. Works on a phone (no horizontal scroll) and in dark mode.
+  6. `make check` green; user manual / functional spec updated; CHANGELOG line.
+
+---
+
+## 1. Product goal
+
+US IT staffing companies sit in the middle of a vendor chain:
+
+```
+End client → Prime vendor → Staffing company (tenant) → C2C vendor / 1099 contractor / W-2 employee → Consultant
+```
+
+myTrakIn tells the staffing company, for every consultant and billing period: **who owes us, whom do we owe, where is
+the money stuck, and are the contracts, hours and documents behind it in order.** It is a multi-tenant SaaS: each
+staffing company is a workspace (tenant); the platform owner runs the SaaS.
+
+### Non-negotiable rules
+| ID | Rule |
+|---|---|
+| RULE-01 | **AR/AP only.** A tenant stores only its two links: bill rate to its customer (AR) and pay rate to its vendor/contractor (AP). Links it is not party to are shown by name with `••••` and never stored (rate column is null). |
+| RULE-02 | Amounts are role-scoped (see §3.2). Vendors never see client amounts; consultants never see any amounts. |
+| RULE-03 | Nothing is deleted: inactive companies, former consultants, voided invoices and removed files are kept (files 30 days in trash; records for the retention period). |
+| RULE-04 | Every change, sign-in, approval, export and file action is audited (who, when, IP, device, before/after). |
+| RULE-05 | Platform staff cannot see tenant data except through time-boxed, tenant-approved support access. |
+| RULE-06 | Sensitive data (SSN, bank account numbers) is never accepted in CSV or free text — only on W-9 / bank forms. |
+| RULE-07 | **Nothing is copied or implemented from the old Contrack project** (owner's instruction). Only its service settings (Zoho SMTP) and security/engineering lessons are used — see [legacy-contrack.md](legacy-contrack.md). A feature that is not in the prototype is not built. |
+
+---
+
+## 2. Roles
+
+| Role | Who | Home screen |
+|---|---|---|
+| Platform owner | Company running myTrakIn | Platform dashboard |
+| Tenant admin | Owner/COO/technical lead of the staffing company | Dashboard |
+| Finance (AR/AP) | Controller, AP/AR specialist | Dashboard |
+| Account manager | Sales/delivery, scoped to assigned clients | Dashboard |
+| Contracts / legal | Contracts manager, signatory up to a limit | Dashboard |
+| HR & compliance | Onboarding, I-9, documents | Dashboard |
+| Approver | Delivery manager (timesheets) | Timesheets |
+| Viewer | Leadership, auditors (read-only, no rates/AP) | Dashboard |
+| Vendor admin | C2C vendor's account manager | Vendor home ("My payments") |
+| Client user | Customer contact | Partner home |
+| Consultant | W-2, C2C or 1099 worker | My payments & documents |
+
+---
+
+## 3. Access
+
+### 3.1 Menu by role (from the prototype)
+| Screen | Platform | Admin | Finance | AM | Legal | Vendor | Consultant |
+|---|---|---|---|---|---|---|---|
+| Dashboard | | ✓ | ✓ | ✓ | ✓ | ✓ (vendor view) | |
+| My approvals | | ✓ | ✓ | ✓ | ✓ | | |
+| Reports | | ✓ | ✓ | ✓ | | | |
+| My payments & documents | | | | | | | ✓ |
+| Onboarding pipeline | | ✓ | | ✓ | ✓ | | |
+| Consultant onboarding | | ✓ | | ✓ | ✓ | | |
+| Registrations | | ✓ | | | ✓ | | |
+| MSA, SOW & agreements | | ✓ | ✓ | ✓ | ✓ | ✓ (own) | |
+| E-signatures | | ✓ | ✓ | ✓ | ✓ | ✓ (own) | (via link) |
+| Projects | | ✓ | ✓ | ✓ | | | |
+| Placements & chain | | ✓ | ✓ | ✓ | | ✓ (own) | |
+| Timesheets | | ✓ approve | ✓ view | ✓ view | | ✓ own consultants, view | ✓ own |
+| Payment flow | | ✓ | ✓ | ✓ | | | |
+| Invoices & reminders | | ✓ | ✓ | ✓ | | | |
+| Client receipts (AR) | | ✓ | ✓ | ✓ | | | |
+| Vendor payouts (AP) | | ✓ | ✓ | | | ✓ "My payments" | |
+| 1099 contractors / W-2 payroll / Referral payouts | | ✓ | ✓ | | | | |
+| Payment ledger | | ✓ | ✓ | | | ✓ own | |
+| Consultants & work auth | | ✓ | | ✓ | ✓ | | |
+| Clients & vendors | | ✓ | ✓ | ✓ | ✓ | | |
+| Compliance / Document expiry | | ✓ | | ✓ (expiry) | ✓ | ✓ own | |
+| Network & messages | | ✓ | | ✓ | ✓ | ✓ | ✓ |
+| Users & security, Approvals & hierarchy | | ✓ | | | (users: view) | | |
+| Audit log | | ✓ | ✓ | | ✓ | | |
+| Data import & export | | ✓ | ✓ | | | | |
+| My profile & settings | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Platform dashboard, Tenants, Sign-up approvals, Plans & billing, Support & audit log | ✓ | | | | | | |
+
+The product has more roles than the prototype (HR, approver, viewer, client); map them as: HR ≈ legal's compliance
+screens + consultants; approver ≈ timesheets + My approvals; viewer ≈ read-only finance without AP/rates; client ≈
+own invoices and projects.
+
+### 3.2 Permission matrix (prototype "Access matrix")
+| Action | Admin | Legal | Finance | Acct mgr | Vendor | Consultant |
+|---|---|---|---|---|---|---|
+| View MSA | ✓ | ✓ | ✓ | scoped | scoped | — |
+| View SOW / WO | ✓ | ✓ | ✓ | scoped | scoped | scoped (dates only) |
+| View SOW value and rates | ✓ | ✓ | ✓ | scoped (AR side) | scoped (own link) | — |
+| Record client payment | ✓ | — | ✓ | — | — | — |
+| Approve vendor payment run | ✓ | — | ✓ | — | — | — |
+| See vendor payable amounts | ✓ | — | ✓ | — | own | — |
+| Create / edit SOW draft | ✓ | ✓ | — | scoped | — | — |
+| Sign (e-signature) | within limit | within limit | — | — | own company | own documents |
+| Amend / terminate | ✓ | ✓ | — | scoped | — | — |
+
+*Scoped* = assigned clients only (AM), own company and own link only (vendor), or a signing-authority dollar limit.
+
+| ID | Requirement | Status |
+|---|---|---|
+| ACC-01 | Menus and API both enforce §3.1; a hidden screen's API returns 403. | ✅ |
+| ACC-02 | Amount visibility per RULE-02 on every screen and export (masked `••••`). | ✅ verify per screen in Phase 0 |
+| ACC-03 | **Account-manager scope**: AM sees only assigned clients (and their SOWs, invoices, projects). Needs a scope list on membership. | ❌ |
+| ACC-04 | Access-matrix tab (read-only table of §3.2) in Agreements and in Users & security. | ❌ |
+| ACC-05 | Signing limit enforced: a signatory can only countersign envelopes up to their `signing_limit`. | ❌ (field stored, not enforced) |
+
+---
+
+## 4. Cross-cutting requirements (every screen)
+
+| ID | Requirement | Status |
+|---|---|---|
+| UX-01 | App shell: left nav grouped by section, with **badge counts** (approvals waiting, pending registrations, docs ≤30 days, envelopes to sign, starts ≤14 days). Workspace switcher. | 🟡 nav done; badges missing |
+| UX-02 | **Global search** in header: invoices, SOWs, MSAs, consultants, projects, companies (platform: tenants); results open the record. Hidden for consultants. | ❌ |
+| UX-03 | **Notifications bell** with count; drawer lists alerts (approvals, missing/expiring items, stalled tenants, consultant to-dos) each linking to the record. API `GET /notifications` exists. | 🟡 API only |
+| UX-04 | **AI assist** button in header: role-scoped suggested next actions + "Ask a question" box + quick prompts; nothing sent or changed without a click. | 🟡 suggestions + ask on dashboard; no header drawer |
+| UX-05 | Every table: search, up to 4 column filters, sortable headers, sort menu, clear, row count, list/cards switch, export CSV of what is visible. | ✅ `DataTable` — check every list uses it |
+| UX-06 | Record drawers/detail pages with **Files** block: add (virus-scanned, encrypted), download, remove (kept 30 days), list/thumbnail switch. | 🟡 files done; thumbnails + 30-day trash not visible |
+| UX-07 | Toasts for every action; confirmation text says what happened (e.g. "BP-INV-1187 released for the next run"). | ✅ verify |
+| UX-08 | Light/dark/system theme; compact density; phone layout. | 🟡 density done; theme choice missing |
+| UX-09 | Account menu under avatar: profile, account & security, notifications, preferences, privacy, sign out. | ✅ partial — check items |
+| UX-10 | "Sample template / Import / Export" toolbar on every page that has importable data (consultants, companies, projects, placements, SOWs, timesheets, AR, AP, payments, users). | 🟡 central `/data` page done; per-page toolbar missing |
+
+---
+
+## 5. Module requirements
+
+### 5.1 Public: sign-in (`/login`)
+| ID | Requirement | Status |
+|---|---|---|
+| AUTH-01 | Methods: SSO (SAML/OIDC: Entra ID, Okta, Google Workspace), e-mail one-time code, SMS code, Google, Microsoft. | ✅ code · ⏳ Google + Microsoft need provider keys switched on in Supabase — see [auth-setup.md](auth-setup.md) |
+| AUTH-02 | **Passkeys** (WebAuthn: Face ID, Touch ID, Windows Hello, security key) as sign-in and as second factor. | ❌ |
+| AUTH-03 | 6-digit code, 10-minute expiry, 5 attempts then 15-minute lock; locked users visible to admin with Unlock. | 🟡 verify Supabase settings + unlock action |
+| AUTH-04 | Second factor required for admin, finance and approvers (authenticator or passkey; SMS not accepted for these roles). | ✅ (TOTP) |
+| AUTH-05 | Passwords off by default; when on: 12+ chars, letters+numbers, breached-password check, change signs out other sessions + confirmation e-mail. | 🟡 verify breach check + email |
+| AUTH-06 | SSO redirect when the e-mail domain is verified for a tenant. | 🟡 verify |
+| AUTH-07 | **Re-authenticate** before payments, bank-detail changes and exports (setting: all three / payments only). | ❌ |
+| AUTH-08 | Optional: restrict admin sign-in to office/VPN IP ranges. | ❌ |
+| AUTH-09 | Session idle timeout setting (30 min / 8 h / 12 h). | ✅ |
+| AUTH-10 | Sign-in history with IP, approximate location, device, result; block + alert on new country without MFA. | ❌ |
+| AUTH-11 | **Forgot password:** "Forgot password?" on the password step → e-mailed one-time link → `/reset-password` (new password 12+ chars, letters + numbers) → authenticator code if enrolled → app. Identical message whether or not the account exists. | ✅ (2026-10-13, branch `feat/AUTH-login-mfa-social`) |
+| AUTH-12 | **Social sign-in UX:** Google/Microsoft buttons on sign-in and create-account, with brand marks; a button is hidden when Supabase reports its provider switched off; provider errors (cancelled, not enabled, redirect not allowed, bad key) shown in plain words; "Cancel and sign out" from the two-step screen. | ✅ (same branch) |
+
+### 5.2 Public: registration (`/register/[tenantId]`, `/signup`)
+| ID | Requirement | Status |
+|---|---|---|
+| REG-01 | Wizard: who you are → verify e-mail by code → details → documents → review & submit → reference number. | 🟡 verify code-verification step and stepper |
+| REG-02 | Types: staffing company (own workspace, approved by platform), vendor, client, 1099 contractor, consultant. | ✅ |
+| REG-03 | Required documents per type (tenant: incorporation, EIN letter CP 575/147C, signatory ID; vendor: formation, W-9, COI, bank letter; client: W-9, AP contact sheet; 1099: W-9, resume, liability insurance optional; consultant: resume, photo ID). | 🟡 verify list matches |
+| REG-04 | Accept Terms, Privacy; consultants/1099 e-sign mutual NDA; vendors accept Vendor Code of Conduct. | ❌ verify |
+| REG-05 | Automatic checks shown to approver: e-mail verified, business domain (free domains flagged), EIN present, duplicates. | ✅ |
+| REG-06 | External checks: IRS TIN match, Secretary of State status, OFAC sanctions screen, bank account verification. | ❌ needs provider decision (D5) |
+| REG-07 | Taxpayer ID only on the W-9, never in free text. | ✅ verify |
+
+### 5.3 SaaS platform (owner console, `/platform`)
+| ID | Requirement | Status |
+|---|---|---|
+| PLAT-01 | Dashboard KPIs: tenants (+added this month), live %, in onboarding (stalled / not activated), MRR + ARR, avg days to go live, revenue per user (paid seats, payments tracked 30 d). | 🟡 missing avg time-to-live, payments tracked |
+| PLAT-02 | Charts: tenants added vs went live per month; onboarding funnel (8 steps) with "biggest drop" sentence. | ❌ |
+| PLAT-03 | Lists: onboarding in progress (status, progress n/8, next step, last active); revenue by plan; recent platform activity. | 🟡 verify |
+| PLAT-04 | Tenant statuses: Live, Onboarding, Invited, Stalled (no activity 14 days), Suspended. Filters with counts, search, export. | 🟡 verify "Invited"/"Stalled" |
+| PLAT-05 | Tenant onboarding steps (8): created → admin invited → admin activated (MFA) → company profile → clients & vendors → MSAs/SOWs → first invoice → first payment (live). | 🟡 product uses a different 8-step list (functional §3.2) — align (D6) |
+| PLAT-06 | Tenant detail: admin, created/live dates, subscription, usage, checklist; actions resend invite, send check-in, suspend (users read-only) / reactivate, request support access. | 🟡 support access + check-in missing |
+| PLAT-07 | Add tenant: legal name, EIN, state, admin name/e-mail, plan, trial toggle, **modules** (payments, MSA & SOW, timesheets, vendor portal, community). | 🟡 modules missing |
+| PLAT-08 | Sign-up approvals: verification checks + documents, flag (e.g. free e-mail), request info / reject / approve & create tenant. | ✅ (checks limited — see REG-06) |
+| PLAT-09 | **Plans & billing**: plan cards (price/user, minimum seats, features, tenants, MRR); KPIs MRR, paid seats, ARPU, revenue per tenant; monthly subscription invoices per tenant (users, billed seats, amount, paid/due/overdue). External users free. | ❌ (D1 pricing) |
+| PLAT-10 | Auto-suspend after 60+ days unpaid; data kept read-only. | ❌ |
+| PLAT-11 | **Support access**: platform staff request 30-min access with reason → tenant admin approves → time-boxed → logged in Support & audit log and tenant audit log. | ❌ |
+| PLAT-12 | Platform "Support & audit log": every platform action and support access. | 🟡 verify platform actions are logged |
+
+### 5.4 Workspace setup & settings (`/settings`)
+| ID | Requirement | Status |
+|---|---|---|
+| SET-01 | Company details (legal name, EIN, state), invoice footer. | ✅ |
+| SET-02 | Allowed sign-in methods, MFA for all staff, idle sign-out. | ✅ |
+| SET-03 | Setup checklist (8 steps) with go-live. | ✅ |
+| SET-04 | SSO & provisioning tab: IdP, verified domains (DNS TXT), enforcement, break-glass account, test connection; SCIM with group → role mapping. | ❌ SCIM is Phase 3 |
+| SET-05 | 1099-NEC threshold override per year. | ✅ verify |
+
+### 5.5 Dashboard (`/dashboard`)
+| ID | Requirement | Status |
+|---|---|---|
+| DASH-01 | KPIs: receivable outstanding, overdue from clients (oldest days late), collected 30 d, payable to vendors*, held vendor payments*, MSA/SOW expiring (SOW ≤60 d, MSA ≤90 d). *finance/admin only, masked otherwise. | ✅ |
+| DASH-02 | Expected cash in vs out, next 6 weeks + past due. Vendor dates = scheduled run, or for pay-when-paid client due date + 3 days; exceptions excluded. | ✅ verify rule |
+| DASH-03 | Needs attention: overdue AR, AP exceptions, held, SOW ≥90 % burn, MSA expiring ≤90 d. | ✅ |
+| DASH-04 | Smart suggestions card (top 4) + "See all & ask". | ✅ |
+| DASH-05 | Missing & expiring card (agreements, documents, policies, work auth, timesheets). | ✅ |
+| DASH-06 | Open payment flows (top 4) with link to Payment flow. | 🟡 verify |
+| DASH-07 | Vendor dashboard: invoiced to tenant, paid, waiting on client (pay-when-paid), next expected payment, their invoices. | ✅ `/partner` verify |
+
+### 5.6 My approvals & hierarchy
+| ID | Requirement | Status |
+|---|---|---|
+| APR-01 | **My approvals inbox**: one table of items waiting on me — type, reference, detail, requested by, current step, amount; Approve / Reject inline; nav badge. Types: timesheet, expense, time off, vendor-invoice exception, SOW amendment, payment run, bank-detail change, rate change, registration, referral fee. | ❌ |
+| APR-02 | Approving in the inbox does the same as approving on the record (e.g. exception accepted at approved hours, registration approved). | ❌ |
+| APR-03 | **Approval chains** (configurable per tenant, defaults): Timesheet: consultant → admin. AR invoice: from approved time → finance review → sent. AP invoice: AP specialist (3-way match) → finance manager ≤ $25k → admin above. Payment run: finance manager → admin (dual above $25k). SOW/amendment: AM → legal → finance (if margin < 15 %) → signatory. MSA/ICA/offer: legal → admin → e-signature. Bank change: requester → finance manager + phone callback. Registration: compliance → admin. Referral fee: finance manager → admin above $2,500. Rate change: AM → finance manager. | ❌ |
+| APR-04 | **Bank-detail change** flow: request (masked old → new), second approver + recorded phone callback to a contact already on file; payouts to that payee paused until approved. | ❌ |
+| APR-05 | **Rate change** request (vendor rate from date, shows new margin) routed for approval; applies only to un-invoiced time. | 🟡 finance can change rates directly; no request/approval |
+| APR-06 | **Org chart** from reporting lines (`manager_id`). | ❌ |
+| APR-07 | **Delegation**: from → to, date range, scope (e.g. all finance approvals); shown as Scheduled/Active; audited. | ❌ |
+
+### 5.7 Reports (`/reports`)
+| ID | Requirement | Status |
+|---|---|---|
+| RPT-01 | Reports hub, role-filtered: AR aging, AP aging & payment run, cash forecast, margin by placement, timesheet compliance, hours by consultant & project, SOW burn & expiry, MSA & agreement expiry, 1099 summary, payroll register, referral fees, work authorization, onboarding status, audit trail. Each: Open (filtered live list) + Export CSV. | ❌ |
+| RPT-02 | Period picker (this month, last month, QTD, YTD, custom) and customer filter. | ❌ |
+| RPT-03 | Schedule a monthly report pack by e-mail. | ❌ |
+
+### 5.8 Onboarding pipeline & registrations
+| ID | Requirement | Status |
+|---|---|---|
+| ONB-01 | **Pipeline board**: every client, vendor, 1099 and consultant against 8 stages (Registered → Verified → MSA/ICA/offer → SOW/work order → Digitally signed → Project set up → Timesheets live → Invoicing live) with blocker text; KPIs in onboarding / live / blocked / new registrations. | 🟡 company stages exist; no combined board |
+| ONB-02 | Party detail: checklist n/8, blocker, send reminder. | 🟡 |
+| ONB-03 | **Invite to onboard**: type, name, e-mail, mobile → secure personal link; shows "Invite sent — waiting for registration". | 🟡 public link exists; personal invite missing |
+| ONB-04 | Registrations list: checks + documents chips, Request info (e-mail), Reject, Approve / Approve anyway. Approval creates company at stage 2 with next step (MSA / ICA / offer+NDA) and moves files. | ✅ |
+| ONB-05 | Preview public registration page. | ✅ |
+
+### 5.9 Consultant onboarding (`/consultants`)
+| ID | Requirement | Status |
+|---|---|---|
+| CON-01 | Engagement types and checklists: W-2 full-time, W-2 contract, C2C, 1099 (lists in functional §3.4). | ✅ |
+| CON-02 | Onboard form: type, employer (C2C), name, e-mail (personal ok), mobile, title, start date, location, **any number of projects** each with hours/week, AR bill rate, AP/pay rate. | ✅ verify multi-project rows |
+| CON-03 | List: progress n/N, next step, starting in 14 days, ready to activate; filter by type. | ✅ |
+| CON-04 | Activate only when checklist done (project item may be open); creates placements and timesheet access; sends sign-in invite. | ✅ |
+| CON-05 | Rehire from Former: restarts checklist. | ✅ |
+
+### 5.10 Consultants & work authorization
+| ID | Requirement | Status |
+|---|---|---|
+| WA-01 | List: type, projects, work-auth type, valid until (days, colour), I-9, E-Verify, NDA. KPIs: consultants by type, expiring ≤120 d, missing agreements. | ✅ |
+| WA-02 | Detail: employer, projects, skills, compliance block, agreements & policies, files (HR/compliance/admin only), Message. | ✅ |
+| WA-03 | I-9/E-Verify only after offer accepted; C2C = employer attests; 1099 = no I-9; reminders 120/90/60/30 days. | ✅ |
+| WA-04 | Offboard: last day, reason, rehire eligible, **offboarding checklist** (final timesheet, final invoice/payable, client & vendor notified, access revoked, equipment returned, NDA exit acknowledgment). | 🟡 checklist missing |
+| WA-05 | Former tab: KPIs (former, eligible for rehire, left in 6 months, W-2 I-9s kept); **records kept until** date (I-9: later of hire+3 y / end+1 y; others end+7 y). | 🟡 retention dates missing |
+| WA-06 | Former consultants can't sign in. | ✅ |
+
+### 5.11 Agreements: MSAs, SOWs, policies (`/contracts`)
+| ID | Requirement | Status |
+|---|---|---|
+| AGR-01 | KPIs: active MSAs (expiring ≤90 d), active SOWs (ending ≤60 d), SOWs ≥90 % burn, supplier-side value remaining. | ✅ verify |
+| AGR-02 | SOW table: we bill / we pay filter, value, invoiced, collected/paid, remaining, burn bar (≥75 % warn, ≥90 % bad), status; values masked by role. | ✅ |
+| AGR-03 | MSA table: kind, counterparty, we are supplier/buyer, effective, expiry (days), terms, renewal, notice, insurance, SOW count/value. | ✅ |
+| AGR-04 | SOW detail: flows-down-from / flows-down-to, warnings (runs past upstream; downstream ends first), amendment, invoices under SOW, signed copy, e-signature section. | ✅ verify warnings |
+| AGR-05 | MSA detail: SOWs under it, expiry warning ("new SOWs and payments blocked after expiry"), Start renewal. | 🟡 renewal action + blocking rule verify |
+| AGR-06 | Tabs: offer letters & NDAs per consultant; policy acceptance matrix (consultant × policy); missing checklist with Remind. | ✅ verify tabs |
+| AGR-07 | Add existing MSA/SOW (already signed) with PDF; import MSAs/SOWs; templates. | ✅ |
+| AGR-08 | Amendments: draft → send for signature → applied automatically when signed. | ✅ |
+| AGR-09 | Block: invoices/payments for a company with no active MSA; new SOWs after MSA expiry. | 🟡 verify enforcement |
+| AGR-10 | Expiry e-mails to legal at 90/60/30 days. | ✅ |
+
+### 5.12 E-signatures (`/esign`, `/sign/[token]`)
+| ID | Requirement | Status |
+|---|---|---|
+| ESG-01 | Tabs: action required, waiting, completed, drafts, all; KPIs needs your signature, waiting on others, completed, avg days to sign. | ✅ verify KPIs |
+| ESG-02 | Send: pick MSA/SOW/amendment or **template (Mutual NDA, offer letter W-2, ICA 1099)** or upload PDF; title; signers in order; expiry days; remind every N days; message; save draft or send. | 🟡 templates missing |
+| ESG-03 | Signer flow: e-mail code → ESIGN/UETA consent → read → type or draw signature + intent checkbox → sign; or decline with reason. | ✅ |
+| ESG-04 | Evidence per event: UTC time, IP, device, approximate location, auth method. | ✅ |
+| ESG-05 | Completion: sealed PDF + certificate of completion, SHA-256; all parties e-mailed; record updated (amendment applied, MSA renewed, NDA marked signed). | ✅ |
+| ESG-06 | Remind, void (reason), download any time; envelope detail with per-signer timeline. | ✅ |
+| ESG-07 | Countersigner choice limited by signing authority (ACC-05). | ❌ |
+| ESG-08 | Template version on send: current approved template, or custom (requires legal approval before sending). | ❌ |
+
+### 5.13 Projects & placements (`/projects`)
+| ID | Requirement | Status |
+|---|---|---|
+| PRJ-01 | Project: code, name, client, prime (if sub), dates, tenant manager, client timesheet approver, description, linked SOWs, team (role, engagement, allocation), this week's timesheet status, files; invoiced of value (finance). | ✅ |
+| PRJ-02 | Placement: consultant, project, role, dates, hours/week, end client (name only), AR customer + SOW + bill rate + terms, AP payee + SOW + pay rate + terms + pay-when-paid. W-2 has no AP payee. | ✅ |
+| PRJ-03 | **Chain diagram** per placement: End client (••••, "not our contract") → Customer → AR rate/doc/terms → Us → AP rate/doc/terms → Vendor/1099 → Consultant (or W-2 payroll). | 🟡 verify diagram exists |
+| PRJ-04 | Rate changes: finance only, audited, apply to un-invoiced time. | ✅ |
+
+### 5.14 Timesheets (`/timesheets`, `/my/timesheet`)
+| ID | Requirement | Status |
+|---|---|---|
+| TS-01 | One timesheet per consultant per week (Sun–Sat), rows per project + internal; add/remove project rows; 0–24 h per day. | ✅ |
+| TS-02 | Save draft, submit; submitted/approved weeks locked; returned with reason shown to consultant. | ✅ |
+| TS-03 | Checks: submitted, no day >12 h, within allocation, weekend hours, W-2 overtime >40 h, inside placement dates, fits remaining SOW value. | ✅ |
+| TS-04 | Approver list per week: KPIs waiting / approved / not submitted / flagged; daily hours; checks summary; approve; **approve all that pass**; **remind not submitted**. | ✅ verify remind button |
+| TS-05 | Detail shows "what approval creates": AR amount and AP amount (finance/admin). | ✅ |
+| TS-06 | All-weeks history for every consultant/project with filters and CSV. | ✅ verify |
+| TS-07 | **Adjustment after approval**: request adjustment → re-approval; adjusts un-invoiced amounts or creates a correction line. | ❌ |
+| TS-08 | Reminders Fri 3 pm, Mon 9 am, escalate Tue (HR/vendor admin). | ✅ |
+| TS-09 | Vendors see their consultants' timesheets read-only. | ✅ |
+| TS-10 | Approved time off pre-filled on the timesheet; client approver notified. | ❌ |
+
+### 5.15 Payment flow (`/payments`)
+| ID | Requirement | Status |
+|---|---|---|
+| FLOW-01 | One row per placement × period: hop cards (end client masked, AR, AP or W-2 payroll), status chip, margin (finance). Filters Open / Needs action / Settled / All with counts; legend. | ✅ |
+| FLOW-02 | Detail: billed vs owed, margin % and cash position, timeline (issued, paid, overdue, held, mismatch), actions Record client payment / Open vendor invoice. | ✅ verify timeline |
+| FLOW-03 | Statuses: paid, awaiting, due, part paid, overdue (part paid), held, ready to pay, scheduled, exception, W-2 payroll; cycle state: action needed / waiting on customer / in progress / settled. | ✅ |
+
+### 5.16 Invoices & reminders, AR (`/invoices`)
+| ID | Requirement | Status |
+|---|---|---|
+| AR-01 | Create invoices from approved timesheets for a period (one per placement); manual invoice: SOW → rate (read-only) → terms/due from MSA → hours → PO/memo → total; save draft or create & send. | ✅ |
+| AR-02 | Tabs: follow-up queue (next automatic reminder, owner, Send now), reminder rules (on/off + channel), reminders sent, all invoices. | 🟡 follow-up queue verify |
+| AR-03 | Client receipts: aging buckets (current, 1–30, 31–60, 61–90, 90+), by customer (open, overdue, terms), tabs open / overdue / paid / all / credit notes. | 🟡 aging verify |
+| AR-04 | Invoice detail: bill to, consultant/period/hours × rate, SOW/PO, linked vendor bill and its status, payments, collection notes (add), Record payment, Send reminder, **Download PDF**. | 🟡 PDF verify |
+| AR-05 | Record payment (amount ≤ balance, date, ACH/wire/check/card/other, reference); part payments; recording releases pay-when-paid AP invoices and says so. | ✅ |
+| AR-06 | **Credit notes**: number, customer, against invoice, date, reason, amount, status (open → applied to next payment); reduce balance/aging. | ❌ |
+| AR-07 | Reminders: −7 courtesy, +1/+7/+15 (copy AM), +30 escalate finance head + flag stop-work review. | ✅ verify +30 flag |
+| AR-08 | **AI-drafted collection e-mail** from invoice, payments and notes; firmer/friendlier; edit and send. | ❌ |
+| AR-09 | Void with reason (only without payments). | ✅ |
+
+### 5.17 Vendor payouts, AP
+| ID | Requirement | Status |
+|---|---|---|
+| AP-01 | Vendors submit invoices in portal: number, placement, period, hours; amount = hours × pay rate; upload PDF. | ✅ |
+| AP-02 | Three-way match: invoiced vs approved hours vs SOW rate; mismatch → exception; accept at approved hours or return to vendor. | 🟡 "return to vendor" verify |
+| AP-03 | Pay-when-paid: held until matching AR paid in full → ready to pay automatically. | ✅ |
+| AP-04 | Payment run tab: KPIs ready / held PWP / held exceptions; select eligible invoices, running total; method ACH/wire/check; approve & pay. | ✅ |
+| AP-05 | **NACHA (ACH) file** download for the run. | ❌ |
+| AP-06 | **Remittance**: preview and e-mail remittance advice to each payee on payment. | ❌ |
+| AP-07 | Schedule an invoice for a run date. | ✅ |
+| AP-08 | By-vendor tab: invoiced, paid, open, held, MSA expiry chip, compliance chips (COI, W-9); imported pre-myTrakIn payment history. | 🟡 verify |
+| AP-09 | Payouts held automatically when vendor COI expired or W-9 missing. | 🟡 verify enforcement |
+| AP-10 | Vendor view "My payments": their invoices, expected date, PWP explanation, no client amounts. | ✅ |
+
+### 5.18 Payment ledger
+| ID | Requirement | Status |
+|---|---|---|
+| LED-01 | Every payment in and out, newest first: date, received/paid, counterparty, invoice, consultant, method, reference, ± amount; KPIs received / paid out / net cash; counterparty filter; CSV. Vendor sees own only. API `GET /v1/payments` exists. | ❌ page |
+
+### 5.19 1099 contractors, W-2 payroll, referrals (`/pay`)
+| ID | Requirement | Status |
+|---|---|---|
+| PAY-01 | 1099: payees (contractors + individual referrers), agreement, W-9/TIN status, terms, paid YTD, 1099-NEC will be issued / below threshold; KPIs; contractor invoices table. | ✅ |
+| PAY-02 | Payment to a payee without valid W-9 is held or warns about 24 % backup withholding. | 🟡 verify |
+| PAY-03 | W-2 payroll register per run (imported/entered): hours, gross, employer taxes, benefits, total cost, net; run tabs; margin per employee incl. bench cost. | ✅ |
+| PAY-04 | "Send approved hours to payroll provider" export when hours lock. | ❌ |
+| PAY-05 | Referrals: referrer type (individual 1099 / vendor / employee via payroll), hourly fee with cap or one-time after waiting period; accrued, paid, open, status (waiting / payable / blocked W-9 / paid up); Pay. | ✅ |
+| PAY-06 | Expenses (consultant submits; approve/reject; finance marks reimbursed; billable flag) and time off (PTO, sick, unpaid; approve/decline). | ✅ |
+
+### 5.20 Clients & vendors (`/companies`)
+| ID | Requirement | Status |
+|---|---|---|
+| CO-01 | Cards/list: name, type, status, contact, state, EIN (finance/admin), agreements, next expiry, open AR/AP; workforce counts for vendors; tabs active / inactive / all. | ✅ |
+| CO-02 | Add client/vendor: type, legal name, state, contact e-mail, default terms, invite to vendor portal. | ✅ |
+| CO-03 | Detail: agreements (or "No MSA — invoices and payments blocked", Send MSA), compliance documents, billed/owed totals, imported payment history, files, status. | ✅ verify |
+| CO-04 | Mark inactive (date, reason; warns about open invoices; users lose sign-in) / reactivate. | ✅ |
+
+### 5.21 Compliance & document expiry (`/compliance`)
+| ID | Requirement | Status |
+|---|---|---|
+| CMP-01 | Compliance list: who, type, requirement, expiry, status, effect (what it blocks). | ✅ |
+| CMP-02 | Expiry tracker: I-9 reverification, passport, EAD, I-94/visa, COI, W-9, background check, certification, driver's licence, agreement, other; KPIs ≤30 d, ≤90 d, I-9 due, e-mails sent. | ✅ |
+| CMP-03 | E-mails at 120/90/60/30/14/7/0 days then weekly; recipients = person + HR + extra; last/next e-mail columns. | ✅ verify columns |
+| CMP-04 | Per-category on/off rules (I-9, passport, EAD/I-94, COI, other); note that passports/green cards are never I-9-reverified. | 🟡 |
+| CMP-05 | Detail: schedule, **e-mail preview**, files, mark renewed (new date; updates consultant work-auth for EAD/I-9), send now; "send all due now". | 🟡 preview + send-all verify |
+| CMP-06 | Policies: publish version for engagement types (retires previous); acceptance with time, version, IP, device; reminders 0/7/14 days. | ✅ |
+| CMP-07 | E-mail log of every message. | ✅ |
+
+### 5.22 Consultant self-service (`/my*`)
+| ID | Requirement | Status |
+|---|---|---|
+| ME-01 | To-do list: sign NDA, accept policies, submit timesheet, upload work-auth renewal. | ✅ |
+| ME-02 | Payment status per period **without amounts**: timesheets approved → invoice sent → customer pays tenant → tenant pays you/your employer (held/exception explained) → employer pays you (C2C); W-2: paid via payroll regardless. | ✅ verify wording |
+| ME-03 | Projects, chain & SOW: how money flows (names only), assignment dates, days left, governing SOW, pending extension, contacts. | ✅ verify |
+| ME-04 | Work authorization: status, valid until, I-9, E-Verify, upload renewal; type-specific text. | ✅ |
+| ME-05 | Policies & documents: accept with version/IP/device; signed agreements; company documents (handbook, holidays, expense guide, benefits for W-2). | 🟡 company reference documents verify |
+| ME-06 | Timesheet history (filters project/month/status, CSV), expenses (receipt, billable), time off. | ✅ |
+
+### 5.23 Network & messages (`/network`)
+| ID | Requirement | Status |
+|---|---|---|
+| NET-01 | Feed: post (update, kudos, opening, announcement), like. | ✅ |
+| NET-02 | **Comments** on posts; **attachments** on posts. | ❌ |
+| NET-03 | People: search, connect / connected, message, view profile. | ✅ |
+| NET-04 | Messages: threads, unread counts, **file attachment**. | 🟡 attachment missing |
+| NET-05 | Profile: photo, cover, headline, location, about, experience, education, certifications, skills, contact, open to work, visibility. | ✅ |
+| NET-06 | Skill **endorsements**; **profile strength** meter with to-dos; **people you may know**. | ❌ |
+| NET-07 | Profiles opt-in; tenant admin controls who can contact its people; message retention per company policy. | 🟡 verify admin control |
+
+### 5.24 Users, security, account (`/users`, `/account`, `/profile`)
+| ID | Requirement | Status |
+|---|---|---|
+| USR-01 | Users list: role & scope, reports to, sign-in method, second factor, last active, status (active, invited, locked, deactivated), external badge; seats in use (external users free). | 🟡 scope + seat count |
+| USR-02 | Invite: name, e-mail, role, scope, reports to, signing limit. | 🟡 scope (ACC-03) |
+| USR-03 | Admin user panel: recent sign-ins, active sessions, **send password reset, reset 2-step, sign out everywhere, unlock**, deactivate/reactivate. | 🟡 verify each action |
+| USR-04 | One active admin always; admins can't demote themselves. | ✅ |
+| USR-05 | Account & security: change e-mail/mobile by code, password, 2-step list (authenticator, passkeys, SMS backup), **recovery codes**, **sessions list with per-device sign-out**, **sign-in activity**, "report it". | 🟡 password, TOTP, sign-out-others done |
+| USR-06 | Notifications matrix: events × channels (e-mail, SMS, in-app, push), digest (instant/daily/weekly), quiet hours; security alerts always on. | 🟡 e-mail toggles only |
+| USR-07 | Preferences: language, time zone, date format, start page, default list/cards, theme, density. | 🟡 time zone + density only |
+| USR-08 | Privacy: profile visibility, who can message, show contact to connections, open to projects; **download my data**; e-records consent / **request paper copies**; **close account** (external users). | 🟡 visibility only |
+
+### 5.25 Audit log (`/audit`)
+| ID | Requirement | Status |
+|---|---|---|
+| AUD-01 | Every insert/update/delete, sign-in, approval, export, file action: when, user, action, record, change (before → after), source (web/portal/device). Search, filter, export. | ✅ |
+| AUD-02 | Append-only, kept 7 years (documented retention + no delete policy). | 🟡 append-only verify; retention not documented |
+
+### 5.26 Data import & export (`/data`)
+| ID | Requirement | Status |
+|---|---|---|
+| DATA-01 | Templates with sample rows for: consultants (incl. status, former fields), clients & vendors (incl. existing MSA, W-9, COI, inactive), projects, placements & rates (AR/AP only), SOWs (with prior invoiced/paid), MSAs, timesheets, AR invoices, AP invoices (incl. old vendor payments), payments, expenses, expiring documents, users, W-2 payroll. | 🟡 code has 11 (companies, consultants, projects, agreements, sows, placements, ar_invoices, ap_invoices, tracked_documents, users, payroll); missing **timesheets, payments, expenses** |
+| DATA-02 | Check file (dry run) with errors by line; import saves good rows; update existing by natural key (toggle); history (who, when, file, rows, result). | ✅ |
+| DATA-03 | Export each entity in template columns; "export everything". | 🟡 export-everything verify |
+| DATA-04 | Import side effects (spec §6.27): consultant status Active → activated, Former → former list; company row with Existing MSA ID → MSA created, W-9 = N → compliance item, COI date → COI item, Inactive → deactivated; SOW without MSA → placeholder MSA; "Try with sample data". | 🟡 verify each |
+
+### 5.27 Smart suggestions / AI
+| ID | Requirement | Status |
+|---|---|---|
+| AI-01 | Rule-based ranked suggestions from live data, role-scoped (overdue AR, exceptions, SOW near ceiling, flow-down amendment missing, bench consultant for ending placement, I-9 reverification, low W-2 margin < 18 %, missing timesheets; platform: stalled tenants, suspicious sign-ups; consultant: own to-dos). | 🟡 verify bench/margin/flow-down rules |
+| AI-02 | Ask a question in plain English using only allowed data (Anthropic or DeepSeek). | ✅ |
+| AI-03 | Drafted e-mails (AR-08). | ❌ |
+
+### 5.28 Notifications & scheduled jobs
+| ID | Requirement | Status |
+|---|---|---|
+| NOT-01 | Catalog of functional §4 (invitation, registration, workspace ready, timesheet, invoice, AR courtesy/overdue, contract ending, document expiring, policy, signature events). De-duplicated daily cron. | ✅ |
+| NOT-02 | AP payee notified when invoice matched, held, scheduled, paid. | ❌ |
+| NOT-03 | Unsigned envelope: remind every 3 days, escalate after 9. | 🟡 escalation verify |
+| NOT-04 | SMS channel for timesheet reminders. | ❌ (needs SMS provider) |
+
+### 5.29 Security checklist & billing tests (lessons from the old project — checks, not features)
+Source and reasoning: [legacy-contrack.md](legacy-contrack.md) §2–3. These add **no new screens**; they are verified in
+Phase 0.4 and applied whenever the matching code is touched.
+
+| ID | Check | Status |
+|---|---|---|
+| SEC-01 | One-time codes use `secrets` (CSPRNG). | ✅ |
+| SEC-02 | Per-code attempt limit **and** app-level rate limits on `/v1/public/*` and every code send/verify endpoint. | 🟡 attempts only |
+| SEC-03 | Code resend: 60 s cooldown, max 5/hour per recipient. | 🟡 |
+| SEC-04 | 5 wrong tries burn the code; constant-time compare. | 🟡 |
+| SEC-05 | Sign-up / sign-in / reset responses identical whether or not the account exists. | ❓ |
+| SEC-06 | Every code has an expiry checked on use. | ✅ e-sign / ❓ rest |
+| SEC-07 | **No self-approval:** approver ≠ requester (and second approver ≠ first) on every approval write. | ❓ |
+| SEC-08 | Role/permission changes validated before any write; whole transaction fails on error. | ❓ |
+| SEC-09 | Short-lived access tokens. | ✅ |
+| SEC-10 | Strict Content-Security-Policy; consider cookie sessions. | 🟡 |
+| SEC-11 | Production deploys only from a push to `main`; PR code never runs with secrets. | 🟡 |
+| SEC-12 | Upload allow-list (types, size), server-side content sniffing, user files served as attachments, no inline SVG/HTML. | 🟡 |
+| SEC-13 | Every query scoped by tenant (RLS) and by party; two-tenant test per router. | 🟡 |
+| SEC-14 | CSV formula-injection protection. | ✅ |
+| SEC-15 | Lockfiles, `npm ci`, pinned Python versions. | 🟡 |
+| SEC-16 | One-time secret scan of the repo and its history. | ❓ |
+| SEC-17 | Every list endpoint paginated or limited. | 🟡 |
+| SEC-18 | Per-user cap on AI "Ask" usage. | ❓ |
+| BILL-01…14 | Billing acceptance tests (only approved time billed; no double billing; exact decimals; rate changes never rewrite history; adjustments not edits; part payments; reminders skip paid; audit of every money action; margin from approved time). Full list in legacy-contrack.md §3. | ❌ write as tests with AR/AP/TS items |
+
+---
+
+## 6. Open decisions (product owner)
+
+| # | Decision | Options | Blocks |
+|---|---|---|---|
+| D1 | Pricing | Prototype: per seat $29 / $49 / $79, minimum 3 / 5 / 15 seats, external users free (older screen: flat $299 / $799 / custom). Code: $12 / $20 / $32 per active user. | PLAT-09 |
+| D2 | Production e-mail | Resend (docs) vs Zoho SMTP (running) | Phase 0 |
+| D3 | AI provider | Anthropic vs DeepSeek (running) | AI-02/03 |
+| D4 | Trial length | Prototype 14 days, code 30 days | PLAT-07 |
+| D5 | Verification providers | IRS TIN match, Secretary of State, OFAC, bank verification — which vendors, or manual checklist for now | REG-06 |
+| D6 | Tenant onboarding steps | Prototype list (PLAT-05) vs current functional §3.2 list | PLAT-05 |
+| D7 | SMS provider | Needed for SMS reminders and SMS sign-in at scale | NOT-04 |
+| D8 | Payment runs | Generate NACHA file only, or integrate a bank/payments API | AP-05 |
+| D9 | Production sender domain for e-mail (Zoho SMTP, smtp.zoho.in:587) | `verify@mytrakin.com` (old project; note the **k** spelling — the old Azure domain, now dead) vs `verify@esgos.app` (current local `.env`) vs a sender on the live web domain **`mytrackin.com`** (**ck** — see [auth-setup.md](auth-setup.md)); set SPF/DKIM/DMARC for the chosen one | Phase 0.2 |
+
+D7 note: if SMS is wanted, the team has used **Twilio** before (see legacy-contrack.md §1.2).
+
+---
+
+## 7. Backlog — work order (do top to bottom)
+
+Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
+
+### Phase 0 — confirm the base (before new features)
+| # | Item | IDs | Size |
+|---|---|---|---|
+| 0.1 | Click through every ✅/🟡 item in §5 for each role with seed data; fix statuses in this file | all | M |
+| 0.2 | Go-live checklist section A against the live `bom1` deployment | — | S |
+| 0.3 | Fix doc drift: README/deployment say `iad1`, Resend-only, Anthropic-only | D2, D3 | S |
+| 0.5 | Verify the security checklist (SEC-01…18) against the code; fix what fails; one secret scan of the repo | §5.29 | M |
+| 0.4 | Get D1–D8 decided | §6 | — |
+
+### Phase 1 — money & control gaps (highest business value)
+| # | Item | IDs | Size |
+|---|---|---|---|
+| 1.1 | Payment ledger page | LED-01 | S |
+| 1.2 | Credit notes | AR-06 | M |
+| 1.3 | My approvals inbox (existing approval types first: timesheets, expenses, time off, AP exceptions, registrations) | APR-01, APR-02 | M |
+| 1.4 | Approval chains + thresholds + dual approval for payment runs | APR-03 | L |
+| 1.5 | Bank-detail change with second approver + callback | APR-04 | M |
+| 1.6 | Rate-change request/approval | APR-05 | S |
+| 1.7 | Org chart + delegation | APR-06, APR-07 | M |
+| 1.8 | Account-manager client scope (DB + RLS + API + UI) | ACC-03, USR-02 | M |
+| 1.9 | Signing-limit enforcement for countersigners | ACC-05, ESG-07 | S |
+| 1.10 | Remittance e-mail + NACHA file | AP-05, AP-06 | M |
+| 1.11 | Payout hold on expired COI / missing W-9 (if 0.1 shows it's missing) | AP-09, PAY-02 | S |
+| 1.12 | Timesheet adjustment after approval | TS-07 | M |
+
+### Phase 2 — visibility & everyday usability
+| # | Item | IDs | Size |
+|---|---|---|---|
+| 2.1 | Global search | UX-02 | M |
+| 2.2 | Notifications bell + nav badges | UX-03, UX-01 | S |
+| 2.3 | Reports hub (links + period/customer filter) | RPT-01, RPT-02 | M |
+| 2.4 | Onboarding pipeline board + personal invite | ONB-01–03 | M |
+| 2.5 | AI drafted collection e-mail + header AI drawer | AR-08, AI-03, UX-04 | M |
+| 2.6 | Offboarding checklist + retention dates | WA-04, WA-05 | S |
+| 2.7 | E-sign templates (NDA, offer, ICA) + template version / legal approval | ESG-02, ESG-08 | M |
+| 2.8 | AP payee status notifications | NOT-02 | S |
+| 2.9 | Time off pre-filled on timesheets | TS-10 | S |
+| 2.10 | Per-page template/import/export toolbar | UX-10 | S |
+| 2.11 | Access-matrix tab | ACC-04 | S |
+| 2.12 | Import templates for timesheets, payments, expenses | DATA-01 | S |
+
+### Phase 3 — SaaS platform
+| # | Item | IDs | Size |
+|---|---|---|---|
+| 3.1 | Plans & billing + subscription invoices (after D1) | PLAT-09 | M |
+| 3.2 | Auto-suspend after 60 days unpaid (read-only) | PLAT-10 | S |
+| 3.3 | Support access (request → tenant approve → time-boxed → logged) | PLAT-11, PLAT-12 | M |
+| 3.4 | Platform dashboard charts + funnel + KPIs | PLAT-01–03 | M |
+| 3.5 | Tenant modules on create; check-in e-mail; steps aligned (D6) | PLAT-05–07 | S |
+
+### Phase 4 — account, security, network polish
+| # | Item | IDs | Size |
+|---|---|---|---|
+| 4.1 | Passkeys | AUTH-02 | M |
+| 4.2 | Sign-in history, sessions list, recovery codes | AUTH-10, USR-05 | M |
+| 4.3 | Re-auth before payments/exports; admin IP restriction | AUTH-07, AUTH-08 | M |
+| 4.4 | Preferences (language, date format, start page, theme, list/cards) | USR-07, UX-08 | S |
+| 4.5 | Notification channels matrix, digest, quiet hours | USR-06 | M |
+| 4.6 | Privacy: download my data, paper copies, close account | USR-08 | M |
+| 4.7 | Network: comments, post/message attachments, endorsements, profile strength, suggestions | NET-02, NET-04, NET-06 | M |
+| 4.8 | Registration: terms/NDA/code-of-conduct acceptance | REG-04 | S |
+| 4.9 | File thumbnails + 30-day trash restore | UX-06 | S |
+
+### Phase 5 — integrations (Enterprise, on customer demand)
+| # | Item | IDs | Size |
+|---|---|---|---|
+| 5.1 | External verification (TIN, SoS, OFAC, bank) | REG-06 (D5) | L |
+| 5.2 | SCIM provisioning + SSO settings tab | SET-04 | L |
+| 5.3 | Accounting sync (QuickBooks) for ledger | LED-01 | L |
+| 5.4 | Payroll-provider export/import (ADP, Gusto, Paychex) | PAY-04 | M |
+| 5.5 | SMS reminders | NOT-04 (D7) | S |
+| 5.6 | Scheduled monthly report pack | RPT-03 | S |
+
+---
+
+## 8. Working rules
+
+- Run locally: [README.md](../README.md). Architecture & extending: [technical.md](technical.md).
+- New tables: tenant-scoped, RLS policy, **new** migration in `supabase/migrations/` (never edit an applied one).
+- Keep RULE-01…06. Amount masking is checked in review for every new screen and CSV.
+- UX reference is the prototype: open it, switch "Demo role", compare screen by screen.
+- One backlog item per PR; PR title starts with the requirement ID; update the status here in the same PR.
+
+---
+
+## 9. Progress log (newest first — every session adds one line)
+
+Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-13 · AUTH-01, AUTH-11, AUTH-12 · Login work on branch `feat/AUTH-login-mfa-social` (uncommitted): shared
+  `components/auth.tsx` + `lib/authProviders.ts`, forgot-password + `/reset-password`, Google/Microsoft buttons on login
+  and create-account, error mapping, MFA cancel link. `tsc` and `next build` pass; pages render (HTML checked on the
+  running dev server) — **not click-tested with real providers**. Created Entra app "myTrakIn Sign-in" (client id
+  `32328f1e-a9a5-43cf-943f-b40f26e82527`, secret in `ESG\_secrets\microsoft-signin.json`, expires 2028-10-13). **Waiting
+  on owner** (details in [auth-setup.md](auth-setup.md)): Google OAuth client; enable Azure + Google in Supabase; URL
+  Configuration; current publishable key (the key in `apps/web/.env.local` is rejected as invalid).
+- 2026-10-13 · Azure shutdown · Owner asked to stop Azure billing for the old project; deleted resource group
+  `rg-contrack` (details in [legacy-contrack.md](legacy-contrack.md)); verified the subscription is empty. **Open
+  follow-ups for the owner:** (1) DNS for `mytrakin.com` still points at Azure — `www` is a CNAME to
+  `contrack-esg-r620lc.azurewebsites.net` (now deleted: a dangling name someone else could claim) and the apex A record
+  is an Azure IP. Remove/replace those records at the DNS provider, **keep the Zoho MX/SPF/DKIM records** (mail uses
+  them), and remove any `asuid` TXT record. (2) The old repo's `deploy-production.yml` / `deploy-dev.yml` will fail on
+  the next push — disable them. (3) Old `mytrakinprod` served ~290 requests/day (health checks/bots) and the dev app
+  2–15k/day on `mytrakin.com` until deleted. Not done by me: nothing in the new project depends on Azure.
+- 2026-10-13 · RULE-07, SEC-*, BILL-*, D9 · Reviewed the old Contrack project. Kept only: Zoho SMTP settings (already
+  in the new API), SMS-provider hint (Twilio), a security checklist and billing acceptance tests. **No old
+  functionality adopted** (owner's instruction) — see [legacy-contrack.md](legacy-contrack.md). Old `Backend\.env` has a
+  plaintext DB password in a comment and the old audit mentions a Firebase key in git history: tell the owner to rotate
+  if that project is live. Uncommitted.
+- 2026-10-13 · — · Read the whole prototype; wrote this plan, [prototype-spec.md](prototype-spec.md), copied the
+  prototype to `docs/prototype/`, added root `CLAUDE.md`. No code changed. Next: Phase 0.1 (verify statuses), then
+  backlog 1.1 (LED-01). All four doc changes uncommitted.

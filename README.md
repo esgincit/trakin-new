@@ -78,6 +78,8 @@ Short version — the full, click-by-click guide is [docs/deployment.md](docs/de
 
 | Document | For |
 |---|---|
+| [Project plan](docs/PLAN.md) | Everyone on the team — requirement IDs, status, work order, open decisions |
+| [Prototype spec](docs/prototype-spec.md) | Builders — every screen, field, rule and formula of the [requirement prototype](docs/prototype/mytrakin-prototype.html) |
 | [Functional specification](docs/functional.md) | Product owners, implementers — what every module does and the business rules |
 | [Technical documentation](docs/technical.md) | Developers — architecture, data model, security model, how to extend |
 | [User manual](docs/user-manual.md) | Everyone — step-by-step by role |
