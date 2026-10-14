@@ -48,7 +48,7 @@ const NAV: Section[] = [
       { href: "/compliance", label: "Compliance", show: staff },
     ],
   },
-  { title: "People", items: [{ href: "/network", label: "Network" }] },
+  { title: "People", items: [{ href: "/network", label: "Network" }, { href: "/businesses", label: "My businesses" }] },
   {
     title: "Admin",
     items: [

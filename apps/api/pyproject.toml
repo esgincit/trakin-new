@@ -16,6 +16,9 @@ dependencies = [
   "pypdf>=5",
   "python-multipart>=0.0.12",
   "email-validator>=2.2",
+  "pymupdf>=1.24",
+  "pytesseract>=0.3.10",
+  "pillow>=10",
 ]
 
 # Vercel finds the FastAPI instance here (zero-config FastAPI deployment).

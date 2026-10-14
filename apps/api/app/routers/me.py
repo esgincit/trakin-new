@@ -33,6 +33,13 @@ async def me(db: TenantDb = Depends(user_db)):
     return {"profile": profile, "tenants": tenants, "is_platform_admin": bool(is_admin)}
 
 
+@router.get("/my/businesses")
+async def my_businesses(db: TenantDb = Depends(user_db)):
+    """Every business the caller created or belongs to — any role, any workspace.
+    Company data itself stays shielded; open a profile to see what your role allows."""
+    return await db.all("select * from mytrakin.my_businesses(:u)", {"u": db.ctx.user_id})
+
+
 @router.get("/session")
 async def session(db: TenantDb = Depends(tenant_db)):
     """The caller's role in the selected workspace (drives navigation in the web app)."""

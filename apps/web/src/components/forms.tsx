@@ -15,6 +15,9 @@ export function CompanyForm({ initial, onSaved }: { initial?: any; onSaved: (c: 
       <div className="fields">
         <Field label="Legal name" name="name" required defaultValue={initial?.name} full />
         <Field label="Type" name="kind" as="select" options={["client", "prime_vendor", "vendor", "end_client"]} defaultValue={initial?.kind} />
+        <Field label="Company domain" name="domain" defaultValue={initial?.domain ?? ""} placeholder="acme.com" />
+        <Field label="Business type" name="business_type" defaultValue={initial?.business_type ?? ""} placeholder="LLC / Corporation" />
+        <Field label="DBA" name="dba" defaultValue={initial?.dba ?? ""} />
         <Field label="Payment terms" name="default_terms" defaultValue={initial?.default_terms ?? "Net 30"} placeholder="Net 30 / Pay-when-paid" />
         <Field label="EIN" name="ein" defaultValue={initial?.ein ?? ""} placeholder="12-3456789" />
         <Field label="State" name="state" maxLength={2} defaultValue={initial?.state ?? ""} placeholder="TX" />

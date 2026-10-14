@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Attachments } from "@/components/Attachments";
+import { CheckList } from "@/components/CompanyWizard";
 import { CompanyForm } from "@/components/forms";
-import { Bar, Chip, ErrorBox, Loading, Modal, PageHead, useAction } from "@/components/ui";
+import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label, money } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
@@ -19,15 +20,24 @@ export default function CompanyDetail() {
   const { workspace } = useSession();
   const { data: c, error, loading, reload } = useApi(`/companies/${id}`);
   const [editing, setEditing] = useState(false);
+  const [memberRole, setMemberRole] = useState("member");
+  const logo = useRef<HTMLInputElement>(null);
+  const w9file = useRef<HTMLInputElement>(null);
   const { run, busy } = useAction();
+  const { refresh } = useSession();
   const canEdit = allows(workspace, "account_manager", "finance", "legal");
+  const canDecideW9 = allows(workspace, "finance", "legal");
+  const myRole = c?.my_company_role;
+  const canManage = canEdit || myRole === "owner" || myRole === "admin";
+  const taxFull = allows(workspace, "finance", "legal") || myRole === "owner" || myRole === "admin";
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
 
   return (
     <>
-      <PageHead title={c.name} sub={<>{label(c.kind)} · <Chip status={c.status} />{c.inactive_since && ` since ${date(c.inactive_since)} — ${c.inactive_reason ?? ""}`}</>}
+      <PageHead title={c.name}
+        sub={<>{c.logo_url && <img src={c.logo_url} alt="" style={{ height: 26, borderRadius: 6, verticalAlign: "middle", marginRight: 8 }} />}{c.business_code} · {label(c.kind)} · <Chip status={c.status} />{c.inactive_since && ` since ${date(c.inactive_since)} — ${c.inactive_reason ?? ""}`}</>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
@@ -61,6 +71,10 @@ export default function CompanyDetail() {
         <div className="card">
           <h3>Details</h3>
           <dl className="dl">
+            <dt>Business ID</dt><dd><code>{c.business_code}</code></dd>
+            <dt>Domain</dt><dd>{c.domain ?? "–"}</dd>
+            {c.business_type && <><dt>Business type</dt><dd>{c.business_type}</dd></>}
+            {c.dba && <><dt>DBA</dt><dd>{c.dba}</dd></>}
             <dt>Contact</dt><dd>{c.contact_name ?? "–"} {c.contact_email && <a href={`mailto:${c.contact_email}`}>{c.contact_email}</a>}</dd>
             <dt>Phone</dt><dd>{c.contact_phone ?? "–"}</dd>
             <dt>State</dt><dd>{c.state ?? "–"}</dd>
@@ -69,6 +83,16 @@ export default function CompanyDetail() {
             <dt>Bank verified</dt><dd>{c.bank_verified ? "Yes" : "No"}</dd>
             {c.balances && <><dt>Open AR</dt><dd>{money(c.balances.open_ar)}</dd><dt>Open AP</dt><dd>{money(c.balances.open_ap)}</dd></>}
           </dl>
+          {canManage && <>
+            <input ref={logo} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              const form = new FormData();
+              form.set("file", f);
+              if (await run(() => api(`/companies/${id}/logo`, { form }), "Logo updated")) { reload(); refresh(); }
+            }} />
+            <button className="btn sm mt" onClick={() => logo.current?.click()}>Upload logo</button>
+          </>}
           {c.notes && <p className="note">{c.notes}</p>}
         </div>
         <div className="card">
@@ -88,6 +112,86 @@ export default function CompanyDetail() {
           ))}
         </div>
       </div>
+
+      {c.status === "onboarding" && (
+        <div className="card mt">
+          <h3>Verification</h3>
+          {c.verification && Object.keys(c.verification).length > 0
+            ? <CheckList checks={c.verification} blockers={[]} />
+            : <p className="muted">Not checked yet. Activation needs every check to pass: details complete, e-mail on the company domain, verified W-9 with matching TIN, and an assigned owner.</p>}
+          <div className="row mt">
+            {canManage && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/verify`, { method: "POST", body: {} }), "Verification re-run")) reload(); }}>Re-check</button>}
+            {canEdit && <button className="btn sm pri" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/activate`, { method: "POST", body: {} }), `Activated as ${c.business_code}`)) reload(); }}>Activate company</button>}
+          </div>
+        </div>
+      )}
+
+      <div className="card mt">
+        <h3>Tax & W-9 <Chip status={c.w9_status} /></h3>
+        {taxFull ? (
+          <dl className="dl">
+            <dt>Legal name</dt><dd>{c.w9_data?.legal_name ?? "–"}</dd>
+            <dt>Classification</dt><dd>{c.tax_classification ?? c.w9_data?.tax_classification ?? "–"}</dd>
+            <dt>TIN</dt><dd>{c.tin ?? c.w9_data?.tin ?? "–"}</dd>
+            <dt>Tax address</dt><dd>{c.tax_address ?? ([c.w9_data?.address, c.w9_data?.city, c.w9_data?.state, c.w9_data?.zip].filter(Boolean).join(", ") || "–")}</dd>
+            {c.w9_note && <><dt>Review note</dt><dd>{c.w9_note}</dd></>}
+          </dl>
+        ) : (
+          <p className="muted">W-9 is {label(c.w9_status)}. Tax details are visible to finance, legal and company owners/admins.</p>
+        )}
+        {canManage && <>
+          <input ref={w9file} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            const form = new FormData();
+            form.set("file", f);
+            if (await run(() => api(`/companies/${id}/w9`, { form }), "W-9 uploaded — review the tax details")) reload();
+          }} />
+          <div className="row mt">
+            <button className="btn sm" onClick={() => w9file.current?.click()}>Upload W-9</button>
+            {canDecideW9 && c.w9_status !== "verified" && (
+              <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/w9/decision`, { body: { decision: "verified" } }), "W-9 verified")) reload(); }}>Mark verified</button>
+            )}
+            {canDecideW9 && ["submitted", "under_review"].includes(c.w9_status) && (
+              <button className="btn sm" disabled={busy} onClick={async () => {
+                const note = prompt("What's wrong with this W-9?");
+                if (note && await run(() => api(`/companies/${id}/w9/decision`, { body: { decision: "rejected", note } }), "W-9 sent back")) reload();
+              }}>Reject</button>
+            )}
+          </div>
+          {taxFull && <TaxForm id={id as string} c={c} reload={reload} />}
+        </>}
+      </div>
+
+      <div className="card mt">
+        <h3>Members{myRole ? ` — you are ${label(myRole)}` : ""}</h3>
+        {(c.members ?? []).map((m: any) => (
+          <div key={m.id} className="alert">
+            <Avatar name={m.name} /><div style={{ flex: 1 }}><b>{m.name}</b><div className="muted" style={{ fontSize: 12.5 }}>{m.email} · {label(m.company_role)}{m.title ? ` · ${m.title}` : ""} · {label(m.status)}</div></div>
+            {canManage && m.status === "active" && <>
+              {m.company_role === "member" && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "admin" } }), "Made admin")) reload(); }}>Make admin</button>}
+              {m.company_role === "admin" && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "member" } }), "Made member")) reload(); }}>Make member</button>}
+              <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "DELETE" }), "Removed")) reload(); }}>Remove</button>
+            </>}
+          </div>
+        ))}
+        {!(c.members ?? []).length && <p className="muted">No members yet.</p>}
+        {canManage && (
+          <form className="form mt" onSubmit={async (e) => {
+            e.preventDefault();
+            const v: any = formValues(e.currentTarget);
+            if (await run(() => api(`/companies/${id}/members`, { body: { ...v, company_role: memberRole } }), "Member invited")) { reload(); (e.target as HTMLFormElement).reset(); }
+          }}>
+            <div className="row">
+              <input className="ctl" name="email" type="email" required placeholder="person@company.com" style={{ flex: 2 }} aria-label="E-mail" />
+              <select className="ctl" value={memberRole} onChange={(e) => setMemberRole(e.target.value)} aria-label="Role" style={{ flex: 1 }}>
+                <option value="member">Member</option><option value="admin">Admin</option><option value="owner">Owner</option>
+              </select>
+              <button className="btn sm pri" disabled={busy}>Invite</button>
+            </div>
+          </form>
+        )}
+      </div>
       {c.documents.length > 0 && (
         <div className="card mt">
           <h3>Tracked documents</h3>
@@ -97,5 +201,25 @@ export default function CompanyDetail() {
       <Attachments ownerType="company" ownerId={id} canEdit={canEdit} />
       {editing && <Modal title={`Edit ${c.name}`} onClose={() => setEditing(false)}><CompanyForm initial={c} onSaved={() => { setEditing(false); reload(); }} /></Modal>}
     </>
+  );
+}
+
+function TaxForm({ id, c, reload }: { id: string; c: any; reload: () => void }) {
+  const { run, busy } = useAction();
+  return (
+    <form className="form mt" onSubmit={async (e) => {
+      e.preventDefault();
+      if (await run(() => api(`/companies/${id}/tax`, { method: "PATCH", body: formValues(e.currentTarget) }), "Tax details saved")) reload();
+    }}>
+      <div className="fields">
+        <Field label="DBA" name="dba" defaultValue={c.dba ?? c.w9_data?.dba ?? ""} />
+        <Field label="Tax classification" name="tax_classification" defaultValue={c.tax_classification ?? c.w9_data?.tax_classification ?? ""} />
+        <Field label="TIN type" name="tin_type" as="select" defaultValue="ein" options={[["ein", "EIN"], ["ssn", "SSN"]]} />
+        <Field label="TIN" name="tin" defaultValue={c.tin ?? ""} placeholder="12-3456789" />
+        <Field label="EIN (company record)" name="ein" defaultValue={c.ein ?? ""} />
+        <Field label="Tax address" name="tax_address" defaultValue={c.tax_address ?? ""} full />
+      </div>
+      <button className="btn sm mt" disabled={busy}>Save tax details</button>
+    </form>
   );
 }
