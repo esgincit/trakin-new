@@ -97,7 +97,7 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
       {step === 3 && company && (
         <form className="form" onSubmit={saveTax}>
           {extraction && (
-            <p className="muted">Extracted via {extraction.engine === "ocr" ? "OCR" : "document text"}{extraction.note ? ` — ${extraction.note}` : ". Check every field."}</p>
+            <p className="muted">Extracted from {extraction.engine === "ocr" ? "a scan (OCR)" : extraction.engine === "form-fields" ? "the form's filled fields" : "the document text"}{extraction.note ? ` — ${extraction.note}` : ". Check every field."}</p>
           )}
           <div className="fields">
             {extraction?.legal_name && (

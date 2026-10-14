@@ -133,3 +133,76 @@ async def test_my_businesses_lists_every_role(client, auth):
     assert any(b["company_name"] == "BrightPath Tech LLC" for b in consultant_businesses), consultant_businesses
     outsider = await client.get("/my/businesses", headers=auth("outsider"))
     assert outsider.status_code == 200 and outsider.json() == []
+
+
+def w9_form_pdf() -> bytes:
+    """IRS-layout W-9 with real AcroForm values: filled fields, a blank field, per-digit
+    TIN boxes and a checked classification box."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    y = 60
+
+    def label(text: str):
+        nonlocal y
+        page.insert_text((72, y), text, fontsize=9)
+        y += 14
+
+    def field(name: str, value: str):
+        nonlocal y
+        widget = pymupdf.Widget()
+        widget.field_name = name
+        widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+        widget.field_value = value
+        widget.rect = pymupdf.Rect(72, y, 512, y + 16)
+        page.add_widget(widget)
+        y += 34
+
+    label("1 Name (as shown on your income tax return)")
+    field("f_name", "Acme Staffing LLC")
+    label("2 Business name/disregarded entity name, if different from above")
+    field("f_dba", "")   # blank: must come back null, not the next label
+    label("3a Check appropriate box for federal tax classification")
+    page.insert_text((86, y + 11), "S Corporation", fontsize=9)
+    box = pymupdf.Widget()
+    box.field_name = "c_scorp"
+    box.field_type = pymupdf.PDF_WIDGET_TYPE_CHECKBOX
+    box.field_value = "Yes"
+    box.rect = pymupdf.Rect(72, y, 82, y + 10)
+    page.add_widget(box)
+    y += 34
+    label("5 Address (number, street, and apt. or suite no.)")
+    field("f_addr", "4100 Commerce Street")
+    label("6 City, state, and ZIP code")
+    field("f_city", "Dallas, TX 75207")
+    label("Employer identification number")
+    x = 72
+    for i, digit in enumerate("123456789"):
+        widget = pymupdf.Widget()
+        widget.field_name = f"f_ein_{i}"
+        widget.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+        widget.field_value = digit
+        widget.rect = pymupdf.Rect(x, y, x + 14, y + 16)
+        page.add_widget(widget)
+        x += 16
+    raw = doc.tobytes()
+    doc.close()
+    return raw
+
+
+async def test_w9_form_fields_map_exactly(client, auth):
+    admin = auth("admin")
+    company = await _new_company(client, auth)
+    uploaded = await client.post(f"/companies/{company['id']}/w9", headers=admin,
+                                 files={"file": ("w9.pdf", w9_form_pdf(), "application/pdf")})
+    assert uploaded.status_code == 200, uploaded.text
+    extraction = uploaded.json()["extraction"]
+    assert extraction["engine"] == "form-fields", extraction
+    assert extraction["legal_name"] == "Acme Staffing LLC", extraction
+    assert extraction["dba"] is None, extraction                       # blank stays blank
+    assert extraction["tax_classification"] == "S Corporation", extraction
+    assert extraction["tin"] == "12-3456789" and extraction["tin_type"] == "ein", extraction
+    assert extraction["address"] == "4100 Commerce Street", extraction
+    assert (extraction["city"], extraction["state"], extraction["zip"]) == ("Dallas", "TX", "75207"), extraction
+    assert extraction["needs_review"] == [], extraction
