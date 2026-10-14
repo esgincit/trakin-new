@@ -11,7 +11,7 @@ import orjson
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel, Field, HttpUrl
 
-from ..deps import TenantDb, tenant_db
+from ..deps import TenantDb, member_db
 from ..errors import bad_request, conflict, forbidden, not_found
 from ..services import storage
 
@@ -75,7 +75,7 @@ JSON_FIELDS = {"skills", "experience", "certifications", "education", "preferenc
 
 
 @router.get("/me")
-async def my_profile(db: TenantDb = Depends(tenant_db)):
+async def my_profile(db: TenantDb = Depends(member_db)):
     row = await db.one("select * from profiles where id = :u", {"u": db.ctx.user_id})
     if row is None:
         raise not_found("Profile")
@@ -83,7 +83,7 @@ async def my_profile(db: TenantDb = Depends(tenant_db)):
 
 
 @router.patch("/me")
-async def update_profile(body: ProfileIn, db: TenantDb = Depends(tenant_db)):
+async def update_profile(body: ProfileIn, db: TenantDb = Depends(member_db)):
     fields = body.model_dump(exclude_unset=True, mode="json")
     if not fields:
         raise bad_request("Nothing to change")
@@ -100,7 +100,7 @@ async def update_profile(body: ProfileIn, db: TenantDb = Depends(tenant_db)):
 
 @router.post("/me/photo")
 async def upload_photo(kind: str = Query("avatar", pattern="^(avatar|cover)$"), file: UploadFile = File(),
-                       db: TenantDb = Depends(tenant_db)):
+                       db: TenantDb = Depends(member_db)):
     """Profile photo or cover image (JPEG, PNG or WebP, up to 4 MB)."""
     ext = IMAGE_TYPES.get(file.content_type or "")
     if ext is None:
@@ -119,7 +119,7 @@ async def upload_photo(kind: str = Query("avatar", pattern="^(avatar|cover)$"), 
 
 
 @router.delete("/me/photo")
-async def remove_photo(kind: str = Query("avatar", pattern="^(avatar|cover)$"), db: TenantDb = Depends(tenant_db)):
+async def remove_photo(kind: str = Query("avatar", pattern="^(avatar|cover)$"), db: TenantDb = Depends(member_db)):
     column = "avatar_path" if kind == "avatar" else "cover_path"
     await db.run(f"update profiles set {column} = null where id = :u", {"u": db.ctx.user_id})
     return {"removed": kind}
@@ -130,7 +130,7 @@ def _looks_like_image(data: bytes) -> bool:
 
 
 @router.get("/people")
-async def people(db: TenantDb = Depends(tenant_db), q: str | None = None, open_to_work: bool | None = None,
+async def people(db: TenantDb = Depends(member_db), q: str | None = None, open_to_work: bool | None = None,
                  limit: int = Query(30, ge=1, le=100)):
     """Search people by name, headline, skill or location."""
     rows = await db.all(
@@ -148,7 +148,7 @@ async def people(db: TenantDb = Depends(tenant_db), q: str | None = None, open_t
 
 
 @router.get("/people/{person_id}")
-async def person(person_id: UUID, db: TenantDb = Depends(tenant_db)):
+async def person(person_id: UUID, db: TenantDb = Depends(member_db)):
     if not await db.val("select mytrakin.visible_profile(:p)", {"p": person_id}):
         raise not_found("Profile")
     row = await db.one(
@@ -171,7 +171,7 @@ async def person(person_id: UUID, db: TenantDb = Depends(tenant_db)):
 
 # ============================================================================ connections
 @router.get("/connections")
-async def connections(db: TenantDb = Depends(tenant_db)):
+async def connections(db: TenantDb = Depends(member_db)):
     rows = await db.all(
         """select c.status, c.created_at, c.requester_id = :u as outgoing,
                   p.id, p.full_name, p.headline, p.avatar_path
@@ -187,7 +187,7 @@ async def connections(db: TenantDb = Depends(tenant_db)):
 
 
 @router.post("/connections/{person_id}", status_code=201)
-async def connect(person_id: UUID, db: TenantDb = Depends(tenant_db)):
+async def connect(person_id: UUID, db: TenantDb = Depends(member_db)):
     if person_id == db.ctx.user_id:
         raise bad_request("You can't connect with yourself")
     if not await db.val("select mytrakin.visible_profile(:p)", {"p": person_id}):
@@ -209,7 +209,7 @@ async def connect(person_id: UUID, db: TenantDb = Depends(tenant_db)):
 
 
 @router.post("/connections/{person_id}/respond")
-async def respond(person_id: UUID, accept: bool = Query(), db: TenantDb = Depends(tenant_db)):
+async def respond(person_id: UUID, accept: bool = Query(), db: TenantDb = Depends(member_db)):
     if await db.run("""update connections set status = :s where requester_id = :p and addressee_id = :u and status = 'pending'""",
                     {"s": "accepted" if accept else "declined", "p": person_id, "u": db.ctx.user_id}) == 0:
         raise not_found("Invitation")
@@ -217,7 +217,7 @@ async def respond(person_id: UUID, accept: bool = Query(), db: TenantDb = Depend
 
 
 @router.delete("/connections/{person_id}")
-async def disconnect(person_id: UUID, db: TenantDb = Depends(tenant_db)):
+async def disconnect(person_id: UUID, db: TenantDb = Depends(member_db)):
     await db.run("""delete from connections where (requester_id = :u and addressee_id = :p) or (requester_id = :p and addressee_id = :u)""",
                  {"u": db.ctx.user_id, "p": person_id})
     return {"removed": True}
@@ -231,7 +231,7 @@ class PostIn(BaseModel):
 
 
 @router.get("/feed")
-async def feed(db: TenantDb = Depends(tenant_db), before: str | None = None, limit: int = Query(30, ge=1, le=100)):
+async def feed(db: TenantDb = Depends(member_db), before: str | None = None, limit: int = Query(30, ge=1, le=100)):
     """Posts from this workspace plus network-wide posts from people you can see. Newest first."""
     rows = await db.all(
         """select po.id, po.kind, po.body, po.likes, po.created_at, po.tenant_id is null as network_wide,
@@ -244,16 +244,18 @@ async def feed(db: TenantDb = Depends(tenant_db), before: str | None = None, lim
 
 
 @router.post("/posts", status_code=201)
-async def post(body: PostIn, db: TenantDb = Depends(tenant_db)):
+async def post(body: PostIn, db: TenantDb = Depends(member_db)):
     if body.kind == "announcement" and not db.ctx.allows("hr"):
         raise forbidden("Only HR and admins can post announcements")
+    if db.ctx.tenant_id is None and body.audience == "company":
+        raise bad_request("You're not in a workspace yet, so post to “Everyone in my network”.")
     return await db.one(
         "insert into posts (tenant_id, author_id, kind, body) values (:t, :u, :k, :b) returning *",
         {"t": db.ctx.tenant_id if body.audience == "company" else None, "u": db.ctx.user_id, "k": body.kind, "b": body.body.strip()})
 
 
 @router.post("/posts/{post_id}/like")
-async def like(post_id: UUID, db: TenantDb = Depends(tenant_db)):
+async def like(post_id: UUID, db: TenantDb = Depends(member_db)):
     likes = await db.val("update posts set likes = likes + 1 where id = :id returning likes", {"id": post_id})
     if likes is None:
         raise not_found("Post")
@@ -261,7 +263,7 @@ async def like(post_id: UUID, db: TenantDb = Depends(tenant_db)):
 
 
 @router.delete("/posts/{post_id}")
-async def delete_post(post_id: UUID, db: TenantDb = Depends(tenant_db)):
+async def delete_post(post_id: UUID, db: TenantDb = Depends(member_db)):
     if await db.run("delete from posts where id = :id", {"id": post_id}) == 0:
         raise not_found("Post")
     return {"deleted": True}
@@ -273,7 +275,7 @@ class MessageIn(BaseModel):
 
 
 @router.get("/messages")
-async def threads(db: TenantDb = Depends(tenant_db)):
+async def threads(db: TenantDb = Depends(member_db)):
     """One row per conversation with the latest message and unread count."""
     rows = await db.all(
         """select distinct on (other) other as person_id, p.full_name, p.headline, p.avatar_path, m.body as last_message,
@@ -287,7 +289,7 @@ async def threads(db: TenantDb = Depends(tenant_db)):
 
 
 @router.get("/messages/{person_id}")
-async def conversation(person_id: UUID, db: TenantDb = Depends(tenant_db), limit: int = Query(100, ge=1, le=500)):
+async def conversation(person_id: UUID, db: TenantDb = Depends(member_db), limit: int = Query(100, ge=1, le=500)):
     rows = await db.all(
         """select id, sender_id, body, created_at, read_at, sender_id = :u as mine from messages
             where (sender_id = :u and recipient_id = :p) or (sender_id = :p and recipient_id = :u)
@@ -298,7 +300,7 @@ async def conversation(person_id: UUID, db: TenantDb = Depends(tenant_db), limit
 
 
 @router.post("/messages/{person_id}", status_code=201)
-async def send_message(person_id: UUID, body: MessageIn, db: TenantDb = Depends(tenant_db)):
+async def send_message(person_id: UUID, body: MessageIn, db: TenantDb = Depends(member_db)):
     """Message anyone whose profile you can see (colleagues, connections, consultants at other companies)."""
     if person_id == db.ctx.user_id:
         raise bad_request("You can't message yourself")

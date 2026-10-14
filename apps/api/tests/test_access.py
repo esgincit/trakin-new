@@ -98,3 +98,19 @@ async def test_platform_console_is_owner_only(client, auth):
     assert (await client.get("/platform/metrics", headers=auth("admin"))).status_code == 403
     metrics = (await client.get("/platform/metrics", headers=auth("platform"))).json()
     assert metrics["tenants"] >= 1 and metrics["active_users"] >= 1
+
+
+async def test_new_user_without_a_workspace_can_use_the_network(client, auth):
+    """A fresh Google/Microsoft sign-up has no invite yet: feed, people and posting work; workspace data stays closed."""
+    h = auth("outsider")
+    assert (await client.get("/network/feed", headers=h)).status_code == 200
+    assert (await client.get("/network/people", headers=h)).status_code == 200
+    # a workspace-only post needs a workspace …
+    r = await client.post("/network/posts", headers=h, json={"body": "Hi", "kind": "update", "audience": "company"})
+    assert r.status_code == 400
+    # … a network-wide post does not
+    r = await client.post("/network/posts", headers=h, json={"body": "Hello network", "kind": "update", "audience": "network"})
+    assert r.status_code == 201
+    feed = (await client.get("/network/feed", headers=h)).json()
+    assert any(p["body"] == "Hello network" and p["network_wide"] for p in feed)
+    assert (await client.get("/dashboard", headers=h)).status_code == 403

@@ -110,6 +110,27 @@ async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) 
         yield TenantDb(conn, ctx)
 
 
+async def member_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:
+    """For pages that belong to the person, not a workspace (the network). Inside a workspace this is `tenant_db`;
+    someone who hasn't been invited anywhere yet simply acts as themselves, so a new Google/Microsoft sign-up
+    can use the feed, people and messages straight away."""
+    ip, ua = client_ip(request), user_agent(request)
+    async with get_engine().begin() as conn:
+        row = (await conn.execute(text(_START_SQL), {"uid": claims.user_id, "tid": _tenant_header(request),
+                                                     "ip": ip, "ua": ua})).mappings().first()
+        if row is None:
+            await conn.execute(text("select mytrakin.begin_request(:uid, null, 'member', null, null, :ip, :ua)"),
+                               {"uid": claims.user_id, "ip": ip, "ua": ua})
+            yield TenantDb(conn, Ctx(user_id=claims.user_id, tenant_id=None, role="member", email=claims.email, ip=ip, user_agent=ua))
+            return
+        ctx = Ctx(user_id=claims.user_id, tenant_id=row["tenant_id"], role=row["role"], email=claims.email,
+                  company_id=row["company_id"], consultant_id=row["consultant_id"],
+                  membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
+        if get_settings().require_mfa_for_money_roles and ctx.role in MONEY_ROLES and claims.aal != "aal2":
+            raise ApiError(403, "mfa_required", "Finish two-step verification to use money features.")
+        yield TenantDb(conn, ctx)
+
+
 async def platform_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:
     ip, ua = client_ip(request), user_agent(request)
     async with get_engine().begin() as conn:

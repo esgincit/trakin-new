@@ -169,6 +169,7 @@ own invoices and projects.
 | AUTH-09 | Session idle timeout setting (30 min / 8 h / 12 h). | ✅ |
 | AUTH-10 | Sign-in history with IP, approximate location, device, result; block + alert on new country without MFA. | ❌ |
 | AUTH-11 | **Forgot password:** "Forgot password?" on the password step → e-mailed one-time link → `/reset-password` (new password 12+ chars, letters + numbers) → authenticator code if enrolled → app. Identical message whether or not the account exists. | ✅ (2026-10-13, branch `feat/AUTH-login-mfa-social`) |
+| AUTH-13 | **New user with no workspace:** signing in with Google/Microsoft/e-mail creates the account automatically (Supabase) and opens the **Network feed** — no "request a workspace" wall. Limited menu: Network (feed, people, messages), My businesses, My profile, Account & security (where two-step verification is set up). Workspace-only pages redirect to the feed; posts default to "Everyone in my network". API: network endpoints use `member_db` (person-only when there is no workspace); no database change. | ✅ (2026-10-14, branch `feat/AUTH-no-workspace-home`; API test added, runs in CI) |
 | AUTH-12 | **Social sign-in UX:** Google/Microsoft buttons on sign-in and create-account, with brand marks; a button is hidden when Supabase reports its provider switched off; provider errors (cancelled, not enabled, redirect not allowed, bad key) shown in plain words; "Cancel and sign out" from the two-step screen. | ✅ (same branch) |
 
 ### 5.2 Public: registration (`/register/[tenantId]`, `/signup`)
@@ -581,6 +582,12 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-14 · AUTH-13 · Owner tested Google sign-in on https://www.mytrackin.com: it worked but showed the "Almost
+  there / request a workspace" wall. Fixed on branch `feat/AUTH-no-workspace-home` (uncommitted→committed locally, NOT
+  pushed): `member_db` dependency (`apps/api/app/deps.py`), network routes use it, `AppShell` limited menu + redirect,
+  home → `/network`, welcome note + MFA tip on the feed. No migration needed (RLS already per-person). `tsc` passes; the
+  new API test (`test_new_user_without_a_workspace_can_use_the_network`) has not run locally (no Postgres) — CI runs it.
+  MFA is set up at avatar menu → Account & security → "Set up an authenticator app".
 - 2026-10-13 · AUTH-01, AUTH-11, AUTH-12 · Login work on branch `feat/AUTH-login-mfa-social` (uncommitted): shared
   `components/auth.tsx` + `lib/authProviders.ts`, forgot-password + `/reset-password`, Google/Microsoft buttons on login
   and create-account, error mapping, MFA cancel link. `tsc` and `next build` pass; pages render (HTML checked on the

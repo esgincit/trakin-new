@@ -33,15 +33,22 @@ function Network() {
 }
 
 function Feed() {
-  const { workspace } = useSession();
+  const { workspace, me } = useSession();
   const { data, error, reload } = useApi<any[]>("/network/feed");
   const [body, setBody] = useState("");
   const [kind, setKind] = useState("update");
-  const [audience, setAudience] = useState("company");
+  const [audience, setAudience] = useState(workspace ? "company" : "network");
   const { run, busy } = useAction();
   return (
     <div className="grid c2">
       <div className="card">
+        {!workspace && (
+          <p className="muted" style={{ marginTop: 0 }}>
+            <b>Welcome!</b> You can post, connect and message right away. To use payments, timesheets and contracts, ask your
+            administrator to invite <b>{me?.profile?.email}</b>, or <Link href="/signup">request a workspace</Link> for your company.
+            Tip: add two-step verification under <Link href="/account">Account & security</Link>.
+          </p>
+        )}
         <form onSubmit={async (e) => { e.preventDefault(); if (await run(() => api("/network/posts", { body: { body, kind, audience } }), "Posted")) { setBody(""); reload(); } }}>
           <textarea className="ctl" placeholder="Share an update, thank a colleague, or post an opening…" value={body} onChange={(e) => setBody(e.target.value)} maxLength={3000} />
           <div className="row mt">
@@ -50,7 +57,7 @@ function Feed() {
               {allows(workspace, "hr") && <option value="announcement">Announcement</option>}
             </select>
             <select className="ctl" value={audience} onChange={(e) => setAudience(e.target.value)} aria-label="Audience">
-              <option value="company">{workspace?.tenant.name} only</option><option value="network">Everyone in my network</option>
+              {workspace && <option value="company">{workspace.tenant.name} only</option>}<option value="network">Everyone in my network</option>
             </select>
             <button className="btn pri right" disabled={busy || !body.trim()}>Post</button>
           </div>

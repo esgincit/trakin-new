@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A new person who signs in (Google, Microsoft or e-mail) without a workspace now lands on the Network feed with a
+  limited menu (Network, My businesses, My profile, Account & security) instead of a "request a workspace" screen.
+  The network API works without a workspace; posts default to "Everyone in my network".
 - Sign-in: forgot-password flow (`/reset-password`); Google and Microsoft buttons on sign-in and create-account
   (hidden while a provider is switched off in Supabase); clearer sign-in error messages; "cancel and sign out" on the
   two-step verification screen. Setup steps: `docs/auth-setup.md`.

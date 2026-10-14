@@ -12,7 +12,8 @@ export default function Home() {
   useEffect(() => {
     if (!ready) return;
     if (!session) return router.replace("/login");
-    if (!workspace) return router.replace(me?.is_platform_admin ? "/platform" : "/dashboard");
+    // No workspace yet (a new Google/Microsoft sign-up): the feed is their home.
+    if (!workspace) return router.replace(me?.is_platform_admin ? "/platform" : "/network");
     if (workspace.role === "consultant") router.replace("/my");
     else if (!isStaff(workspace.role)) router.replace("/partner");
     else router.replace("/dashboard");

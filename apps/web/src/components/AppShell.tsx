@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { allows, isStaff, useRequireSession, type Role, type Workspace } from "@/lib/session";
 import { Avatar, Loading } from "./ui";
@@ -60,9 +60,23 @@ const NAV: Section[] = [
   },
 ];
 
+/** What someone with no workspace yet (a fresh Google/Microsoft sign-up) can open: the network, their own businesses and account. */
+const MEMBER_NAV: Section[] = [
+  { title: "Your network", items: [{ href: "/network", label: "Feed, people & messages" }, { href: "/businesses", label: "My businesses" }] },
+  { title: "Account", items: [{ href: "/profile", label: "My profile" }, { href: "/account", label: "Account & security" }] },
+];
+const MEMBER_PATHS = MEMBER_NAV.flatMap((s) => s.items.map((i) => i.href));
+const inMemberArea = (path: string) => MEMBER_PATHS.some((p) => path === p || path.startsWith(p + "/"));
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { ready, session, me, workspace, error, switchTenant, signOut } = useRequireSession();
   const path = usePathname();
+  const router = useRouter();
+  const noWorkspace = !!me && !me.tenants.length && !me.is_platform_admin;
+  // Workspace-only pages (dashboard, invoices …) send a person with no workspace to the feed instead of an error.
+  useEffect(() => {
+    if (noWorkspace && !inMemberArea(path)) router.replace("/network");
+  }, [noWorkspace, path, router]);
   const [navOpen, setNavOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark" | "">("");
@@ -96,16 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div></div>
     );
   }
-  if (me && !me.tenants.length && !me.is_platform_admin) {
-    return (
-      <div className="auth"><div className="card">
-        <h2>Almost there</h2>
-        <p className="muted">You're signed in as {me.profile?.email}, but no workspace has invited this address yet.
-          Ask your administrator to invite you, or <Link href="/signup">request a workspace</Link> for your company.</p>
-        <button className="btn" onClick={signOut}>Sign out</button>
-      </div></div>
-    );
-  }
+  if (noWorkspace && !inMemberArea(path)) return <div className="content"><Loading /></div>;
 
   const name = me?.profile?.full_name ?? me?.profile?.email;
   return (
@@ -128,6 +133,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             );
           })}
+          {noWorkspace && MEMBER_NAV.map((sec, i) => (
+            <div key={i}>
+              <div className="sec">{sec.title}</div>
+              {sec.items.map((it) => (
+                <Link key={it.href} href={it.href} className={inMemberArea(path) && (path === it.href || path.startsWith(it.href + "/")) ? "on" : ""}>
+                  {it.label}
+                </Link>
+              ))}
+            </div>
+          ))}
           {me?.is_platform_admin && (
             <>
               <div className="sec">Platform</div>
@@ -144,7 +159,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               {me.tenants.map((t) => <option key={t.tenant_id} value={t.tenant_id}>{t.tenant_name}</option>)}
             </select>
           ) : (
-            <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{workspace?.tenant.name}</b>
+            <b style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{workspace?.tenant.name ?? (noWorkspace ? "Your network" : "")}</b>
           )}
           <span className="grow" />
           <button className="btn sm" onClick={cycleTheme} title="Theme: system, dark or light">
@@ -159,7 +174,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className={`amenu ${menuOpen ? "open" : ""}`} role="menu">
           <div style={{ padding: "8px 10px" }}>
             <b>{name}</b>
-            <div className="muted" style={{ fontSize: 12.5 }}>{workspace?.role.replace(/_/g, " ")} · {me?.profile?.email}</div>
+            <div className="muted" style={{ fontSize: 12.5 }}>{workspace ? `${workspace.role.replace(/_/g, " ")} · ` : ""}{me?.profile?.email}</div>
           </div>
           <Link href="/profile" role="menuitem">My profile</Link>
           <Link href="/account" role="menuitem">Account & security</Link>
