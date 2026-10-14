@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Sign-in: forgot-password flow (`/reset-password`); Google and Microsoft buttons on sign-in and create-account
+  (hidden while a provider is switched off in Supabase); clearer sign-in error messages; "cancel and sign out" on the
+  two-step verification screen. Setup steps: `docs/auth-setup.md`.
+
 ## 1.0.0 — 2026-10-12
 
 First production release of **myTrakIn** (renamed from the VendorChain prototype).

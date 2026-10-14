@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { SocialButtons } from "@/components/auth";
 import { Field, formValues } from "@/components/ui";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/lib/supabase";
@@ -101,6 +102,7 @@ export default function CreateAccount() {
             )}</p>
           )}
         </form>
+        <SocialButtons next="/" verb="sign up with" onError={(m) => setError(m || null)} onBusy={setBusy} disabled={busy} />
       </div>
       <p className="muted" style={{ textAlign: "center" }}>
         Already have an account? <Link href="/login">Sign in</Link>

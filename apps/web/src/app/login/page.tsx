@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { AuthLayout, friendlyAuthError, SocialButtons } from "@/components/auth";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/session";
 
-type Step = "choose" | "email" | "email_code" | "phone" | "phone_code" | "password" | "sso" | "mfa";
+type Step = "choose" | "email" | "email_code" | "phone" | "phone_code" | "password" | "forgot" | "forgot_sent" | "sso" | "mfa";
 
 export default function LoginPage() {
   return (
@@ -36,7 +37,7 @@ function Login() {
     try {
       await fn();
     } catch (e) {
-      setError((e as Error).message);
+      setError(friendlyAuthError(e as Error));
     } finally {
       setBusy(false);
     }
@@ -53,19 +54,11 @@ function Login() {
     router.replace(next);
   }
 
-  /** Supabase sends the code e-mail; when its mailer is down, say so plainly. */
-  function friendlyEmailError(error: Error): Error {
-    if (/sending|confirmation email|rate limit|unexpected_failure|over_email|email not confirmed/i.test(error.message)) {
-      return new Error("E-mail codes aren't going out right now. If you have a password, use that instead — otherwise ask your administrator to set one for you.");
-    }
-    return error;
-  }
-
   const sendEmailCode = (e: FormEvent) => {
     e.preventDefault();
     attempt(async () => {
       const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-      if (error) throw friendlyEmailError(error);
+      if (error) throw error;
       setInfo(`We sent a 6-digit code to ${email}.`);
       setStep("email_code");
     });
@@ -108,6 +101,16 @@ function Login() {
     });
   };
 
+  /** "Forgot password?" — always answers the same, so nobody can use it to find out who has an account. */
+  const sendReset = (e: FormEvent) => {
+    e.preventDefault();
+    attempt(async () => {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/reset-password` });
+      if (error && !/not found|no user/i.test(error.message)) throw error;
+      setStep("forgot_sent");
+    });
+  };
+
   const ssoSignIn = (e: FormEvent) => {
     e.preventDefault();
     attempt(async () => {
@@ -118,36 +121,34 @@ function Login() {
     });
   };
 
-  const oauth = (provider: "google" | "azure") =>
-    attempt(async () => {
-      const { error } = await sb.auth.signInWithOAuth({
-        provider, options: { redirectTo: `${location.origin}/login?next=${encodeURIComponent(next)}`, scopes: provider === "azure" ? "email" : undefined },
-      });
-      if (error) throw error;
-    });
-
-  // Returning from SSO / Google / Microsoft: the session is already in the URL.
+  // Returning from SSO / Google / Microsoft: the session is already in the URL, or the provider sent an error.
   useEffect(() => {
+    const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+    const failure = params.get("error_description") ?? hash.get("error_description") ?? params.get("error") ?? hash.get("error");
+    if (failure) setError(friendlyAuthError(failure.replace(/\+/g, " ")));
     sb.auth.getSession().then(({ data }) => {
-      if (data.session && step === "choose") finish();
+      if (step === "mfa" && !data.session) setStep("choose"); // an expired two-step link with nobody signed in
+      else if (data.session && step === "choose" && !failure) finish();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <div className="auth">
-      <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><i>mT</i>myTrakIn</div>
-      <div className="card">
+    <AuthLayout footer={<>
+      <p className="muted" style={{ textAlign: "center" }}>
+        New user? <Link href="/create-account">Create an account</Link>
+      </p>
+      <p className="muted" style={{ textAlign: "center" }}>
+        New company? <Link href="/signup">Request a workspace</Link>
+      </p>
+    </>}>
         {step === "choose" && (
           <>
             <h2>Sign in</h2>
             <p className="muted">Use the e-mail address your company invited.</p>
             <button className="btn pri authbtn" onClick={() => setStep("email")}>E-mail me a code<span>No password needed</span></button>
             <button className="btn authbtn" onClick={() => setStep("sso")}>Company single sign-on (SSO)<span>Okta, Microsoft Entra ID, Google Workspace…</span></button>
-            <div className="row mt">
-              <button className="btn" style={{ flex: 1 }} onClick={() => oauth("google")}>Google</button>
-              <button className="btn" style={{ flex: 1 }} onClick={() => oauth("azure")}>Microsoft</button>
-            </div>
+            <SocialButtons next={next} onError={(m) => setError(m || null)} onBusy={setBusy} disabled={busy} />
             <div className="row mt" style={{ justifyContent: "space-between" }}>
               <a onClick={() => setStep("phone")}>Text me a code</a>
               <a onClick={() => setStep("password")}>Use a password</a>
@@ -187,8 +188,26 @@ function Login() {
             <label htmlFor="pw">Password</label>
             <input id="pw" name="password" className="ctl" type="password" required autoComplete="current-password" />
             <button className="btn pri mt" disabled={busy} style={{ width: "100%" }}>Sign in</button>
-            <p className="note">Forgot it? Sign in with an e-mail code, then set a new password under Account & security.</p>
+            <p className="note"><a onClick={() => { setStep("forgot"); setError(null); }}>Forgot password?</a></p>
           </form>
+        )}
+
+        {step === "forgot" && (
+          <form onSubmit={sendReset} className="form">
+            <h2>Reset your password</h2>
+            <p className="muted">Enter your e-mail and we'll send a link to choose a new password.</p>
+            <label htmlFor="fe">E-mail</label>
+            <input id="fe" className="ctl" type="email" required autoFocus autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <button className="btn pri mt" disabled={busy} style={{ width: "100%" }}>Send reset link</button>
+          </form>
+        )}
+
+        {step === "forgot_sent" && (
+          <>
+            <h2>Check your inbox</h2>
+            <p className="muted">If {email} has an account, a reset link is on its way. It works once and expires in an hour.
+              Didn't get it? Check spam, or <a onClick={() => setStep("forgot")}>send it again</a>.</p>
+          </>
         )}
 
         {step === "sso" && (
@@ -200,18 +219,14 @@ function Login() {
           </form>
         )}
 
-        {step === "mfa" && <MfaStep onDone={async () => { await refresh(); router.replace(next); }} />}
+        {step === "mfa" && (
+          <MfaStep onDone={async () => { await refresh(); router.replace(next); }}
+                   onCancel={async () => { await sb.auth.signOut(); setError(null); setStep("choose"); }} />
+        )}
 
         {error && <p className="err" role="alert">{error}</p>}
         {step !== "choose" && step !== "mfa" && <p className="mt"><a onClick={() => { setStep("choose"); setError(null); }}>← Other ways to sign in</a></p>}
-      </div>
-      <p className="muted" style={{ textAlign: "center" }}>
-        New user? <Link href="/create-account">Create an account</Link>
-      </p>
-      <p className="muted" style={{ textAlign: "center" }}>
-        New company? <Link href="/signup">Request a workspace</Link>
-      </p>
-    </div>
+    </AuthLayout>
   );
 }
 
@@ -231,7 +246,7 @@ function CodeEntry({ info, busy, onSubmit, onResend }: { info: string | null; bu
 }
 
 /** Two-step verification with an authenticator app (TOTP). Enrolls on first use. */
-function MfaStep({ onDone }: { onDone: () => void }) {
+function MfaStep({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const sb = supabase();
   const [factorId, setFactorId] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -281,6 +296,7 @@ function MfaStep({ onDone }: { onDone: () => void }) {
              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} style={{ fontSize: 22, letterSpacing: 8, textAlign: "center" }} />
       <button className="btn pri mt" disabled={code.length !== 6} style={{ width: "100%" }}>Verify</button>
       {error && <p className="err" role="alert">{error}</p>}
+      <p className="note">Lost your device? Ask your administrator for help. <a onClick={onCancel}>Cancel and sign out</a></p>
     </form>
   );
 }
