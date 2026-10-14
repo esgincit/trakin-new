@@ -505,7 +505,7 @@ async def _active_owners(db: TenantDb, company_id: UUID, exclude: UUID | None = 
     return await db.val(
         """select count(*) from company_members
             where company_id = :c and company_role = 'owner' and status = 'active'
-              and (:x is null or id <> :x)""", {"c": company_id, "x": exclude})
+              and (cast(:x as uuid) is null or id <> :x)""", {"c": company_id, "x": exclude})
 
 
 @router.get("/{company_id}/members")
