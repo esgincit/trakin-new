@@ -248,6 +248,7 @@ function CodeEntry({ info, busy, onSubmit, onResend }: { info: string | null; bu
 /** Two-step verification with an authenticator app (TOTP). Enrolls on first use. */
 function MfaStep({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const sb = supabase();
+  const allowed = useSession().me?.mfa_allowed;
   const [factorId, setFactorId] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
@@ -259,6 +260,8 @@ function MfaStep({ onDone, onCancel }: { onDone: () => void; onCancel: () => voi
       const { data } = await sb.auth.mfa.listFactors();
       const verified = data?.totp.find((f) => f.status === "verified");
       if (verified) return setFactorId(verified.id);
+      if (allowed === undefined) return;   // wait for the session, so enrollment starts once
+      if (allowed === false) return setError("Your company owner hasn't enabled two-step verification for your account.");
       // Remove half-finished enrollments, then start a new one.
       for (const f of data?.all ?? []) if (f.status !== "verified") await sb.auth.mfa.unenroll({ factorId: f.id });
       const { data: enrolled, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: `Authenticator ${new Date().toISOString().slice(0, 10)}` });
@@ -267,7 +270,7 @@ function MfaStep({ onDone, onCancel }: { onDone: () => void; onCancel: () => voi
       setQr(enrolled.totp.qr_code);
       setSecret(enrolled.totp.secret);
     })();
-  }, [sb]);
+  }, [sb, allowed]);
 
   const verify = async (e: FormEvent) => {
     e.preventDefault();

@@ -48,18 +48,30 @@ export default function Account() {
         <div className="card">
           <PhoneSignIn current={session?.user.phone ?? null} />
           <h3 className="mt">Two-step verification</h3>
-          {factors.filter((f) => f.status === "verified").map((f) => (
-            <div key={f.id} className="alert">
-              <div style={{ flex: 1 }}><b>{f.friendly_name ?? "Authenticator app"}</b><div className="muted" style={{ fontSize: 12.5 }}>Added {dateTime(f.created_at)}</div></div>
-              <button className="btn sm" onClick={async () => {
-                if (!confirm("Remove this authenticator? Admin and finance roles need one to use money features.")) return;
-                await run(async () => { const { error } = await sb.auth.mfa.unenroll({ factorId: f.id }); if (error) throw error; }, "Removed");
-                loadFactors();
-              }}>Remove</button>
-            </div>
-          ))}
-          {!factors.some((f) => f.status === "verified") && <p className="muted">Not set up. Required for admin and finance roles.</p>}
-          <a className="btn mt" href="/login?step=mfa&next=/account">Set up an authenticator app</a>
+          {(() => {
+            const on = factors.filter((f) => f.status === "verified");
+            if (on.length) return (
+              <>
+                <p className="muted"><b>On.</b> Signing in asks for a code from your authenticator app.</p>
+                {on.map((f) => (
+                  <div key={f.id} className="alert">
+                    <div style={{ flex: 1 }}><b>{f.friendly_name ?? "Authenticator app"}</b><div className="muted" style={{ fontSize: 12.5 }}>Added {dateTime(f.created_at)}</div></div>
+                    <button className="btn sm" disabled={busy} onClick={async () => {
+                      await run(async () => { const { error } = await sb.auth.mfa.unenroll({ factorId: f.id }); if (error) throw error; }, "Two-step verification turned off");
+                      loadFactors();
+                    }}>Turn off</button>
+                  </div>
+                ))}
+              </>
+            );
+            if (me?.mfa_allowed === false) return <p className="muted">Your company owner hasn&apos;t enabled two-step verification for your account.</p>;
+            return (
+              <>
+                <p className="muted"><b>Off.</b> It&apos;s your choice — turn it on for an extra code at every sign-in.</p>
+                <a className="btn mt" href="/login?step=mfa&next=/account">Turn on two-step verification</a>
+              </>
+            );
+          })()}
 
           <h3 className="mt">Sessions</h3>
           <p className="muted">Signed in since {session?.user.last_sign_in_at ? dateTime(session.user.last_sign_in_at) : "–"}.</p>

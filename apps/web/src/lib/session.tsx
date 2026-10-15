@@ -11,9 +11,14 @@ export type Role =
   | "tenant_admin" | "finance" | "account_manager" | "legal" | "hr" | "approver" | "viewer"
   | "vendor_admin" | "client_user" | "consultant";
 
+/** Owner-configured access per module: hidden, view-only or edit. */
+export type Level = "none" | "read" | "write";
+
 export type Workspace = {
   tenant: { id: string; name: string; plan: string; status: string; company_id: string | null };
   is_owner: boolean;
+  permissions: Record<string, Level>;
+  custom_role: string | null;
   role: Role;
   company_id: string | null;
   consultant_id: string | null;
@@ -26,6 +31,7 @@ type Me = {
   profile: { id: string; email: string; full_name: string; headline?: string; avatar_path?: string; avatar_url?: string | null; preferences?: Record<string, any> };
   tenants: { tenant_id: string; tenant_name: string; role: Role; tenant_status: string }[];
   is_platform_admin: boolean;
+  mfa_allowed: boolean;
 };
 
 type Ctx = {
@@ -124,3 +130,9 @@ export const isStaff = (role?: Role) =>
 export function allows(ws: Workspace | null, ...roles: Role[]): boolean {
   return !!ws && (ws.role === "tenant_admin" || roles.includes(ws.role));
 }
+
+export const isOwner = (ws?: Workspace | null) => !!ws?.is_owner;
+/** The owner always has full access; anyone else gets what their role / exceptions allow (default: edit). */
+export const perm = (ws: Workspace | null | undefined, module: string): Level =>
+  ws?.is_owner ? "write" : (ws?.permissions?.[module] ?? "write");
+export const canEdit = (ws: Workspace | null | undefined, module: string) => perm(ws, module) === "write";

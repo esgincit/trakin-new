@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { allows, isStaff, useRequireSession, type Role, type Workspace } from "@/lib/session";
+import { allows, isOwner, isStaff, perm, useRequireSession, type Role, type Workspace } from "@/lib/session";
 import { Avatar, Loading } from "./ui";
 
-type Item = { href: string; label: string; show?: (ws: Workspace) => boolean };
+type Item = { href: string; label: string; show?: (ws: Workspace) => boolean; module?: string };
 type Section = { title?: string; items: Item[] };
 
 const staff = (ws: Workspace) => isStaff(ws.role);
@@ -15,7 +15,7 @@ const can = (...roles: Role[]) => (ws: Workspace) => allows(ws, ...roles);
 const NAV: Section[] = [
   {
     items: [
-      { href: "/dashboard", label: "Dashboard", show: staff },
+      { href: "/dashboard", label: "Dashboard", show: staff, module: "dashboard" },
       { href: "/my", label: "My work", show: (ws) => ws.role === "consultant" },
       { href: "/my/timesheet", label: "My timesheet", show: (ws) => ws.role === "consultant" },
       { href: "/my/documents", label: "Policies & documents", show: (ws) => ws.role === "consultant" },
@@ -26,36 +26,37 @@ const NAV: Section[] = [
   {
     title: "Money",
     items: [
-      { href: "/payments", label: "Payment flow", show: can("finance", "account_manager", "viewer") },
-      { href: "/invoices", label: "Invoices", show: (ws) => staff(ws) },
-      { href: "/pay", label: "Payroll, 1099 & referrals", show: can("finance", "hr", "approver", "account_manager") },
+      { href: "/payments", label: "Payment flow", show: can("finance", "account_manager", "viewer"), module: "invoices" },
+      { href: "/invoices", label: "Invoices", show: (ws) => staff(ws), module: "invoices" },
+      { href: "/pay", label: "Payroll, 1099 & referrals", show: can("finance", "hr", "approver", "account_manager"), module: "pay" },
     ],
   },
   {
     title: "Work",
     items: [
-      { href: "/timesheets", label: "Timesheets", show: (ws) => staff(ws) || ws.role === "vendor_admin" },
-      { href: "/projects", label: "Projects & placements", show: staff },
-      { href: "/consultants", label: "Consultants", show: staff },
-      { href: "/companies", label: "Clients & vendors", show: staff },
+      { href: "/timesheets", label: "Timesheets", show: (ws) => staff(ws) || ws.role === "vendor_admin", module: "timesheets" },
+      { href: "/projects", label: "Projects & placements", show: staff, module: "projects" },
+      { href: "/consultants", label: "Consultants", show: staff, module: "consultants" },
+      { href: "/companies", label: "Clients & vendors", show: staff, module: "companies" },
     ],
   },
   {
     title: "Contracts & compliance",
     items: [
-      { href: "/contracts", label: "MSAs & SOWs", show: staff },
-      { href: "/esign", label: "E-signatures", show: staff },
-      { href: "/compliance", label: "Compliance", show: staff },
+      { href: "/contracts", label: "MSAs & SOWs", show: staff, module: "contracts" },
+      { href: "/esign", label: "E-signatures", show: staff, module: "contracts" },
+      { href: "/compliance", label: "Compliance", show: staff, module: "compliance" },
     ],
   },
-  { title: "People", items: [{ href: "/network", label: "Network" }, { href: "/businesses", label: "My businesses" }] },
+  { title: "People", items: [{ href: "/network", label: "Network" }, { href: "/businesses", label: "My companies" }] },
   {
     title: "Admin",
     items: [
-      { href: "/users", label: "Users & roles", show: can("tenant_admin") },
-      { href: "/data", label: "Import & export", show: can("finance", "hr", "legal") },
-      { href: "/audit", label: "Audit log", show: can("legal", "finance") },
-      { href: "/settings", label: "Workspace settings", show: can("tenant_admin") },
+      { href: "/users", label: "Users & roles", show: can("tenant_admin"), module: "users" },
+      { href: "/data", label: "Import & export", show: can("finance", "hr", "legal"), module: "data" },
+      { href: "/audit", label: "Audit log", show: can("legal", "finance"), module: "audit" },
+      { href: "/settings", label: "Company settings", show: can("tenant_admin"), module: "settings" },
+      { href: "/settings/roles", label: "Roles & permissions", show: (ws) => isOwner(ws) },
     ],
   },
 ];
@@ -106,11 +107,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const mfa = error.code === "mfa_required";
     return (
       <div className="auth"><div className="card">
-        <h2>{mfa ? "Two-step verification required" : "We couldn't open your workspace"}</h2>
+        <h2>{mfa ? "Enter your two-step code" : "We couldn't open your company"}</h2>
         <p className="muted">{mfa
-          ? "Your role handles money, so signing in needs a second step. Set up your authenticator app — it takes a minute, and you only do it once per device."
+          ? "You turned on two-step verification, so signing in needs the code from your authenticator app."
           : error.message}</p>
-        {mfa && <p><Link className="btn pri" href={`/login?step=mfa&next=${encodeURIComponent(path)}`}>Set up two-step verification</Link></p>}
+        {mfa && <p><Link className="btn pri" href={`/login?step=mfa&next=${encodeURIComponent(path)}`}>Enter code</Link></p>}
         <button className="btn" onClick={signOut}>Sign out</button>
       </div></div>
     );
@@ -126,7 +127,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="logo"><i>mT</i>myTrakIn</div>
         <nav className="nav">
           {workspace && NAV.map((sec, i) => {
-            const items = sec.items.filter((it) => !it.show || it.show(workspace));
+            const items = sec.items.filter((it) => (!it.show || it.show(workspace)) && (!it.module || perm(workspace, it.module) !== "none"));
             if (!items.length) return null;
             return (
               <div key={i}>
@@ -152,7 +153,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {me?.is_platform_admin && (
             <>
               <div className="sec">Platform</div>
-              <Link href="/platform" className={path.startsWith("/platform") ? "on" : ""}>Owner console</Link>
+              <Link href="/platform" className={path.startsWith("/platform") ? "on" : ""}>Platform admin</Link>
             </>
           )}
         </nav>
@@ -161,7 +162,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header>
           <button className="btn menu-btn" onClick={() => setNavOpen((o) => !o)} aria-label="Menu">☰</button>
           {me && me.tenants.length > 1 ? (
-            <select className="ctl" value={workspace?.tenant.id} onChange={(e) => switchTenant(e.target.value)} aria-label="Workspace">
+            <select className="ctl" value={workspace?.tenant.id} onChange={(e) => switchTenant(e.target.value)} aria-label="Company">
               {me.tenants.map((t) => <option key={t.tenant_id} value={t.tenant_id}>{t.tenant_name}</option>)}
             </select>
           ) : (

@@ -249,3 +249,4 @@ body.compact td,body.compact th{padding:5px 8px}body.compact .card{padding:12px}
 .chain .node{min-width:130px}
 .drawer:not(.open){box-shadow:none;visibility:hidden;transition:transform .2s,visibility 0s .2s}
 @media (max-width:1280px){header{flex-wrap:nowrap}}
+.perm-grid{display:grid;gap:6px;margin-top:6px}.perm-grid select{min-width:110px}
