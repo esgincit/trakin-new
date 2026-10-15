@@ -14,7 +14,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError
 
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, conflict, not_found
-from ..services import storage
+from ..services import numbering, storage
 from ..services.esign import link_expiry, log_event, send_to_signer
 from ..utils import sha256_hex
 
@@ -105,7 +105,7 @@ async def create_envelope(
     if not data.startswith(b"%PDF"):
         raise bad_request("Upload a PDF file")
 
-    number = "ENV-" + str(await db.val("select mytrakin.next_number(:t, 'envelope')", {"t": db.ctx.tenant_id})).zfill(5)
+    number = await numbering.next_code(db, "envelope")
     sender = await db.val("select full_name from profiles where id = :u", {"u": db.ctx.user_id})
     env = await db.one(
         """insert into envelopes (tenant_id, number, title, agreement_id, sow_id, amendment_id, consultant_id, document_sha256,

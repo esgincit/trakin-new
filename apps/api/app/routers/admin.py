@@ -16,7 +16,7 @@ from pydantic import BaseModel, EmailStr, Field
 from ..config import get_settings
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, conflict, forbidden, not_found
-from ..services import workflow
+from ..services import numbering, workflow
 from ..services.email import render, send_email
 
 router = APIRouter(tags=["administration"])
@@ -231,6 +231,17 @@ async def workspace_workflow(db: TenantDb = Depends(tenant_db)):
     return await workflow.rules(db)
 
 
+@router.get("/workspace/numbering")
+async def workspace_numbering(db: TenantDb = Depends(tenant_db)):
+    """Numbering template per entity (saved or default) with the next number each would produce (WF-08)."""
+    db.ctx.require("tenant_admin")
+    out = {}
+    for entity in numbering.DEFAULTS:
+        out[entity] = {"template": await numbering.template_for(db, entity),
+                       "next": await numbering.preview_code(db, entity, CLIENT="CLIENT", PROJECT="PROJECT")}
+    return out
+
+
 @router.patch("/workspace")
 async def update_workspace(body: WorkspaceIn, db: TenantDb = Depends(tenant_db)):
     db.ctx.require("tenant_admin")
@@ -240,6 +251,14 @@ async def update_workspace(body: WorkspaceIn, db: TenantDb = Depends(tenant_db))
     if fields.get("settings") and "workflow" in fields["settings"]:
         # The jsonb merge below is shallow; merge the switches here so one change keeps the others.
         fields["settings"]["workflow"] = {**await workflow.rules(db), **workflow.validate(fields["settings"]["workflow"])}
+    if fields.get("settings") and "numbering" in fields["settings"]:
+        try:
+            templates = numbering.validate(fields["settings"]["numbering"])
+        except ValueError as exc:
+            raise bad_request(str(exc)) from exc
+        saved = await db.val("select settings -> 'numbering' from tenants where id = :t", {"t": db.ctx.tenant_id})
+        saved = orjson.loads(saved) if isinstance(saved, (str, bytes)) else (saved or {})
+        fields["settings"]["numbering"] = {**saved, **templates}
     params: dict[str, Any] = {"t": db.ctx.tenant_id}
     sets = []
     for key, value in fields.items():

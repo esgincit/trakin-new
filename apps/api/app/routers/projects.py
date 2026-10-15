@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, not_found
+from ..services import numbering, workflow
 from ..utils import week_start
 
 router = APIRouter(tags=["projects"])
@@ -70,23 +71,14 @@ class PlacementPatch(BaseModel):
 
 
 # ----------------------------------------------------------------------------- projects
-async def _suggest_project_code(db: TenantDb) -> str:
-    """Next PRJ- code from the highest trailing number in use (PRJ-05, PRJ-ESG-01 → PRJ-06)."""
-    import re
-
-    codes = await db.all("select code from projects")
-    best = 0
-    for row in codes:
-        m = re.search(r"(\d+)\s*$", row["code"] or "")
-        if m:
-            best = max(best, int(m.group(1)))
-    return f"PRJ-{best + 1:02d}"
+async def _client_name(db: TenantDb, company_id) -> str | None:
+    return await db.val("select name from companies where id = :id", {"id": company_id}) if company_id else None
 
 
 @router.get("/projects/next-code")
-async def next_project_code(db: TenantDb = Depends(tenant_db)):
-    """Suggested code for the New project form (the field stays editable)."""
-    return {"code": await _suggest_project_code(db)}
+async def next_project_code(db: TenantDb = Depends(tenant_db), client_company_id: UUID | None = None):
+    """Suggested code for the New project form, from the tenant's numbering template (the field stays editable)."""
+    return {"code": await numbering.preview_code(db, "project", CLIENT=await _client_name(db, client_company_id))}
 
 
 @router.get("/projects")
@@ -110,13 +102,30 @@ async def list_projects(db: TenantDb = Depends(tenant_db)):
     return rows
 
 
+async def _activation_gate(db: TenantDb, body: ProjectIn) -> None:
+    """NDA → MSA → Project (WF-03): an active project needs the customer's NDA and MSA, per the workflow switches.
+    The customer is the prime when the project comes through one, otherwise the client."""
+    customer = body.prime_company_id or body.client_company_id
+    if body.status != "active" or customer is None:
+        return
+    rules = await workflow.rules(db)
+    name = await _client_name(db, customer)
+    if rules["requireNDA"] and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=customer):
+        raise workflow.blocked("nda_required", f"{name} has no signed NDA — the project can't be activated yet "
+                                               "(save it as planned, or turn off 'Require NDA' in Settings → Workflow)")
+    if rules["requireMSA"] and not await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=customer):
+        raise workflow.blocked("msa_required", f"{name} has no active MSA — the project can't be activated yet "
+                                               "(save it as planned, or turn off 'Require MSA' in Settings → Workflow)")
+
+
 @router.post("/projects", status_code=201)
 async def create_project(body: ProjectIn, db: TenantDb = Depends(tenant_db)):
     db.ctx.require("account_manager")
+    await _activation_gate(db, body)
     code = (body.code or "").strip().upper() or None
     for _ in range(5):   # blank code, or a suggestion taken in the meantime: pick the next free one
         if code is None:
-            code = await _suggest_project_code(db)
+            code = await numbering.next_code(db, "project", CLIENT=await _client_name(db, body.client_company_id))
         try:
             # Savepoint: a colliding insert rolls back to here, not the whole request.
             async with db.conn.begin_nested():
@@ -147,9 +156,14 @@ async def get_project(project_id: UUID, db: TenantDb = Depends(tenant_db)):
              from placements p join consultants c on c.id = p.consultant_id
             where p.project_id = :id order by p.status = 'active' desc, c.full_name""",
         {"id": project_id, "wk": week_start(date.today())})
+    # WF-04: the project's SOWs and work orders, each with how many resources it covers.
     project["sows"] = await db.all(
-        """select distinct s.id, s.code, s.title, s.end_date, b.burn_pct from placements p join sows s on s.id = p.ar_sow_id
-             left join sow_burn b on b.sow_id = s.id where p.project_id = :id order by s.code""", {"id": project_id})
+        """select s.id, s.code, s.title, s.side, s.status, s.end_date, b.burn_pct,
+                  (select count(*) from placements p where s.id in (p.ar_sow_id, p.ap_sow_id)) as resources
+             from sows s left join sow_burn b on b.sow_id = s.id
+            where s.project_id = :id
+               or s.id in (select ar_sow_id from placements where project_id = :id)
+            order by s.side, s.code""", {"id": project_id})
     project["files"] = await db.all(
         "select id, name, size_bytes, mime_type, created_at from documents where owner_type = 'project' and owner_id = :id "
         "and deleted_at is null order by created_at desc", {"id": project_id})
@@ -161,6 +175,7 @@ async def update_project(project_id: UUID, body: ProjectIn, db: TenantDb = Depen
     db.ctx.require("account_manager")
     if not (body.code or "").strip():
         raise bad_request("The project code can't be empty")
+    await _activation_gate(db, body)
     row = await db.one(
         """update projects set code = :code, name = :name, client_company_id = :client, prime_company_id = :prime,
                   description = :desc, start_date = :start, end_date = :end, client_approver = :approver, status = :status
@@ -204,9 +219,11 @@ select p.*, c.full_name as consultant, c.engagement, pr.name as project, pr.code
 
 
 @router.get("/placements")
-async def list_placements(db: TenantDb = Depends(tenant_db), status: str | None = None):
-    rows = await db.all(_PLACEMENT_SQL + " where (cast(:s as text) is null or p.status = :s) order by c.full_name, p.start_date desc",
-                        {"s": status})
+async def list_placements(db: TenantDb = Depends(tenant_db), status: str | None = None, project_id: UUID | None = None):
+    rows = await db.all(_PLACEMENT_SQL + """ where (cast(:s as text) is null or p.status = :s)
+                                               and (cast(:pr as uuid) is null or p.project_id = :pr)
+                                             order by c.full_name, p.start_date desc""",
+                        {"s": status, "pr": project_id})
     return [placement_view(r, db.ctx) for r in rows]
 
 
@@ -216,9 +233,10 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
     engagement = await db.val("select engagement from consultants where id = :id", {"id": body.consultant_id})
     if engagement is None:
         raise not_found("Consultant")
-    if engagement.startswith("w2") and (body.ap_company_id or body.ap_consultant_id):
+    pay_model = await workflow.pay_model(db, engagement)
+    if pay_model == "payroll" and (body.ap_company_id or body.ap_consultant_id):
         raise bad_request("W-2 employees are paid through payroll — leave the AP payee empty")
-    if engagement == "1099":
+    if pay_model == "self":
         body.ap_consultant_id = body.ap_consultant_id or body.consultant_id
     row = await db.one(
         """insert into placements (tenant_id, consultant_id, project_id, role_title, start_date, end_date, hours_per_week,
@@ -233,6 +251,36 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
          "apterms": body.ap_terms, "pwp": body.pay_when_paid})
     full = await db.one(_PLACEMENT_SQL + " where p.id = :id", {"id": row["id"]})
     return placement_view(full, db.ctx)
+
+
+# ----------------------------------------------------------------------------- SOW resources (WF-04)
+class ResourceIn(PlacementIn):
+    project_id: UUID | None = None   # taken from the SOW
+
+
+@router.get("/sows/{sow_id}/resources")
+async def sow_resources(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """Everyone working under this SOW or work order — each with their own contract, timesheets, invoices and payments."""
+    rows = await db.all(_PLACEMENT_SQL + " where :id in (p.ar_sow_id, p.ap_sow_id) order by c.full_name", {"id": sow_id})
+    return [placement_view(r, db.ctx) for r in rows]
+
+
+@router.post("/sows/{sow_id}/resources", status_code=201)
+async def add_sow_resource(sow_id: UUID, body: ResourceIn, db: TenantDb = Depends(tenant_db)):
+    """Put a consultant on a SOW: one SOW can carry one or many resources (WF-04)."""
+    sow = await db.one("select id, side, project_id from sows where id = :id", {"id": sow_id})
+    if sow is None:
+        raise not_found("SOW")
+    if sow["project_id"] is None:
+        raise bad_request("Link this SOW to a project first")
+    if body.project_id and body.project_id != sow["project_id"]:
+        raise bad_request("The resource must be on the same project as the SOW")
+    body.project_id = sow["project_id"]
+    if sow["side"] == "we_bill":
+        body.ar_sow_id = sow_id
+    else:
+        body.ap_sow_id = sow_id
+    return await create_placement(PlacementIn.model_validate(body.model_dump()), db)
 
 
 @router.patch("/placements/{placement_id}")

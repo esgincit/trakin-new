@@ -61,6 +61,7 @@ function Invoices() {
 function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { run, busy } = useAction();
   const [result, setResult] = useState<any[] | null>(null);
+  const [blocked, setBlocked] = useState<string[]>([]);
   const today = new Date();
   const first = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().slice(0, 10);
   const last = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().slice(0, 10);
@@ -69,7 +70,7 @@ function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();
         const r = await run(() => api("/invoices/generate", { body: formValues(e.currentTarget) }));
-        if (r) { setResult(r.created); onDone(); }
+        if (r) { setResult(r.created); setBlocked(r.blocked ?? []); onDone(); }
       }}>
         <p className="muted">One client invoice per placement for the approved hours in the period, plus the matching vendor or 1099 payable.
           Hours already invoiced are skipped, so running it twice is safe.</p>
@@ -80,6 +81,7 @@ function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
         <button className="btn pri mt" disabled={busy}>Create drafts</button>
       </form>
       {result && <p className="ok">{result.length ? `${result.length} invoice(s) created as drafts. Review and send them from the AR list.` : "Nothing new to invoice for that period."}</p>}
+      {blocked.length > 0 && <p className="err">Not invoiced (no active agreement): {blocked.join("; ")}</p>}
     </Modal>
   );
 }

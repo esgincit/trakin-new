@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import TenantDb, tenant_db
 from ..errors import ApiError, bad_request, not_found
+from ..services import workflow
 from ..services.email import render, send_email
 from ..services.invoicing import generate_invoices, next_invoice_number, record_payment
 from ..utils import money, parse_terms_days
@@ -128,9 +129,10 @@ async def get_invoice(invoice_id: UUID, db: TenantDb = Depends(tenant_db)):
 async def generate(body: GenerateIn, db: TenantDb = Depends(tenant_db)):
     """Create draft AR invoices (and matching AP payables) from approved timesheets."""
     db.ctx.require("finance")
-    created = await generate_invoices(db, tenant_id=db.ctx.tenant_id, user_id=db.ctx.user_id,
-                                      period_start=body.period_start, period_end=body.period_end, issue_on=body.issue_on)
-    return {"created": created}
+    created, blocked = await generate_invoices(db, tenant_id=db.ctx.tenant_id, user_id=db.ctx.user_id,
+                                               period_start=body.period_start, period_end=body.period_end,
+                                               issue_on=body.issue_on)
+    return {"created": created, "blocked": blocked}
 
 
 @router.post("/invoices", status_code=201)
@@ -143,6 +145,9 @@ async def create_invoice(body: ManualInvoiceIn, db: TenantDb = Depends(tenant_db
         raise not_found("Placement")
     if p["bill_rate"] is None or p["ar_company_id"] is None:
         raise bad_request("This placement has no AR customer or bill rate")
+    if (await workflow.rules(db))["requireMSA"] and not await workflow.has_active_agreement(
+            db, kinds=workflow.MASTER_KINDS, company_id=p["ar_company_id"], on=body.period_end):
+        raise workflow.blocked("msa_required", f"{p['customer']} has no active MSA — invoices are blocked until one is signed")
     issued = date.today()
     invoice = await db.one(
         """insert into invoices (tenant_id, number, direction, placement_id, company_id, sow_id, period_start, period_end, hours,

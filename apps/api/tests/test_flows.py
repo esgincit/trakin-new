@@ -121,7 +121,8 @@ async def _otp(envelope_id: str, position: int) -> str:
 async def test_esignature_end_to_end(client, auth):
     admin = auth("admin")
     agreement = (await client.post("/agreements", headers=admin, json={
-        "code": "MSA-TEST-01", "kind": "msa", "company_id": (await client.get("/companies", headers=admin)).json()[0]["id"],
+        "code": "MSA-TEST-01", "kind": "msa",
+        "company_id": next(c["id"] for c in (await client.get("/companies", headers=admin)).json() if c["name"] == "Atlas Foods Corp."),
         "tenant_side": "supplier", "effective_on": str(date.today()), "status": "draft"})).json()
 
     created = await client.post("/envelopes", headers=admin, data={

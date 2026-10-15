@@ -68,6 +68,13 @@ begin
   values (t, v_consultant_email, 'consultant', ravi, 'SAP GRC Consultant');
 
   -- Agreements and SOWs --------------------------------------------------------------
+  -- Verify → NDA → MSA (WF-02): every seeded client and vendor has its NDA on file.
+  insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, effective_on, status, signed_by) values
+    (t, 'NDA-NW-ESG', 'nda', northwind, 'supplier', current_date - 960, 'active', 'Madhavi Gonnala'),
+    (t, 'NDA-AF-ESG', 'nda', atlas, 'supplier', current_date - 570, 'active', 'Madhavi Gonnala'),
+    (t, 'NDA-MP-ESG', 'nda', meridian, 'supplier', current_date - 570, 'active', 'Madhavi Gonnala'),
+    (t, 'NDA-ESG-BP', 'nda', bright, 'buyer', current_date - 380, 'active', 'Madhavi Gonnala'),
+    (t, 'NDA-ESG-OD', 'nda', orion, 'buyer', current_date - 150, 'active', 'Madhavi Gonnala');
   insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, effective_on, expires_on, payment_terms, renewal, notice_period, insurance_required, status, signed_by)
   values (t, 'MSA-NW-ESG', 'msa', northwind, 'supplier', current_date - 950, current_date + 630, 'Net 45', 'Manual', '30 days', 'GL $1M, E&O $2M', 'active', 'Madhavi Gonnala') returning id into msa_nw;
   insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, effective_on, expires_on, payment_terms, renewal, notice_period, insurance_required, status, signed_by)
@@ -229,4 +236,13 @@ begin
 
   update mytrakin.counters set value = 1001 where tenant_id = t and key = 'envelope';
   insert into mytrakin.counters (tenant_id, key, value) values (t, 'envelope', 1001), (t, 'ar_invoice', 420) on conflict (tenant_id, key) do nothing;
+
+  -- WF-04: each SOW / work order belongs to the project of the placements that use it.
+  update mytrakin.sows s set project_id = sub.project_id
+    from (select distinct on (sow_id) sow_id, project_id
+            from (select ar_sow_id as sow_id, project_id, start_date from mytrakin.placements where ar_sow_id is not null
+                  union all
+                  select ap_sow_id, project_id, start_date from mytrakin.placements where ap_sow_id is not null) x
+           order by sow_id, start_date) sub
+   where sub.sow_id = s.id and s.project_id is null;
 end $$;

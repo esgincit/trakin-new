@@ -16,12 +16,12 @@ from typing import Any
 from ..db import Db
 from ..errors import bad_request, conflict, not_found
 from ..utils import money, parse_terms_days
+from . import numbering, workflow
 
 
 async def next_invoice_number(db: Db, tenant_id: Any, prefix: str) -> str:
-    n = await db.val("select mytrakin.next_number(:t, :k)", {"t": tenant_id, "k": f"inv_{prefix}"})
-    year = date.today().year
-    return f"{prefix}-{year}-{n:04d}"
+    """AR / AP number from the tenant's numbering template (default AR-2026-0001)."""
+    return await numbering.next_code(db, f"invoice_{prefix.lower()}")
 
 
 async def approved_hours_by_placement(db: Db, period_start: date, period_end: date) -> list[dict]:
@@ -46,13 +46,21 @@ async def approved_hours_by_placement(db: Db, period_start: date, period_end: da
 
 
 async def generate_invoices(db: Db, *, tenant_id: Any, user_id: Any, period_start: date, period_end: date,
-                            issue_on: date | None = None) -> list[dict]:
+                            issue_on: date | None = None) -> tuple[list[dict], list[str]]:
     if period_end < period_start:
         raise bad_request("The period ends before it starts")
     issue_on = issue_on or date.today()
     created: list[dict] = []
+    blocked: list[str] = []
+    need_msa = (await workflow.rules(db))["requireMSA"]
     for row in await approved_hours_by_placement(db, period_start, period_end):
         if row["bill_rate"] is None or row["ar_company_id"] is None:
+            continue
+        # AGR-09 / WF-01: no invoice to a customer without an active MSA (unless the tenant switched the rule off).
+        if need_msa and not await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS,
+                                                                company_id=row["ar_company_id"], on=period_end):
+            name = await db.val("select name from companies where id = :id", {"id": row["ar_company_id"]})
+            blocked.append(f"{name}: no active MSA — not invoiced")
             continue
         hours = Decimal(row["hours"])
         ar_amount = money(hours * row["bill_rate"])
@@ -70,6 +78,11 @@ async def generate_invoices(db: Db, *, tenant_id: Any, user_id: Any, period_star
 
         payee = row["ap_company_id"] or row["ap_consultant_id"]
         if payee and row["pay_rate"] is not None:
+            if need_msa and not await workflow.has_active_agreement(
+                    db, kinds=workflow.MASTER_KINDS, company_id=row["ap_company_id"],
+                    consultant_id=row["ap_consultant_id"], on=period_end):
+                blocked.append(f"Payable for placement {row['placement_id']}: no active vendor or contractor agreement")
+                continue
             ap_amount = money(hours * row["pay_rate"])
             ap = await db.one(
                 """insert into invoices (tenant_id, number, direction, placement_id, company_id, consultant_id, sow_id,
@@ -84,7 +97,7 @@ async def generate_invoices(db: Db, *, tenant_id: Any, user_id: Any, period_star
                  "terms": row["ap_terms"], "pwp": ar["id"] if row["pay_when_paid"] else None, "u": user_id},
             )
             created.append({"direction": "ap", **ap})
-    return created
+    return created, blocked
 
 
 async def record_payment(db: Db, *, tenant_id: Any, user_id: Any, invoice_id: Any, amount: Decimal,
@@ -105,6 +118,11 @@ async def record_payment(db: Db, *, tenant_id: Any, user_id: Any, invoice_id: An
         raise bad_request(f"That is more than the open balance of ${money(invoice['balance']):,.2f}")
     if invoice["direction"] == "ap" and invoice["live_status"] in {"held", "exception"}:
         raise conflict("This vendor invoice is on hold — resolve it before paying")
+    # Money received from a customer is always recorded; money paid out needs an active agreement with the payee.
+    if invoice["direction"] == "ap" and (await workflow.rules(db))["requireMSA"] and not await workflow.has_active_agreement(
+            db, kinds=workflow.MASTER_KINDS, company_id=invoice["company_id"], consultant_id=invoice["consultant_id"],
+            on=paid_on):
+        raise conflict("No active agreement with this payee — vendor payments are blocked until one is signed")
 
     await db.run(
         """insert into payments (tenant_id, invoice_id, amount, paid_on, method, reference, created_by)
