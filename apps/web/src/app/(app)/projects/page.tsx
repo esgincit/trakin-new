@@ -6,6 +6,7 @@ import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
+import { label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -73,6 +74,8 @@ function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: an
           <Field label="Prime vendor (if you're a sub)" name="prime_company_id" as="select" options={opts(["prime_vendor"])} />
           <Field label="Start" name="start_date" type="date" />
           <Field label="End" name="end_date" type="date" />
+          <Field label="Status" name="status" as="select"
+                 options={[["active", "Active"], ["planned", "Planned (NDA / MSA not signed yet)"], ["internal", "Internal"]]} />
           <Field label="Client timesheet approver" name="client_approver" full />
           <Field label="Description" name="description" as="textarea" full />
         </div>
@@ -103,7 +106,7 @@ function PlacementModal({ onClose, onDone }: { onClose: () => void; onDone: () =
       }}>
         <div className="fields">
           <Field label="Consultant" name="consultant_id" as="select" required value={consultantId} onChange={(e: any) => setConsultantId(e.target.value)}
-                 options={pick(consultants.data, (c) => c.status !== "former", (c) => `${c.full_name} (${c.engagement.replace("_", " ")})`)} />
+                 options={pick(consultants.data, (c) => c.status !== "former", (c) => `${c.full_name} (${label(c.engagement)})`)} />
           <Field label="Project" name="project_id" as="select" required options={pick(projects.data, () => true, (p) => `${p.code} · ${p.name}`)} />
           <Field label="Role" name="role_title" />
           <Field label="Hours per week" name="hours_per_week" type="number" defaultValue="40" min="1" max="80" />

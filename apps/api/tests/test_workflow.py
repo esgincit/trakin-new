@@ -342,3 +342,29 @@ async def test_in_flight_payments_cannot_overpay(client, auth):
     finally:
         await _sql("delete from mytrakin.payments where reference = 'WF-9-DUP'")
         await _sql("update mytrakin.invoices set status = 'sent' where number = 'ESG-AR-0414'")
+
+
+async def test_week_list_puts_hours_on_the_right_days(client, auth):
+    """Days without hours used to sort last, shifting Mon-Wed hours onto Sun-Tue in the approver's week list."""
+    from datetime import date, timedelta
+    consultant = auth("consultant")
+    week = date.today() - timedelta(days=(date.today().weekday() + 1) % 7) - timedelta(weeks=24)
+    mine = (await client.get("/timesheets/mine", params={"week": str(week)}, headers=consultant)).json()
+    placement = mine["projects"][0]["placement_id"]
+    saved = await client.put("/timesheets/mine", headers=consultant, json={
+        "week_start": str(week), "rows": [{"placement_id": placement, "hours": [0, 8, 7, 6, 0, 0, 0]}]})
+    assert saved.status_code == 200, saved.text
+    try:
+        rows = (await client.get("/timesheets", params={"week": str(week)}, headers=auth("finance"))).json()["rows"]
+        ravi = next(r for r in rows if r["full_name"] == "Ravi Kumar")
+        assert [float(h) for h in ravi["days"]] == [0, 8, 7, 6, 0, 0, 0], ravi["days"]
+    finally:
+        await _sql("delete from mytrakin.timesheets where week_start = :w and consultant_id = "
+                   "(select id from mytrakin.consultants where full_name = 'Ravi Kumar')", w=week)
+
+
+async def test_consultant_cannot_open_client_invoice_amounts(client, auth):
+    ar = next(r for r in (await client.get("/invoices", params={"direction": "ar"}, headers=auth("finance"))).json()
+              if r["consultant"] == "Ravi Kumar")
+    blocked = await client.get(f"/invoices/{ar['id']}", headers=auth("consultant"))
+    assert blocked.status_code == 403, blocked.text          # used to return rate, amount and payments

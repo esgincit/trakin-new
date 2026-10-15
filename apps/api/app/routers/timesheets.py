@@ -115,7 +115,7 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
                   (select string_agg(distinct pr.name, ', ') from placements p join projects pr on pr.id = p.project_id
                     where p.consultant_id = c.id and p.start_date <= cast(:ws as date) + 6
                       and coalesce(p.end_date, cast(:ws as date)) >= :ws) as projects,
-                  coalesce((select array_agg(coalesce(d.h, 0) order by d.dn) from generate_series(0, 6) dn
+                  coalesce((select array_agg(coalesce(d.h, 0) order by dn) from generate_series(0, 6) dn
                              left join (select (e.work_date - cast(:ws as date)) as dn, sum(e.hours) as h from timesheet_entries e
                                          where e.timesheet_id = t.id group by 1) d using (dn)), '{0,0,0,0,0,0,0}') as days
              from consultants c

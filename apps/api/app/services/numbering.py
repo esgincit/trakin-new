@@ -69,10 +69,19 @@ async def _taken(db, entity: str, code: str) -> bool:
     return bool(await db.val(f"select exists (select 1 from {table} where {column} = :c)", {"c": code}))
 
 
+def counter_key(entity: str, template: str, values: dict[str, Any]) -> str:
+    """One running number per entity; per client / per project when the template names them
+    (SOW-{PROJECT}-{SEQ} → SOW-PRJ06-001, SOW-PRJ06-002 …; a new project starts at 001)."""
+    if not re.search(r"\{(CLIENT|PROJECT)\}", template):
+        return COUNTER_KEYS.get(entity, entity)
+    scope = format_code(_TOKEN.sub(lambda m: m.group(0) if m.group(1) in PLACEHOLDERS else "", template), 0, date.today(), values)
+    return f"{entity}:{scope}"
+
+
 async def next_code(db, entity: str, **values: Any) -> str:
     """Take the next number for the entity (skipping any already in use)."""
     template = await template_for(db, entity)
-    key = COUNTER_KEYS.get(entity, entity)
+    key = counter_key(entity, template, values)
     for _ in range(MAX_TRIES):
         seq = await db.val("select mytrakin.next_number(:t, :k)", {"t": db.ctx.tenant_id, "k": key})
         code = format_code(template, seq, date.today(), values)
@@ -85,7 +94,7 @@ async def preview_code(db, entity: str, **values: Any) -> str:
     """What next_code would give, without using up a number (for forms)."""
     template = await template_for(db, entity)
     seq = await db.val("select coalesce((select value from counters where key = :k), 0)",
-                       {"k": COUNTER_KEYS.get(entity, entity)})
+                       {"k": counter_key(entity, template, values)})
     for step in range(1, MAX_TRIES + 1):
         code = format_code(template, seq + step, date.today(), values)
         if not await _taken(db, entity, code):

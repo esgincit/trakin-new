@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Attachments } from "@/components/Attachments";
-import { Bar, Chip, ErrorBox, Loading, PageHead } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
+import { api } from "@/lib/api";
 import { date, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -13,12 +14,23 @@ export default function ProjectDetail() {
   const router = useRouter();
   const { workspace } = useSession();
   const { data: p, error, loading, reload } = useApi(`/projects/${id}`);
+  const { run, busy } = useAction();
   if (loading) return <Loading rows={6} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   return (
     <>
       <PageHead title={`${p.code} · ${p.name}`} sub={<>{p.client ?? "Internal"}{p.prime && ` via ${p.prime}`} · <Chip status={p.status} /> · {date(p.start_date)} – {date(p.end_date)}</>}
-        actions={<button className="btn" onClick={() => router.back()}>Back</button>} />
+        actions={<>
+          <button className="btn" onClick={() => router.back()}>Back</button>
+          {p.status === "planned" && allows(workspace, "account_manager") && (
+            <button className="btn pri" disabled={busy} onClick={async () => {
+              const body = { code: p.code, name: p.name, client_company_id: p.client_company_id, prime_company_id: p.prime_company_id,
+                             description: p.description, start_date: p.start_date, end_date: p.end_date,
+                             client_approver: p.client_approver, status: "active" };
+              if (await run(() => api(`/projects/${id}`, { method: "PATCH", body }), "Project activated")) reload();
+            }}>Activate project</button>
+          )}
+        </>} />
       {p.description && <p>{p.description}</p>}
       <div className="grid c2">
         <div className="card">

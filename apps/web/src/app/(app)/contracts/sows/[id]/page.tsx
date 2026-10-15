@@ -63,7 +63,7 @@ export default function SowDetail() {
           {s.envelopes.map((e: any) => <div key={e.id} className="alert click" onClick={() => router.push(`/esign/${e.id}`)}><Chip status={e.status} />{e.number} · {e.title}</div>)}
         </div>
       </div>
-      <Acceptance entityType="sow" entityId={id} canRecord={canEdit && s.status !== "active"} onRecorded={reload} />
+      <Acceptance entityType="sow" entityId={id} canRecord={canEdit && s.status !== "active"} onRecorded={reload} active={s.status === "active"} />
       <Attachments ownerType="sow" ownerId={id} canEdit={canEdit} />
       {amending && (
         <Modal title={`Amend ${s.code}`} onClose={() => setAmending(false)}>

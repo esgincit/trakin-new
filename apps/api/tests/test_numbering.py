@@ -17,6 +17,14 @@ def test_templates():
         format_code("X-{NOPE}-{SEQ}", 1, d, {})
 
 
+def test_counter_is_per_client_or_project_only_when_the_template_names_them():
+    from app.services.numbering import counter_key
+    assert counter_key("sow", "SOW-{PROJECT}-{SEQ:3}", {"PROJECT": "PRJ-06"}) == "sow:SOW-PRJ06-"
+    assert counter_key("sow", "SOW-{PROJECT}-{SEQ:3}", {"PROJECT": "PRJ-07"}) == "sow:SOW-PRJ07-"
+    assert counter_key("invoice_ar", "AR-{YEAR}-{SEQ:4}", {}) == "inv_AR"          # one running number
+    assert counter_key("project", "PRJ-{SEQ:2}", {"CLIENT": "Atlas"}) == "project"
+
+
 def test_validate():
     assert validate({"project": "PROJ-{YEAR}-{SEQ:3}"})
     with pytest.raises(ValueError):

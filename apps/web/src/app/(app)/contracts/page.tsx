@@ -74,7 +74,9 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
   const [kind, setKind] = useState("msa");
   const [existing, setExisting] = useState(true);
   const { run, busy } = useAction();
-  const personal = ["nda", "offer_letter", "ica"].includes(kind);
+  // NDAs are signed with companies (Verify → NDA → MSA) or with consultants.
+  const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
+  const personal = ["offer_letter", "ica"].includes(kind) || (kind === "nda" && ndaWith === "consultant");
   return (
     <Modal title="Add agreement" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
@@ -92,6 +94,10 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
           <Field label="Type" name="kind_select" as="select" value={kind} onChange={(e: any) => setKind(e.target.value)}
                  options={[["msa", "MSA (client or prime)"], ["subcontract", "Subcontractor agreement (vendor)"], ["ica", "Independent contractor agreement (1099)"], ["nda", "NDA"], ["offer_letter", "Offer letter"]]} />
           <Field label="Agreement ID" name="code" placeholder="Leave blank to number it automatically" />
+          {kind === "nda" && (
+            <Field label="NDA with" name="nda_with" as="select" value={ndaWith} onChange={(e: any) => setNdaWith(e.target.value)}
+                   options={[["company", "A client or vendor company"], ["consultant", "A consultant"]]} />
+          )}
           {personal ? (
             <Field label="Consultant" name="consultant_id" as="select" required options={[["", "Choose…"], ...(consultants.data ?? []).map((c) => [c.id, c.full_name] as [string, string])]} />
           ) : (
@@ -117,12 +123,18 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const agreements = useApi<any[]>("/agreements");
   const sows = useApi<any[]>("/sows", { side: "we_bill" });
   const projects = useApi<any[]>("/projects");
+  const [existing, setExisting] = useState(false);
   const { run, busy } = useAction();
   return (
     <Modal title="Add SOW / work order" onClose={onClose}>
+      <div className="seg" style={{ marginBottom: 8 }}>
+        <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (needs acceptance)</button>
+        <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
+      </div>
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();
         const v: any = formValues(e.currentTarget);
+        v.status = existing ? "active" : "draft";
         for (const k of ["value_cap", "prior_invoiced", "prior_paid"]) if (v[k]) v[k] = Number(v[k]);
         const r = await run(() => api("/sows", { body: v }), "SOW saved");
         if (r) onDone(r);

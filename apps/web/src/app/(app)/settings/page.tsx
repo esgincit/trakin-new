@@ -3,6 +3,7 @@
 import { Chip, ErrorBox, Field, formValues, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label } from "@/lib/format";
+import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
 const SETUP = ["Company details", "Invite your team", "Add clients & vendors", "Import existing data", "Add MSAs & SOWs", "Projects & placements", "Policies & reminders", "Go live"];
@@ -23,6 +24,10 @@ export default function Settings() {
   const workflow = useApi<Record<string, boolean>>("/workspace/workflow");
   const numbering = useApi<Record<string, { template: string; next: string }>>("/workspace/numbering");
   const { run, busy } = useAction();
+  const { workspace } = useSession();
+  if (workspace && !allows(workspace, "tenant_admin")) {
+    return <PageHead title="Workspace settings" sub="Only the workspace admin can change these settings." />;
+  }
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const s = t.settings ?? {};

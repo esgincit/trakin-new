@@ -26,6 +26,10 @@ class Claims:
     raw: dict
 
 
+# A fresh token is "issued" by Supabase's clock; a server a few seconds behind would see it as not valid yet.
+CLOCK_SKEW = 30   # seconds
+
+
 @lru_cache
 def _jwks_client(url: str) -> jwt.PyJWKClient:
     return jwt.PyJWKClient(url, cache_keys=True, lifespan=3600)
@@ -42,13 +46,13 @@ def decode_token(token: str) -> Claims:
             if not settings.supabase_jwt_secret:
                 raise ApiError(401, "unauthorized", "Token signing method is not configured")
             payload = jwt.decode(token, settings.supabase_jwt_secret, algorithms=["HS256"],
-                                 audience=settings.jwt_audience, issuer=issuer, options=options)
+                                 audience=settings.jwt_audience, issuer=issuer, options=options, leeway=CLOCK_SKEW)
         else:
             if not settings.supabase_url:
                 raise ApiError(401, "unauthorized", "SUPABASE_URL is required to verify tokens")
             key = _jwks_client(f"{issuer}/.well-known/jwks.json").get_signing_key_from_jwt(token)
             payload = jwt.decode(token, key.key, algorithms=["ES256", "RS256"],
-                                 audience=settings.jwt_audience, issuer=issuer, options=options)
+                                 audience=settings.jwt_audience, issuer=issuer, options=options, leeway=CLOCK_SKEW)
     except ApiError:
         raise
     except jwt.ExpiredSignatureError as exc:

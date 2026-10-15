@@ -52,7 +52,7 @@ export default function AgreementDetail() {
           {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
         </div>
       </div>
-      <Acceptance entityType="agreement" entityId={id} canRecord={allows(workspace, "legal", "account_manager") && a.status !== "active"} onRecorded={reload} />
+      <Acceptance entityType="agreement" entityId={id} canRecord={allows(workspace, "legal", "account_manager") && a.status !== "active"} onRecorded={reload} active={a.status === "active"} />
       <Attachments ownerType="agreement" ownerId={id} canEdit={canEdit} />
     </>
   );

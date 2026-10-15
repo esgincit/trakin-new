@@ -108,6 +108,10 @@ async def get_invoice(invoice_id: UUID, db: TenantDb = Depends(tenant_db)):
     row = await db.one(_LIST_SQL + " where b.id = :id", {"id": invoice_id})
     if row is None:
         raise not_found("Invoice")
+    # Consultants never see what the client is billed (RULE-02); a 1099 contractor may open their own payable only.
+    if db.ctx.role == "consultant" and not (row["direction"] == "ap" and await db.val(
+            "select consultant_id = :c from invoices where id = :id", {"c": db.ctx.consultant_id, "id": invoice_id})):
+        raise ApiError(403, "forbidden", "Consultants see payment progress under My payments")
     row["payments"] = await db.all("select id, amount, paid_on, method, reference, status, confirmed_by_name, confirmed_at from payments where invoice_id = :id order by paid_on",
                                    {"id": invoice_id})
     if db.ctx.internal:
