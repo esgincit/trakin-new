@@ -30,7 +30,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import IntegrityError
 
 from ..config import get_settings
-from ..deps import TenantDb, tenant_db
+from ..deps import TenantDb, onboarding_db
 from ..errors import ApiError, bad_request, conflict, forbidden, not_found
 from ..services import storage
 from ..services import w9 as w9svc
@@ -126,7 +126,7 @@ class SessionIn(BaseModel):
 
 
 @router.post("/sessions", status_code=201)
-async def start_session(body: SessionIn, db: TenantDb = Depends(tenant_db)):
+async def start_session(body: SessionIn, db: TenantDb = Depends(onboarding_db)):
     """Pick a country. Any workspace member can start; creation itself is gated."""
     row = await db.one(
         """insert into onboarding_sessions (tenant_id, country, created_by)
@@ -136,7 +136,7 @@ async def start_session(body: SessionIn, db: TenantDb = Depends(tenant_db)):
 
 
 @router.get("/sessions")
-async def my_sessions(db: TenantDb = Depends(tenant_db)):
+async def my_sessions(db: TenantDb = Depends(onboarding_db)):
     """My unfinished onboardings, so a closed wizard can resume."""
     rows = await db.all(
         """select * from onboarding_sessions
@@ -146,7 +146,7 @@ async def my_sessions(db: TenantDb = Depends(tenant_db)):
 
 
 @router.post("/sessions/{session_id}/w9")
-async def upload_session_w9(session_id: UUID, file: UploadFile = File(), db: TenantDb = Depends(tenant_db)):
+async def upload_session_w9(session_id: UUID, file: UploadFile = File(), db: TenantDb = Depends(onboarding_db)):
     """US step 1: upload the W-9. Format, parsing and EIN uniqueness are validated
     before anything is accepted — the session stores the parsed result."""
     row = await _session(db, session_id)
@@ -212,7 +212,7 @@ class DetailsIn(BaseModel):
 
 
 @router.patch("/sessions/{session_id}")
-async def save_details(session_id: UUID, body: DetailsIn, db: TenantDb = Depends(tenant_db)):
+async def save_details(session_id: UUID, body: DetailsIn, db: TenantDb = Depends(onboarding_db)):
     """Company details. US: domain/e-mail/DBA plus optional W-9 corrections.
     India: full manual entry with CIN format + uniqueness checks."""
     row = await _session(db, session_id)
@@ -302,7 +302,7 @@ async def save_details(session_id: UUID, body: DetailsIn, db: TenantDb = Depends
 
 
 @router.post("/sessions/{session_id}/moa")
-async def upload_session_moa(session_id: UUID, file: UploadFile = File(), db: TenantDb = Depends(tenant_db)):
+async def upload_session_moa(session_id: UUID, file: UploadFile = File(), db: TenantDb = Depends(onboarding_db)):
     """India: the MOA is mandatory. Stored with the session (Phase 1: no parsing)."""
     row = await _session(db, session_id)
     if row["country"] != "IN":
@@ -323,7 +323,7 @@ async def upload_session_moa(session_id: UUID, file: UploadFile = File(), db: Te
 
 
 @router.post("/sessions/{session_id}/email-code")
-async def send_email_code(session_id: UUID, db: TenantDb = Depends(tenant_db)):
+async def send_email_code(session_id: UUID, db: TenantDb = Depends(onboarding_db)):
     """E-mail a 6-digit code to the company e-mail (proves control of it)."""
     row = await _session(db, session_id)
     email = row.get("company_email")
@@ -355,7 +355,7 @@ class OtpIn(BaseModel):
 
 
 @router.post("/sessions/{session_id}/email-verify")
-async def verify_email_code(session_id: UUID, body: OtpIn, db: TenantDb = Depends(tenant_db)):
+async def verify_email_code(session_id: UUID, body: OtpIn, db: TenantDb = Depends(onboarding_db)):
     row = await _session(db, session_id)
     now = datetime.now(UTC)
     if not row.get("email_otp_hash") or not row.get("email_otp_expires") or row["email_otp_expires"] < now:
@@ -380,7 +380,7 @@ class CompleteIn(BaseModel):
 
 @router.post("/sessions/{session_id}/complete", status_code=201)
 async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Request,
-                              db: TenantDb = Depends(tenant_db)):
+                              db: TenantDb = Depends(onboarding_db)):
     """Create the company. Every gate must already be green: parsed/valid W-9 or
     manual+CIN+MOA, unique tax ID, verified e-mail, and the authorization checkbox.
     The creator becomes the company's Super Admin."""

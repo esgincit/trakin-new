@@ -131,6 +131,42 @@ async def member_db(request: Request, claims: Claims = Depends(current_claims)) 
         yield TenantDb(conn, ctx)
 
 
+_COMPANY_TENANT_SQL = """
+select cm.tenant_id, 'member' as role, null::uuid as company_id, null::uuid as consultant_id,
+       null::uuid as membership_id, false as is_platform_admin,
+       mytrakin.begin_request(:uid, cm.tenant_id, 'member', null, null, :ip, :ua)
+  from mytrakin.company_members cm
+  join mytrakin.tenants t on t.id = cm.tenant_id
+ where cm.user_id = :uid and cm.status = 'active' and t.status <> 'closed'
+   and (cast(:tid as uuid) is null or cm.tenant_id = :tid)
+ order by cm.created_at
+ limit 1
+"""
+
+
+async def onboarding_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:
+    """Company creation: workspace members act with their own role; people whose only
+    tie is a company membership (freelancers, client/vendor contacts) act as 'member'
+    inside that company's workspace. Money movement stays staff-gated downstream."""
+    ip, ua = client_ip(request), user_agent(request)
+    async with get_engine().begin() as conn:
+        params = {"uid": claims.user_id, "tid": _tenant_header(request), "ip": ip, "ua": ua}
+        row = (await conn.execute(text(_START_SQL), params)).mappings().first()
+        if row is None:
+            row = (await conn.execute(text(_COMPANY_TENANT_SQL), params)).mappings().first()
+        if row is None:
+            raise ApiError(403, "no_access", "You don't have access to this workspace yet. Ask your administrator for an invite.")
+        ctx = Ctx(user_id=claims.user_id, tenant_id=row["tenant_id"], role=row["role"], email=claims.email,
+                  company_id=row["company_id"], consultant_id=row["consultant_id"],
+                  membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
+        if ctx.membership_id is not None:
+            # "Last active" for the users list and the owner console; written at most every 5 minutes.
+            await conn.execute(text("""update mytrakin.memberships set last_active_at = now()
+                                        where id = :id and (last_active_at is null or last_active_at < now() - interval '5 minutes')"""),
+                               {"id": ctx.membership_id})
+        yield TenantDb(conn, ctx)
+
+
 async def platform_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:
     ip, ua = client_ip(request), user_agent(request)
     async with get_engine().begin() as conn:

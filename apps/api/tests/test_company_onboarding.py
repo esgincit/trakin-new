@@ -308,6 +308,36 @@ async def test_w9_form_fields_map_exactly(client, auth):
     assert extraction["needs_review"] == [], extraction
 
 
+async def test_company_member_without_workspace_can_start_onboarding(client, auth):
+    """A freelancer whose only tie is a company membership (no workspace invite)
+    can still start — and list — an onboarding session (used to 403 no_access)."""
+    from sqlalchemy import text
+
+    from app.db import get_engine
+
+    async with get_engine().begin() as conn:
+        uid = (await conn.execute(
+            text("select id from auth.users where email = 'someone@else.example'"))).scalar()
+        company = (await conn.execute(
+            text("select id, tenant_id from mytrakin.companies where name = 'BrightPath Tech LLC'"))).mappings().first()
+        await conn.execute(
+            text("""insert into mytrakin.company_members (tenant_id, company_id, user_id, company_role, status)
+                    values (:t, :c, :u, 'member', 'active')"""),
+            {"t": company["tenant_id"], "c": company["id"], "u": uid})
+    try:
+        created = await client.post("/onboarding/sessions", headers=auth("outsider"), json={"country": "IN"})
+        assert created.status_code == 201, created.text
+        mine = await client.get("/onboarding/sessions", headers=auth("outsider"))
+        assert mine.status_code == 200 and any(s["id"] == created.json()["id"] for s in mine.json()), mine.text
+        businesses = await client.get("/my/businesses", headers=auth("outsider"))
+        assert any(b["company_name"] == "BrightPath Tech LLC" and b["company_role"] == "member"
+                   for b in businesses.json()), businesses.text
+    finally:
+        async with get_engine().begin() as conn:
+            await conn.execute(text("delete from mytrakin.onboarding_sessions where created_by = :u"), {"u": uid})
+            await conn.execute(text("delete from mytrakin.company_members where user_id = :u"), {"u": uid})
+
+
 async def test_w9_spaced_digit_ein_parses(client, auth):
     """Digit-box renderings ("22 333 4409") must still yield the EIN."""
     admin = auth("admin")

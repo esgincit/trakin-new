@@ -35,12 +35,17 @@ _ZIP_RE = re.compile(r"(?<!\d)(\d{5})(?:-?\d{4})?(?!\d)")
 _STATE_RE = re.compile(r"\b([A-Z]{2})\s+\d{5}")
 
 # Lines that are form labels/instructions — never treated as values.
-_SEC_NUM_RE = re.compile(r"^(\d+[a-z]?)\s+([A-Za-z(].*)$")
+_SEC_NUM_RE = re.compile(r"^(\d{1,2}[a-z]?[.)]?)\s+(?=[A-Za-z(])")
 _SEC_WORDS = ("name", "business", "check", "exemptions", "address", "city", "list",
               "requester", "social", "employer", "part", "signature", "date", "form",
               "see", "enter", "give", "under", "step", "account", "exempt", "fatca",
               "certification", "backup", "penalties", "purpose", "definition", "payee",
               "caution", "note", "go to", "department", "rev.", "cat.", "print or type")
+# A business-name line misclassified as a label ("Exempt Holdings LLC"): entity
+# designators that essentially never start an instruction line.
+_ENTITY_RE = re.compile(
+    r"\b(LLC|Inc\.?|Corp\.?|LLP|Co\.|Company|Holdings|Group|Partners|Enterprises|Ltd\.?|PLLC|Trust|Bank)\b",
+    re.IGNORECASE)
 _LABEL_START_RE = re.compile(
     r"^(business name|check appropriate|exempt|fatca|address|city|list account|requester|"
     r"social security|employer identification|part i\b|part ii\b|certification|signature|"
@@ -55,8 +60,14 @@ _VALUE_SECTIONS = {"1", "2", "5", "6", "7"}
 def _split_section(line: str) -> tuple[str | None, str | None]:
     """(section_key, same_line_remainder) for a label line; (None, None) otherwise."""
     m = _SEC_NUM_RE.match(line)
-    if m and re.sub(r"[^a-z]", "", m.group(2).split(" ", 1)[0].lower()) in _SEC_WORDS:
-        key = m.group(1)
+    if m:
+        word = re.sub(r"[^a-z]", "", line[m.end():].split(" ", 1)[0].lower())
+        if word in _SEC_WORDS:
+            key = re.sub(r"[.)]$", "", m.group(1))
+        else:
+            # Numbered but not a value section ("1. The number shown ...",
+            # certification steps): a break, never a value.
+            return "label", None
     elif _LABEL_START_RE.match(line):
         key = "part" if line.lower().startswith("part") else "label"
     elif re.fullmatch(r"[.\-_\s]+", line):
@@ -322,12 +333,6 @@ def _classify_from_markers(text: str) -> str | None:
     return None
 
 
-def _despace_digits(text: str) -> str:
-    """Digit-box renderings and OCR split numbers ("12 3456789", "1 2 3 4 5 6 7 8 9").
-    Join digits separated only by spaces so TIN/ZIP patterns still match."""
-    return re.sub(r"(?<=\d)[ \t]+(?=\d)", "", text)
-
-
 def _sections_of(text: str) -> list[tuple[str | None, str]]:
     """Split text into (section_key, line) with section tracking (None = preamble)."""
     out: list[tuple[str | None, str]] = []
@@ -389,6 +394,13 @@ def parse_w9_text(text: str) -> dict:
         ln = raw.strip()
         if not ln:
             continue
+        # A business-name line misread as a label ("Exempt Holdings LLC"): entity
+        # designators essentially never start an instruction, so inside sections
+        # 1/2/5/6 a colon-free, number-free line carrying one belongs to the section.
+        if (current in ("1", "2", "5", "6") and ":" not in ln
+                and not _SEC_NUM_RE.match(ln) and _ENTITY_RE.search(ln)):
+            sections.setdefault(current, []).append(ln)
+            continue
         key, remainder = _split_section(ln)
         if key == "skip":
             continue
@@ -420,21 +432,36 @@ def parse_w9_text(text: str) -> dict:
         state = m.group(1) if m else None
 
     tin = tin_type = None
-    # Digit-box renderings and OCR split numbers ("12 3456789", "1 2 3 4 5 6 7 8 9"):
-    # search a copy with digit-adjacent spaces removed.
-    atext = _despace_digits(text)
-    ein_at = atext.find("Employer identification")
-    ssn_at = atext.find("Social security")
-    candidates_ein = [(m.start(), f"{m.group(1)}-{m.group(2)}", "ein") for m in _EIN_RE.finditer(atext)]
-    candidates_ssn = [(m.start(), f"{m.group(1)}-{m.group(2)}-{m.group(3)}", "ssn") for m in _SSN_RE.finditer(atext)]
-    candidates = sorted(candidates_ein + candidates_ssn)
-    if candidates:
+    ein_at = text.find("Employer identification")
+    ssn_at = text.find("Social security")
+    found: dict[str, tuple[int, str]] = {}
+    for m in _EIN_RE.finditer(text):
+        found.setdefault(re.sub(r"\D", "", m.group(0)), (m.start(), "ein"))
+    for m in _SSN_RE.finditer(text):
+        found.setdefault(re.sub(r"\D", "", m.group(0)), (m.start(), "ssn"))
+    # Digit-box renderings and OCR splits ("12 3456789", "1 2 3 4 5 6 7 8 9"):
+    # merge runs joined only by spaces/dashes. The separator requirement keeps
+    # unrelated neighbors ("75207" + "5550100") from fusing into a false TIN.
+    for m in re.finditer(r"(?<!\d)\d(?:[\s\-]*\d){8}(?!\d)", text):
+        if re.search(r"[\s\-]", m.group(0)):
+            digits = re.sub(r"\D", "", m.group(0))
+            if len(digits) == 9:
+                found.setdefault(digits, (m.start(), "?"))
+    if found:
         # Prefer the number printed nearest its label (Part I of the form).
-        def distance(c):
-            anchor = ein_at if c[2] == "ein" else ssn_at
-            return abs(c[0] - anchor) if anchor >= 0 else 10**9
-        best = min(candidates, key=distance)
-        tin, tin_type = best[1], best[2]
+        def distance(entry: tuple[str, tuple[int, str]]) -> float:
+            _digits, (pos, typ) = entry
+            if typ == "?":
+                candidates = [abs(pos - a) for a in (ein_at, ssn_at) if a >= 0]
+                return min(candidates) if candidates else 10**9
+            anchor = ein_at if typ == "ein" else ssn_at
+            return abs(pos - anchor) if anchor >= 0 else 10**9
+        best_digits, (best_pos, best_typ) = min(found.items(), key=distance)
+        if best_typ == "?":
+            near_ein = abs(best_pos - ein_at) if ein_at >= 0 else 10**9
+            near_ssn = abs(best_pos - ssn_at) if ssn_at >= 0 else 10**9
+            best_typ = "ein" if near_ein <= near_ssn else "ssn"
+        tin, tin_type = _format_tin(best_digits, best_typ), best_typ
 
     review = [k for k, v in {"legal_name": legal_name, "tax_classification": classification,
                              "address": address, "tin": tin}.items() if not v]
