@@ -25,6 +25,8 @@ router = APIRouter(prefix="/companies", tags=["companies"])
 
 KINDS = "^(client|prime_vendor|vendor|end_client)$"
 COMPANY_ROLES = "^(super_admin|owner|admin|member)$"
+# Company managers: whoever may drive onboarding for their own business.
+OWNER_ROLES = ("super_admin", "owner", "admin")
 DOMAIN_RE = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*\.[a-z]{2,}$")
 W9_STATUSES = ("draft", "submitted", "under_review", "verified", "rejected")
 
@@ -275,7 +277,7 @@ async def upload_logo(company_id: UUID, file: UploadFile = File(), db: TenantDb 
     """Company logo (JPEG, PNG or WebP, up to 2 MB). Shown on the company profile."""
     await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.allows("account_manager", "finance", "legal") or role in ("owner", "admin")):
+    if not (db.ctx.allows("account_manager", "finance", "legal") or role in OWNER_ROLES):
         raise forbidden()
     ext = LOGO_TYPES.get(file.content_type or "")
     if ext is None:
@@ -296,7 +298,7 @@ async def upload_w9(company_id: UUID, file: UploadFile = File(), db: TenantDb = 
     staff verify it — the company stays non-active meanwhile."""
     company = await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.allows("account_manager", "finance", "legal", "hr") or role in ("owner", "admin")):
+    if not (db.ctx.allows("account_manager", "finance", "legal", "hr") or role in OWNER_ROLES):
         raise forbidden()
     if (file.content_type or "") not in {"application/pdf", "image/jpeg", "image/png", "image/webp"}:
         raise bad_request("Upload the W-9 as a PDF, JPEG, PNG or WebP file")
@@ -350,7 +352,7 @@ async def update_tax(company_id: UUID, body: TaxIn, db: TenantDb = Depends(tenan
     digits-and-dashes only; only privileged roles ever read it back."""
     await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.allows("finance", "legal") or role in ("owner", "admin")):
+    if not (db.ctx.allows("finance", "legal") or role in OWNER_ROLES):
         raise forbidden()
     fields = body.model_dump(exclude_unset=True)
     if not fields:
@@ -475,7 +477,7 @@ async def verify_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
     """Re-run the verification checks without activating. Shows what still blocks."""
     company = await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.internal or role in ("owner", "admin")):
+    if not (db.ctx.internal or role in OWNER_ROLES):
         raise forbidden()
     return await _run_verification(db, company)
 

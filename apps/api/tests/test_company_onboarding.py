@@ -340,6 +340,17 @@ async def test_company_member_without_workspace_can_start_onboarding(client, aut
             await conn.execute(text("delete from mytrakin.company_members where user_id = :u"), {"u": uid})
 
 
+async def test_non_staff_can_upload_session_w9(client, auth):
+    """Session file writes + reads must work for non-staff (INSERT ... RETURNING
+    checks SELECT policies too — this 403'd before the session-docs read policy)."""
+    session = (await client.post("/onboarding/sessions", headers=auth("consultant"),
+                                 json={"country": "US"})).json()
+    uploaded = await client.post(f"/onboarding/sessions/{session['id']}/w9", headers=auth("consultant"),
+                                 files={"file": ("w9.pdf", w9_pdf(), "application/pdf")})
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["extraction"]["engine"] in ("form-fields", "pdf-text"), uploaded.text
+
+
 async def test_w9_spaced_digit_ein_parses(client, auth):
     """Digit-box renderings ("22 333 4409") must still yield the EIN."""
     admin = auth("admin")

@@ -495,8 +495,13 @@ async def extract_w9(data: bytes, content_type: str) -> dict:
         if fields:
             return "", "form-fields", fields
         text = _pdf_text(data)
-        if len(text.strip()) >= MIN_TEXT_CHARS:
-            return text, "pdf-text", None
+        stripped = text.strip()
+        if stripped:
+            # Digital text counts when it yields a name/TIN — or is substantial
+            # enough to review field by field (short fragments go to OCR/none).
+            probe = parse_w9_text(text)
+            if probe.get("legal_name") or probe.get("tin") or len(stripped) >= MIN_TEXT_CHARS:
+                return text, "pdf-text", None
         ocr_text = _ocr_pdf(data)
         if len(ocr_text.strip()) >= 40:
             return ocr_text, "ocr", None
