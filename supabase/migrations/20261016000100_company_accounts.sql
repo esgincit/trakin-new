@@ -23,6 +23,19 @@ update tenants t
  where owner_membership_id is null;
 update tenants set activated_at = created_at where status = 'active' and activated_at is null;
 
+-- A company without an owner (older data, seeds, invites claimed later) gets its first active admin.
+create or replace function claim_company_owner() returns trigger
+language plpgsql security definer set search_path = mytrakin, public, extensions as $$
+begin
+  if NEW.role = 'tenant_admin' and NEW.status = 'active' and NEW.user_id is not null then
+    update tenants set owner_membership_id = NEW.id where id = NEW.tenant_id and owner_membership_id is null;
+  end if;
+  return NEW;
+end $$;
+drop trigger if exists memberships_claim_owner on memberships;
+create trigger memberships_claim_owner after insert or update of role, status, user_id on memberships
+  for each row execute function claim_company_owner();
+
 -- Is the caller the owner of the current company?
 create or replace function is_account_owner() returns boolean
 language sql stable security definer set search_path = mytrakin, public, extensions as $$

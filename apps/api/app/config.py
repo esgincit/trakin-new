@@ -50,7 +50,6 @@ class Settings(BaseSettings):
     cron_secret: str = ""
 
     # Security
-    require_mfa_for_money_roles: bool = True     # admins and finance must have signed in with MFA (aal2)
     signing_link_days: int = 30
     otp_ttl_minutes: int = 10
     otp_max_attempts: int = 5

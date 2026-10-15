@@ -30,7 +30,8 @@ async def me(db: TenantDb = Depends(user_db)):
         profile["avatar_url"] = None
     tenants = await db.all("select * from mytrakin.my_tenants(:u)", {"u": uid})
     is_admin = await db.val("select mytrakin.is_platform_admin_user(:u)", {"u": uid})
-    return {"profile": profile, "tenants": tenants, "is_platform_admin": bool(is_admin)}
+    mfa_allowed = await db.val("select mytrakin.mfa_allowed_for(:u)", {"u": uid})
+    return {"profile": profile, "tenants": tenants, "is_platform_admin": bool(is_admin), "mfa_allowed": bool(mfa_allowed)}
 
 
 @router.get("/my/businesses")
@@ -53,6 +54,8 @@ async def session(db: TenantDb = Depends(tenant_db)):
         "membership_id": ctx.membership_id,
         "is_platform_admin": ctx.is_platform_admin,
         "is_owner": ctx.is_owner,
+        "permissions": ctx.permissions,
+        "custom_role": ctx.extra.get("custom_role"),
         "can": {
             "see_money": ctx.allows("finance"),
             "see_bill_rate": ctx.sees_bill_rate,

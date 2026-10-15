@@ -11,6 +11,14 @@ create table if not exists auth.users (
   created_at         timestamptz not null default now()
 );
 
+-- Two-step factors (Supabase Auth keeps these; tests insert rows to simulate "MFA on").
+create table if not exists auth.mfa_factors (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null,
+  status     text not null default 'verified',
+  created_at timestamptz not null default now()
+);
+
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;

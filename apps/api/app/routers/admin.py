@@ -42,6 +42,7 @@ class MembershipPatch(BaseModel):
     manager_id: UUID | None = None
     signing_limit: Decimal | None = Field(None, ge=0)
     status: str | None = Field(None, pattern="^(active|locked|deactivated)$")
+    mfa_allowed: bool | None = None        # the owner offers (or withholds) two-step verification
 
 
 @router.get("/users")
@@ -51,8 +52,11 @@ async def list_users(db: TenantDb = Depends(tenant_db)):
     return await db.all(
         """select m.id, m.user_id, uc.code as user_code, coalesce(p.email, m.invited_email) as email, p.full_name, p.avatar_path, m.role, m.title,
                   m.status, m.last_active_at, m.signing_limit, m.created_at, mgr.full_name as manager, m.manager_id,
-                  co.name as company, k.full_name as consultant
+                  co.name as company, k.full_name as consultant, m.mfa_allowed,
+                  mytrakin.user_has_mfa(m.user_id) as mfa_on, m.custom_role_id, m.permission_overrides,
+                  cr.name as custom_role, (m.id = (select owner_membership_id from tenants where id = m.tenant_id)) as is_owner
              from memberships m
+             left join custom_roles cr on cr.id = m.custom_role_id
              left join profiles p on p.id = m.user_id
              left join user_codes uc on uc.user_id = m.user_id
              left join memberships mm on mm.id = m.manager_id left join profiles mgr on mgr.id = mm.user_id

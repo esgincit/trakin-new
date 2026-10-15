@@ -31,14 +31,6 @@ async def test_outsider_has_no_workspace(client, auth):
     assert response.json()["error"]["code"] == "no_access"
 
 
-async def test_money_roles_need_mfa(client, auth):
-    response = await client.get("/dashboard", headers=auth("finance", aal="aal1"))
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "mfa_required"
-    # Consultants don't need MFA.
-    assert (await client.get("/session", headers=auth("consultant", aal="aal1"))).status_code == 200
-
-
 async def test_session_capabilities(client, auth):
     finance = (await client.get("/session", headers=auth("finance"))).json()
     vendor = (await client.get("/session", headers=auth("vendor"))).json()
@@ -97,7 +89,7 @@ async def test_end_client_rates_are_never_stored(client, auth):
 async def test_platform_console_is_owner_only(client, auth):
     assert (await client.get("/platform/metrics", headers=auth("admin"))).status_code == 403
     metrics = (await client.get("/platform/metrics", headers=auth("platform"))).json()
-    assert metrics["tenants"] >= 1 and metrics["active_users"] >= 1
+    assert metrics["companies"]["total"] >= 1 and metrics["users"]["active_in_companies"] >= 1
 
 
 async def test_new_user_without_a_workspace_can_use_the_network(client, auth):

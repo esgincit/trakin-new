@@ -27,8 +27,11 @@ TRIAL_DAYS = 30
 async def _tenants(db: TenantDb) -> list[dict]:
     rows = await db.all(
         """select t.id, t.name, t.legal_name, t.state, t.plan, t.status, t.onboarding_step, t.trial_ends_on, t.live_on,
-                  t.created_at, s.active_users, s.invited_users, s.consultants, s.active_placements, s.last_user_activity
+                  t.created_at, t.activated_at, s.active_users, s.invited_users, s.consultants, s.active_placements,
+                  s.last_user_activity, ms.ar_invoiced, ms.ar_collected, ms.ap_billed, ms.ap_paid,
+                  ms.invoiced_30d, ms.collected_30d
              from tenants t join mytrakin.platform_tenant_stats() s on s.tenant_id = t.id
+             join mytrakin.platform_money_stats() ms on ms.tenant_id = t.id
             order by t.created_at desc""")
     for r in rows:
         billable = r["status"] == "active" and not (r["trial_ends_on"] and r["trial_ends_on"] >= date.today())
@@ -39,28 +42,45 @@ async def _tenants(db: TenantDb) -> list[dict]:
 
 @router.get("/metrics")
 async def metrics(db: TenantDb = Depends(platform_db)):
+    """Everything on the platform dashboard: people, companies, the onboarding pipeline, our SaaS revenue
+    and the money moving through myTrakIn (totals only)."""
     tenants = await _tenants(db)
+    o = await db.one("select * from mytrakin.platform_overview()")
+    trend = await db.all("select * from mytrakin.platform_money_trend()")
+    pending = await db.val(
+        "select count(*) from mytrakin.platform_companies() where status = 'onboarding' and company_id is not null")
+    by = {s: sum(1 for t in tenants if t["status"] == s) for s in ("onboarding", "active", "suspended", "closed")}
     paying = [t for t in tenants if t["mrr"] > 0]
-    users = sum(t["active_users"] for t in tenants)
     mrr = sum((t["mrr"] for t in tenants), Decimal(0))
-    month_ago = date.today() - timedelta(days=30)
-    signups = await db.all("select status, count(*) as n from tenant_signups group by status")
-    growth = await db.all(
-        """select to_char(date_trunc('month', created_at), 'YYYY-MM') as month, count(*) as new_tenants
-             from tenants where created_at > now() - interval '12 months' group by 1 order by 1""")
+
+    def tot(k: str) -> Decimal:
+        return sum((t[k] for t in tenants), Decimal(0))
+
+    month_ago, two_weeks_ago = date.today() - timedelta(days=30), date.today() - timedelta(days=14)
     return {
-        "tenants": len(tenants),
-        "by_status": {s: sum(1 for t in tenants if t["status"] == s) for s in ("onboarding", "active", "suspended", "closed")},
-        "active_users": users,
-        "paying_tenants": len(paying),
-        "mrr": mrr,
-        "arr": mrr * 12,
-        "arpu": (mrr / sum(t["active_users"] for t in paying)).quantize(Decimal("0.01")) if paying else Decimal(0),
-        "new_last_30_days": sum(1 for t in tenants if t["created_at"].date() >= month_ago),
-        "inactive_14_days": [t["name"] for t in tenants if t["status"] == "active" and
-                             (t["last_user_activity"] is None or t["last_user_activity"].date() < date.today() - timedelta(days=14))],
-        "signups": {r["status"]: r["n"] for r in signups},
-        "growth": growth,
+        "users": {"total": o["total_users"], "new_30d": o["new_users_30d"], "active_30d": o["active_users_30d"],
+                  "active_in_companies": sum(t["active_users"] for t in tenants)},
+        "companies": {"total": len(tenants), "active": by["active"], "pending_activation": pending,
+                      "suspended": by["suspended"], "closed": by["closed"],
+                      "new_30d": sum(1 for t in tenants if t["created_at"].date() >= month_ago),
+                      "inactive_14_days": [t["name"] for t in tenants if t["status"] == "active" and
+                                           (t["last_user_activity"] is None or t["last_user_activity"].date() < two_weeks_ago)]},
+        "pipeline": [{"stage": "Wizard in progress", "count": o["wizards_in_progress"]},
+                     {"stage": "Waiting for activation", "count": pending},
+                     {"stage": "Active", "count": by["active"]},
+                     {"stage": "Suspended / closed", "count": by["suspended"] + by["closed"]}],
+        "revenue": {"mrr": mrr, "arr": mrr * 12, "paying_companies": len(paying),
+                    "arpu": (mrr / sum(t["active_users"] for t in paying)).quantize(Decimal("0.01")) if paying else Decimal(0),
+                    "by_plan": {p: sum((t["mrr"] for t in tenants if t["plan"] == p), Decimal(0)) for p in PRICE_PER_USER}},
+        "money": {"ar_invoiced": tot("ar_invoiced"), "ar_collected": tot("ar_collected"),
+                  "ar_outstanding": tot("ar_invoiced") - tot("ar_collected"),
+                  "ap_billed": tot("ap_billed"), "ap_paid": tot("ap_paid"),
+                  "invoiced_30d": tot("invoiced_30d"), "collected_30d": tot("collected_30d"), "trend": trend},
+        "activity": {"consultants": sum(t["consultants"] for t in tenants),
+                     "active_placements": sum(t["active_placements"] for t in tenants)},
+        "growth": await db.all(
+            """select to_char(date_trunc('month', created_at), 'YYYY-MM') as month, count(*) as new_companies
+                 from tenants where created_at > now() - interval '12 months' group by 1 order by 1"""),
     }
 
 
@@ -77,7 +97,7 @@ class TenantPatch(BaseModel):
 
 @router.patch("/tenants/{tenant_id}")
 async def update_tenant(tenant_id: UUID, body: TenantPatch, db: TenantDb = Depends(platform_db)):
-    """Change plan, extend a trial, suspend (users can't sign in) or close a workspace."""
+    """Change plan, extend a trial, suspend (users can't sign in) or close a company."""
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         raise bad_request("Nothing to change")

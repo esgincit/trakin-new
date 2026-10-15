@@ -16,14 +16,13 @@ from uuid import UUID
 from fastapi import Depends, Request
 from sqlalchemy import text
 
-from .config import get_settings
+from . import permissions
 from .db import Db, get_engine
 from .errors import ApiError, forbidden
 from .security import Claims, bearer_token, decode_token
 from .utils import client_ip, user_agent
 
 INTERNAL_ROLES = {"tenant_admin", "finance", "account_manager", "legal", "hr", "approver", "viewer", "system"}
-MONEY_ROLES = {"tenant_admin", "finance"}
 
 
 @dataclass
@@ -38,6 +37,7 @@ class Ctx:
     signer_id: UUID | None = None
     is_platform_admin: bool = False
     is_owner: bool = False
+    permissions: dict = field(default_factory=dict)
     ip: str | None = None
     user_agent: str | None = None
     extra: dict = field(default_factory=dict)
@@ -110,10 +110,21 @@ PENDING_OK = ("/v1/session", "/v1/companies", "/v1/onboarding")
 
 
 async def _account_state(conn, ctx: Ctx):
-    """Company status + whether the caller owns it (one round trip)."""
+    """Company status, whether the caller owns it, and their custom role / exceptions (one round trip)."""
     return (await conn.execute(text(
-        """select t.status, t.owner_membership_id = cast(:m as uuid) as is_owner
-             from mytrakin.tenants t where t.id = :t"""), {"t": ctx.tenant_id, "m": ctx.membership_id})).mappings().first()
+        """select t.status, t.owner_membership_id = cast(:m as uuid) as is_owner,
+                  m.permission_overrides, r.permissions as role_permissions, r.name as custom_role
+             from mytrakin.tenants t
+             left join mytrakin.memberships m on m.id = cast(:m as uuid)
+             left join mytrakin.custom_roles r on r.id = m.custom_role_id
+            where t.id = :t"""), {"t": ctx.tenant_id, "m": ctx.membership_id})).mappings().first()
+
+
+async def _second_step(conn, claims: Claims) -> None:
+    """Two-step verification is the user's choice; once they turn it on, every session must finish it."""
+    if claims.aal != "aal2" and (await conn.execute(text("select mytrakin.user_has_mfa(:u)"),
+                                                     {"u": claims.user_id})).scalar():
+        raise ApiError(403, "mfa_required", "You turned on two-step verification — enter your code to continue.")
 
 
 def _gate(request: Request, state) -> None:
@@ -134,15 +145,17 @@ async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) 
             # onboarding). Everything else stays role-gated downstream.
             row = (await conn.execute(text(_COMPANY_TENANT_SQL), params)).mappings().first()
         if row is None:
-            raise ApiError(403, "no_access", "You don't have access to this workspace yet. Ask your administrator for an invite.")
+            raise ApiError(403, "no_access", "You don't have access to this company yet. Ask its owner for an invite.")
         ctx = Ctx(user_id=claims.user_id, tenant_id=row["tenant_id"], role=row["role"], email=claims.email,
                   company_id=row["company_id"], consultant_id=row["consultant_id"],
                   membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
-        if get_settings().require_mfa_for_money_roles and ctx.role in MONEY_ROLES and claims.aal != "aal2":
-            raise ApiError(403, "mfa_required", "Finish two-step verification to use money features.")
+        await _second_step(conn, claims)
         state = await _account_state(conn, ctx)
         ctx.is_owner = bool(state["is_owner"])
         _gate(request, state)
+        ctx.permissions = permissions.effective(state["role_permissions"], state["permission_overrides"])
+        ctx.extra["custom_role"] = state["custom_role"]
+        permissions.check(ctx.permissions, request.method, request.url.path, is_owner=ctx.is_owner)
         if ctx.membership_id is not None:
             # "Last active" for the users list and the owner console; written at most every 5 minutes.
             await conn.execute(text("""update mytrakin.memberships set last_active_at = now()
@@ -157,6 +170,7 @@ async def member_db(request: Request, claims: Claims = Depends(current_claims)) 
     can use the feed, people and messages straight away."""
     ip, ua = client_ip(request), user_agent(request)
     async with get_engine().begin() as conn:
+        await _second_step(conn, claims)
         row = (await conn.execute(text(_START_SQL), {"uid": claims.user_id, "tid": _tenant_header(request),
                                                      "ip": ip, "ua": ua})).mappings().first()
         if row is None:
@@ -167,8 +181,6 @@ async def member_db(request: Request, claims: Claims = Depends(current_claims)) 
         ctx = Ctx(user_id=claims.user_id, tenant_id=row["tenant_id"], role=row["role"], email=claims.email,
                   company_id=row["company_id"], consultant_id=row["consultant_id"],
                   membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
-        if get_settings().require_mfa_for_money_roles and ctx.role in MONEY_ROLES and claims.aal != "aal2":
-            raise ApiError(403, "mfa_required", "Finish two-step verification to use money features.")
         yield TenantDb(conn, ctx)
 
 
@@ -178,12 +190,13 @@ async def onboarding_db(request: Request, claims: Claims = Depends(current_claim
     inside that company's workspace. Money movement stays staff-gated downstream."""
     ip, ua = client_ip(request), user_agent(request)
     async with get_engine().begin() as conn:
+        await _second_step(conn, claims)
         params = {"uid": claims.user_id, "tid": _tenant_header(request), "ip": ip, "ua": ua}
         row = (await conn.execute(text(_START_SQL), params)).mappings().first()
         if row is None:
             row = (await conn.execute(text(_COMPANY_TENANT_SQL), params)).mappings().first()
         if row is None:
-            raise ApiError(403, "no_access", "You don't have access to this workspace yet. Ask your administrator for an invite.")
+            raise ApiError(403, "no_access", "You don't have access to this company yet. Ask its owner for an invite.")
         ctx = Ctx(user_id=claims.user_id, tenant_id=row["tenant_id"], role=row["role"], email=claims.email,
                   company_id=row["company_id"], consultant_id=row["consultant_id"],
                   membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
@@ -200,7 +213,8 @@ async def platform_db(request: Request, claims: Claims = Depends(current_claims)
     async with get_engine().begin() as conn:
         is_admin = (await conn.execute(text("select mytrakin.is_platform_admin_user(:uid)"), {"uid": claims.user_id})).scalar()
         if not is_admin:
-            raise forbidden("Only the platform owner can open the platform console")
+            raise forbidden("Only a platform admin can open the platform console")
+        await _second_step(conn, claims)
         await conn.execute(text("select mytrakin.begin_request(:uid, null, 'platform_admin', null, null, :ip, :ua)"),
                            {"uid": claims.user_id, "ip": ip, "ua": ua})
         yield TenantDb(conn, Ctx(user_id=claims.user_id, tenant_id=None, role="platform_admin", email=claims.email,
@@ -211,6 +225,7 @@ async def user_db(request: Request, claims: Claims = Depends(current_claims)) ->
     """Signed-in user without a tenant role yet (e.g. reading their own profile / tenant list)."""
     ip, ua = client_ip(request), user_agent(request)
     async with get_engine().begin() as conn:
+        await _second_step(conn, claims)
         await conn.execute(text("select mytrakin.begin_request(:uid, null, 'member', null, null, :ip, :ua)"),
                            {"uid": claims.user_id, "ip": ip, "ua": ua})
         yield TenantDb(conn, Ctx(user_id=claims.user_id, tenant_id=None, role="member", email=claims.email, ip=ip, user_agent=ua))
