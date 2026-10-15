@@ -335,9 +335,10 @@ async def send_email_code(session_id: UUID, db: TenantDb = Depends(onboarding_db
     code = otp_code()
     await db.run(
         """update onboarding_sessions
-              set email_otp_hash = :h, email_otp_expires = :exp, email_otp_attempts = 0, email_otp_sent_at = :now
+              set email_otp_code = :c, email_otp_hash = null, email_otp_expires = :exp,
+                  email_otp_attempts = 0, email_otp_sent_at = :now
             where id = :id""",
-        {"h": sha256_hex(f"{session_id}:{code}"), "exp": now + timedelta(minutes=OTP_TTL_MINUTES),
+        {"c": code, "exp": now + timedelta(minutes=OTP_TTL_MINUTES),
          "now": now, "id": session_id})
     await send_email(None, to=email, subject=f"Your verification code: {code}", kind="company_email_otp",
                      html_body=render("Verify this company e-mail",
@@ -358,17 +359,23 @@ class OtpIn(BaseModel):
 async def verify_email_code(session_id: UUID, body: OtpIn, db: TenantDb = Depends(onboarding_db)):
     row = await _session(db, session_id)
     now = datetime.now(UTC)
-    if not row.get("email_otp_hash") or not row.get("email_otp_expires") or row["email_otp_expires"] < now:
+    has_code = bool(row.get("email_otp_code")) or bool(row.get("email_otp_hash"))
+    if not has_code or not row.get("email_otp_expires") or row["email_otp_expires"] < now:
         raise bad_request("The code has expired. Ask for a new one.", "code_expired")
     if (row.get("email_otp_attempts") or 0) >= OTP_MAX_ATTEMPTS:
         raise ApiError(429, "too_many_attempts", "Too many wrong codes. Ask for a new one.")
-    if not hmac.compare_digest(row["email_otp_hash"], sha256_hex(f"{session_id}:{body.code}")):
+    if row.get("email_otp_code"):
+        match = hmac.compare_digest(row["email_otp_code"], body.code)
+    else:   # legacy hashed codes, from before readable storage
+        match = hmac.compare_digest(row["email_otp_hash"], sha256_hex(f"{session_id}:{body.code}"))
+    if not match:
         await db.run("update onboarding_sessions set email_otp_attempts = email_otp_attempts + 1 where id = :id",
                      {"id": session_id})
         raise bad_request("That code isn't right. Check the latest e-mail and try again.", "code_wrong")
     await db.run(
         """update onboarding_sessions
-              set email_verified_at = :now, email_verified_for = company_email, email_otp_hash = null,
+              set email_verified_at = :now, email_verified_for = company_email,
+                  email_otp_code = null, email_otp_hash = null,
                   status = 'email_verified'
             where id = :id""", {"now": now, "id": session_id})
     return {"verified": True}
