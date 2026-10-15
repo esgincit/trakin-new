@@ -247,6 +247,15 @@ async def reject(timesheet_id: UUID, body: Decision, db: TenantDb = Depends(tena
     db.ctx.require(*APPROVER_ROLES)
     if not body.reason or len(body.reason.strip()) < 3:
         raise bad_request("Give a reason so the consultant knows what to fix")
+    # Invoice generation skips periods that already have an AR invoice, so reopening invoiced hours would lose the change.
+    invoiced = await db.val(
+        """select exists (select 1 from timesheet_entries e
+                            join invoices i on i.placement_id = e.placement_id and i.direction = 'ar' and i.status <> 'void'
+                                           and i.period_start <= e.work_date and i.period_end >= e.work_date
+                           where e.timesheet_id = :id)""", {"id": timesheet_id})
+    if invoiced:
+        raise ApiError(409, "already_invoiced", "These hours are already invoiced. Void or credit the invoice first, "
+                                                "then request the adjustment.")
     row = await db.one(
         """update timesheets set status = 'rejected', decided_by = :u, decided_at = now(), reject_reason = :r
             where id = :id and status in ('submitted', 'approved') returning id, status""",

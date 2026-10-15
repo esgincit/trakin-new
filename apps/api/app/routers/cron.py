@@ -125,7 +125,7 @@ async def run_for_tenant(db: TenantDb, today: date) -> dict:
                                 html_body=render(f"Hi {c['full_name'].split()[0]}, please submit your timesheet",
                                                  [f"Your timesheet for the week of {week:%B %d} hasn't been submitted.",
                                                   "Approved hours are what we invoice and pay from, so late timesheets delay payments."],
-                                                 button=("Open my timesheet", f"{get_settings().web_origin}/my/timesheets?week={week}"))):
+                                                 button=("Open my timesheet", f"{get_settings().web_origin}/my/timesheet"))):
                 sent["timesheets"] += 1
 
     # ---------------------------------------------------------------- client invoices (AR)
