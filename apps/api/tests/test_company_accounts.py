@@ -142,3 +142,18 @@ async def test_owner_transfers_ownership(client, auth, user_ids):
         async with get_engine().begin() as conn:
             await conn.execute(text("delete from mytrakin.memberships where id = :m"), {"m": mid})
             await conn.execute(text("delete from mytrakin.company_members where user_id = :u"), {"u": user_ids["outsider"]})
+
+
+async def test_daily_job_purges_abandoned_drafts(client):
+    async with get_engine().begin() as conn:
+        old = (await conn.execute(text("""insert into mytrakin.tenants (name, status, created_at)
+                                            values ('Abandoned draft', 'onboarding', now() - interval '8 days') returning id"""))).scalar()
+        fresh = (await conn.execute(text("""insert into mytrakin.tenants (name, status)
+                                              values ('Fresh draft', 'onboarding') returning id"""))).scalar()
+    r = await client.get("/cron/daily", headers={"Authorization": "Bearer cron-test-secret"})
+    assert r.status_code == 200 and r.json()["purged_drafts"] >= 1
+    async with get_engine().begin() as conn:
+        left = {row[0] for row in (await conn.execute(text("select id from mytrakin.tenants where id in (:a, :b)"),
+                                                      {"a": old, "b": fresh})).all()}
+        await conn.execute(text("delete from mytrakin.tenants where id = :b"), {"b": fresh})
+    assert left == {fresh}

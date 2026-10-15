@@ -44,6 +44,9 @@ def _authorize(request: Request) -> None:
 @router.get("/daily")
 async def daily(request: Request):
     _authorize(request)
+    async with get_engine().begin() as conn:
+        # company drafts nobody finished within 7 days (the wizard was abandoned before a profile existed)
+        purged = (await conn.execute(text("select mytrakin.purge_abandoned_accounts()"))).scalar()
     async with get_engine().connect() as conn:
         tenant_ids = [row[0] for row in (await conn.execute(text("select * from mytrakin.active_tenant_ids()"))).all()]
     summary = {}
@@ -54,7 +57,7 @@ async def daily(request: Request):
         except Exception:   # noqa: BLE001 — log and continue with the next tenant
             log.exception("daily job failed for tenant %s", tenant_id)
             summary[str(tenant_id)] = {"error": True}
-    return {"ran_at": datetime.now(UTC), "tenants": len(tenant_ids), "summary": summary}
+    return {"ran_at": datetime.now(UTC), "tenants": len(tenant_ids), "purged_drafts": purged, "summary": summary}
 
 
 async def run_for_tenant(db: TenantDb, today: date) -> dict:
