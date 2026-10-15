@@ -6,7 +6,7 @@ import { DataTable, type Column } from "@/components/DataTable";
 import { Chip, ErrorBox, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label } from "@/lib/format";
-import { allows, useSession } from "@/lib/session";
+import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 import { addDays, dayLabels, sundayOf } from "@/lib/weeks";
 
@@ -18,7 +18,7 @@ export default function Timesheets() {
   const { data, error, reload } = useApi("/timesheets", { week });
   const history = useApi<any[]>(tab === "history" ? "/timesheets/history" : null);
   const { run, busy } = useAction();
-  const canApprove = allows(workspace, "approver", "account_manager", "hr", "finance");
+  const canApprove = allows(workspace, "approver", "account_manager", "hr", "finance") && permits(workspace, "timesheets");
   const days = dayLabels(week);
 
   const columns: Column<any>[] = [

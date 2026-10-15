@@ -5,7 +5,7 @@ import { Suspense, useState } from "react";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { allows, useSession } from "@/lib/session";
+import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
 const columns: Column<any>[] = [
@@ -37,7 +37,7 @@ function Invoices() {
   return (
     <>
       <PageHead title="Invoices" sub="AR: what customers owe you. AP: what you owe vendors and 1099 contractors."
-        actions={finance && (
+        actions={finance && permits(workspace, "invoices") && (
           <>
             <button className="btn" onClick={() => setModal("manual")}>New client invoice</button>
             <button className="btn" onClick={() => setModal("run")}>Payment run</button>

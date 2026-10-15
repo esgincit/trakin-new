@@ -7,7 +7,7 @@ import { DataTable, type Column } from "@/components/DataTable";
 import { Chip, ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { label } from "@/lib/format";
-import { allows, useSession } from "@/lib/session";
+import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
 const TABS = [["onboarding", "Onboarding"], ["active", "Active"], ["former", "Former"], ["", "All"]] as const;
@@ -49,7 +49,7 @@ function Consultants() {
   return (
     <>
       <PageHead title="Consultants" sub="W-2 employees, C2C consultants and 1099 contractors — onboarding, active and former. One person can work on any number of projects."
-        actions={allows(workspace, "hr", "account_manager", "legal") && <button className="btn pri" onClick={() => setAdding(true)}>Onboard someone</button>} />
+        actions={allows(workspace, "hr", "account_manager", "legal") && permits(workspace, "consultants") && <button className="btn pri" onClick={() => setAdding(true)}>Onboard someone</button>} />
       <div className="tabs">
         {TABS.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t}</button>)}
       </div>

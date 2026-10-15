@@ -6,7 +6,7 @@ import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
 import { CompanyWizard } from "@/components/CompanyWizard";
 import { Chip, ErrorBox, PageHead } from "@/components/ui";
-import { allows, useSession } from "@/lib/session";
+import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
 export default function Companies() {
@@ -33,7 +33,7 @@ export default function Companies() {
   return (
     <>
       <PageHead title="Clients & vendors" sub="Everyone you bill and everyone you pay — current and former. Inactive companies keep their full history."
-        actions={allows(workspace, "account_manager", "finance", "legal") && <button className="btn pri" onClick={() => setAdding(true)}>New company</button>} />
+        actions={allows(workspace, "account_manager", "finance", "legal") && permits(workspace, "companies") && <button className="btn pri" onClick={() => setAdding(true)}>New company</button>} />
       <ErrorBox error={error} retry={reload} />
       <DataTable id="companies" rows={data} columns={columns} onRowClick={(r) => router.push(`/companies/${r.id}`)}
                  cardAside={(r) => <Chip status={r.status} />} toolbar={<DataButtons entity="companies" label="companies" />} />

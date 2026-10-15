@@ -8,7 +8,7 @@ import { Bar, Chip, ErrorBox, Field, formValues, Modal, PageHead, useAction } fr
 import { api } from "@/lib/api";
 import { daysLeft, label } from "@/lib/format";
 import { linkFor } from "@/lib/links";
-import { allows, useSession } from "@/lib/session";
+import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
 export default function ContractsPage() {
@@ -24,7 +24,7 @@ function Contracts() {
   const sows = useApi<any[]>(tab === "sows" ? "/sows" : null);
   const missing = useApi<any[]>(tab === "missing" ? "/contracts/missing" : null);
   const [modal, setModal] = useState<"agreement" | "sow" | null>(params.get("new") === "agreement" ? "agreement" : null);
-  const canEdit = allows(workspace, "legal", "account_manager");
+  const canEdit = allows(workspace, "legal", "account_manager") && permits(workspace, "contracts");
 
   const agreementCols: Column<any>[] = [
     { key: "code", label: "ID" }, { key: "kind", label: "Type", type: "label", filter: true },

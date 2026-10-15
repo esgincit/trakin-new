@@ -7,7 +7,7 @@ import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { label } from "@/lib/format";
-import { allows, useSession } from "@/lib/session";
+import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
 export default function Projects() {
@@ -17,7 +17,7 @@ export default function Projects() {
   const projects = useApi<any[]>("/projects");
   const placements = useApi<any[]>(tab === "placements" ? "/placements" : null);
   const [modal, setModal] = useState<"project" | "placement" | null>(null);
-  const canEdit = allows(workspace, "account_manager");
+  const canEdit = allows(workspace, "account_manager") && permits(workspace, "projects");
 
   const projectCols: Column<any>[] = [
     { key: "code", label: "Code" }, { key: "name", label: "Project" },
