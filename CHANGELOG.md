@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Companies, platform admin, ownership, roles & permissions, MFA** (PLAN §5.31):
+  - No workspaces: anyone creates a company (My companies → Create your company); it waits for the platform admin.
+  - Platform admin: dashboard (users, companies, onboarding pipeline, MRR/ARR, money moving, 12-month trend),
+    activation queue with W-9 review (activate / ask for more / reject), platform admin management, owner rescue.
+  - One owner per company; **Transfer ownership**; the owner can't be demoted.
+  - Owner-only **Roles & permissions**: custom roles (per module hidden / view / edit) and per-person exceptions.
+  - Two-step verification is each user's choice; the owner can withhold the option per user. Forced MFA for admin
+    and finance is removed (`REQUIRE_MFA_FOR_MONEY_ROLES` no longer exists).
+  - The public "request a workspace" form and "Create workspace" are gone.
 - **Approved workflow** (owner e-mail 2026-10-15, PLAN §5.30): Register → Verify → NDA → MSA → Project → SOW →
   Acceptance → Resource contract → Acceptance → Timesheet → Invoice → Payment → Payment confirmation.
   - Settings → Workflow: switches `requireNDA`, `requireMSA`, `requireContract`, `requireAcceptance` (default on).

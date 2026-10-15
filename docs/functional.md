@@ -37,7 +37,7 @@ client pays the prime) are shown by name with a masked amount and are never reco
 | Client | Customer contact | Invoices addressed to them and their projects |
 | Consultant | W-2, C2C or 1099 worker | Their projects, timesheet, payment *status* (no amounts), SOW dates, work authorization, policies, agreements, expenses, time off |
 
-Admins and Finance must use two-step verification before any money screen opens.
+Two-step verification is each person's choice (Account & security); the company owner can withhold the option per person. Once it is on, every sign-in asks for the code.
 
 ## 3. Modules
 

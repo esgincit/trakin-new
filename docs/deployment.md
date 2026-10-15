@@ -94,7 +94,6 @@ images only, 5 MB). Nothing else to do.
 | `EMAIL_FROM` | `myTrakIn <no-reply@yourdomain.com>` (domain verified in Resend) |
 | `CRON_SECRET` | `openssl rand -hex 32` |
 | `ANTHROPIC_API_KEY` | optional |
-| `REQUIRE_MFA_FOR_MONEY_ROLES` | `true` |
 
 3. Deploy. Check `https://<api-domain>/v1/health` and `/v1/health/db` (shows database latency in ms).
 

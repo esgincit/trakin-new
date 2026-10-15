@@ -84,7 +84,7 @@ supabase/seed.sql    demo workspace (staging and training only)
    `resolve_access` (SECURITY DEFINER) finds the caller's active membership; `begin_request` does
    `SET LOCAL ROLE mytrakin_api` and stores the context in transaction-local settings (`app.tenant_id`, `app.role`, …).
    One round trip, no extra latency.
-5. If the role is `tenant_admin` or `finance` and the token's `aal` isn't `aal2`, the request stops with `mfa_required`.
+5. If the user turned MFA on (verified factor) and the token's `aal` isn't `aal2`, the request stops with `mfa_required`. Then the company's status (waiting for activation → only profile paths), ownership and the person's module permissions (`app/permissions.py`) are checked.
 6. The router runs plain SQL. RLS policies filter rows; the router additionally hides columns the role may not see.
 7. The transaction commits (or rolls back on any error) and the connection returns to the pooler.
 
@@ -96,7 +96,7 @@ no workspace yet), `open_public` (registration forms), `open_signer` (e-signatur
 | Layer | What it does |
 |---|---|
 | Network | HTTPS only (Vercel). HSTS, CSP, `X-Frame-Options: DENY`, `nosniff`, strict referrer policy on both apps. |
-| Identity | Supabase Auth. Methods: e-mail code, SMS code, SAML SSO, Google, Microsoft, password. TOTP MFA; required (API-enforced) for admin and finance. |
+| Identity | Supabase Auth. Methods: e-mail code, SMS code, SAML SSO, Google, Microsoft, password. TOTP MFA, the user's choice (API-enforced once turned on). |
 | Schema exposure | `mytrakin` schema not in the Data API; `anon`/`authenticated` revoked. |
 | Role switch | API transactions run as `mytrakin_api` (NOLOGIN, NOINHERIT, no BYPASSRLS). |
 | Tenant isolation | A RESTRICTIVE policy on every tenant table: `tenant_id = ctx_tenant()`. No permissive policy can widen it. |
@@ -243,7 +243,7 @@ page per role (see [training-guide.md](training-guide.md) exercises — they dou
 
 API (`apps/api/.env.example`): `DATABASE_URL`, `DB_POOL`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET`,
 `SUPABASE_SERVICE_ROLE_KEY`, `WEB_ORIGIN`, `EXTRA_CORS_ORIGINS`, `RESEND_API_KEY`, `EMAIL_FROM`, `CRON_SECRET`,
-`ANTHROPIC_API_KEY`, `AI_MODEL`, `REQUIRE_MFA_FOR_MONEY_ROLES`, `SIGNING_LINK_DAYS`, `ENVIRONMENT`.
+`ANTHROPIC_API_KEY`, `AI_MODEL`, `SIGNING_LINK_DAYS`, `ENVIRONMENT`.
 
 Web (`apps/web/.env.example`): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 (public by design; the anon key can't reach the `mytrakin` schema).

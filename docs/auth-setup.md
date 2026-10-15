@@ -91,7 +91,7 @@ Dashboard → **Authentication → Multi-Factor** (or *Sign In / Providers → M
 - **TOTP (Authenticator app)**: *Enroll* **on** and *Verify* **on** (both default to on). Save if shown.
 
 The app already enrols on first use, asks for the code after any first sign-in step (e-mail code, password, Google,
-Microsoft, SSO), and the API refuses admin/finance accounts that haven't passed it (`REQUIRE_MFA_FOR_MONEY_ROLES=true`).
+Microsoft, SSO), and the API refuses any session of a user who turned two-step on but hasn't passed it. Turning it on is each user's choice.
 
 ## Step 5 — Supabase key → Vercel and local
 Dashboard → **Project Settings → API Keys** → copy the **Publishable key** (starts `sb_publishable_`; a legacy

@@ -50,7 +50,7 @@ staffing company is a workspace (tenant); the platform owner runs the SaaS.
 | RULE-02 | Amounts are role-scoped (see §3.2). Vendors never see client amounts; consultants never see any amounts. |
 | RULE-03 | Nothing is deleted: inactive companies, former consultants, voided invoices and removed files are kept (files 30 days in trash; records for the retention period). |
 | RULE-04 | Every change, sign-in, approval, export and file action is audited (who, when, IP, device, before/after). |
-| RULE-05 | Platform staff cannot see tenant data except through time-boxed, tenant-approved support access. |
+| RULE-05 | Platform staff cannot see tenant data except through time-boxed, tenant-approved support access. **Amended 2026-10-15 (owner):** the platform admin may see the onboarding record (company details, W-9 fields and file, verification checks) of a company **waiting for activation**, and per-company money **totals** (invoiced / collected / billed / paid) — never individual invoices or rates. |
 | RULE-06 | Sensitive data (SSN, bank account numbers) is never accepted in CSV or free text — only on W-9 / bank forms. |
 | RULE-07 | **Nothing is copied or implemented from the old Contrack project** (owner's instruction). Only its service settings (Zoho SMTP) and security/engineering lessons are used — see [legacy-contrack.md](legacy-contrack.md). A feature that is not in the prototype is not built. **Amended 2026-10-15:** the owner's e-mail "MyTrakin implementation master specification" ([requirements/2026-10-15-mail-master-spec.md](requirements/2026-10-15-mail-master-spec.md)) is also a requirement source and **wins over the prototype where they differ** (§5.30). |
 
@@ -490,6 +490,27 @@ Acceptance → Timesheet → Invoice → Payment → **Payment confirmation**. I
 | WF-10 | Status / approval / acceptance / payment history for major entities (audit log + acceptance + payment confirmation). | 🟡 audit log + acceptance history + payment confirmation; no per-entity status-history screen |
 | WF-11 | Workflow tests: single- and multi-resource SOW, NDA/MSA on/off, C2C/E2E/1099, invoice generation, payment lifecycle + confirmation, naming templates. | 🟡 written (not run in CI): single + multi resource, NDA/MSA/contract switches on/off, E2E onboarding, naming, payment lifecycle, full chain for C2C; 1099 / E2E full chain not yet |
 
+### 5.31 Platform admin, company ownership, roles & permissions, MFA (owner request 2026-10-15)
+No "workspace" in the product: **any user creates a company → the platform admin activates it → the creator is its
+owner.** Internally one company = one tenant. Plan: [superpowers/plans/2026-10-15-platform-admin-ownership-rbac-mfa.md](superpowers/plans/2026-10-15-platform-admin-ownership-rbac-mfa.md).
+Built 2026-10-15/16 on branch `feat/p-platform-owner` (local only, not pushed, prod DB untouched); 86 API tests pass
+(incl. 14 new) + 12 unit; browser QA of every scenario against a local database.
+
+| ID | Requirement | Status |
+|---|---|---|
+| P-01 | Any signed-in user creates a company (`POST /onboarding/accounts`, wizard under My companies); it waits for activation — only its profile is usable meanwhile; max 3 pending per person; drafts abandoned 7 days are purged daily. | ✅ |
+| P-02 | Platform admin activation queue: review company + W-9 (file link) + checks → Activate / Ask for more info / Reject (note required, owner e-mailed). The company's own record can't be self-activated. | ✅ |
+| P-03 | Platform admins add / remove platform admins (not themselves). | ✅ |
+| P-04 | Exactly one **owner** per company (`tenants.owner_membership_id`); **Transfer ownership** (old owner stays admin); owner can't be demoted or deactivated; platform can reassign an owner who left. Company profile shows Owner / Co-owner. | ✅ |
+| P-05 | Permission core: per module none / view / edit, checked once in `tenant_db` by URL prefix; owner always has full access. | ✅ |
+| P-06 | Owner-only **Roles & permissions**: custom roles on a base role + per-person exceptions (e.g. F1 finance view-only, F2 finance full); menu hides hidden modules; list pages hide create buttons when view-only. | ✅ |
+| P-07 | MFA is the **user's choice**: owner/admin offers or withholds the option per user; users turn it on/off in Account; nobody is forced (REQUIRE_MFA_FOR_MONEY_ROLES removed); once on, every session needs the code. | ✅ (real TOTP enrollment needs Supabase — checked locally by simulation) |
+| P-08 | Platform dashboard: users (total/new/active), companies (total/active/waiting/new), onboarding pipeline, SaaS MRR/ARR/ARPU by plan, money moving (invoiced/collected/outstanding/AP), 12-month trend, per-company totals. | ✅ |
+| P-09 | Say "company", not "workspace", everywhere users can see. | ✅ |
+| P-10 | RULE-05 amended (see §1). | ✅ |
+| P-11 | Old `/signup` request form and "Create workspace" removed (the wizard replaces them). | ✅ |
+| P-12 | Permissions that **widen** a base role (e.g. account manager editing invoices) — needs ~120 API role checks + 69 RLS `can()` calls rewritten. | ❌ follow-up |
+
 ## 6. Open decisions (product owner)
 
 | # | Decision | Options | Blocks |
@@ -520,6 +541,13 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 | 0.3 | Fix doc drift: README/deployment say `iad1`, Resend-only, Anthropic-only | D2, D3 | S |
 | 0.5 | Verify the security checklist (SEC-01…18) against the code; fix what fails; one secret scan of the repo | §5.29 | M |
 | 0.4 | Get D1–D8 decided | §6 | — |
+
+### Phase P — platform admin, ownership, roles & permissions, MFA (owner request 2026-10-15)
+| # | Item | IDs | Size |
+|---|---|---|---|
+| P.1 | Company accounts + activation + ownership + roles + MFA + dashboard | P-01…P-11 | ✅ done, local branch `feat/p-platform-owner` |
+| P.2 | Owner: review, push, apply migrations `20261016000100…0400` to prod (in order), deploy | P-01…P-11 | S |
+| P.3 | Widening permissions beyond the base role | P-12 | L |
 
 ### Phase W — approved workflow (owner e-mail; internal release 2026-10-25) — do before Phase 1
 | # | Item | IDs | Size |
@@ -616,6 +644,10 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · P-01…P-12, RULE-05 · Phase P built on local branch `feat/p-platform-owner` (from main ca8aa71): company =
+  account with platform activation, owner + transfer, owner-only roles & permissions, MFA as the user's choice,
+  platform dashboard, "workspace" wording removed. 86 API tests pass (3 pre-existing failures: 2 team W-9 tests +
+  smart suggestions without an AI key) + 12 unit; browser QA (6 scenarios) on a local DB. Not pushed; prod DB untouched.
 - 2026-10-15 · WF-01…11, RULE-07, AGR/PRJ/TS gaps · Owner e-mail "master specification" adopted (wins over prototype;
   E2E = employer-to-employer; business rules first for 25 Oct). Added §5.30 + Phase W. Plans written (uncommitted):
   `superpowers/plans/2026-10-15-workflow-master-spec.md` (Phase W) and `…-contracts-projects-timesheets-gaps.md`

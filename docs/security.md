@@ -10,7 +10,7 @@ Audience: security reviewers, customers' IT and compliance teams. Technical deta
 | Encryption | TLS 1.2+ in transit (HSTS preload); AES-256 at rest (Supabase managed) |
 | Tenant isolation | Postgres row-level security with a restrictive tenant policy on every table; API runs as a non-privileged role |
 | Authentication | Supabase Auth: e-mail/SMS one-time codes, SAML SSO, Google, Microsoft, optional password (12+ chars) |
-| MFA | TOTP authenticator apps; mandatory for admin and finance roles (enforced by the API), optional for all staff |
+| MFA | TOTP authenticator apps; **the user's choice** (owner decision 2026-10-15). The owner can withhold the option per user; once a user turns it on, every API call needs the second step (`aal2`). |
 | Authorization | 10 roles; database policies and API checks must both allow an action |
 | Least visibility | Each company sees only its own link of the vendor chain; other parties' amounts are never stored |
 | Secrets | Service keys only in server environment variables; tokens and codes stored as SHA-256 hashes |
@@ -71,7 +71,7 @@ time) and Vercel/Supabase logs. 4. Notify affected customers without undue delay
 - [ ] Vendor A cannot read Vendor B's invoices, consultants or timesheets (change ids in requests).
 - [ ] Consultant responses contain no `bill_rate`, `pay_rate` or amounts.
 - [ ] `anon` key cannot query `mytrakin.*` through the Supabase REST endpoint.
-- [ ] Finance without MFA receives `mfa_required`.
+- [ ] A user who turned MFA on and signs in without the code receives `mfa_required`; users without MFA are not blocked.
 - [ ] Signing links: reused, voided and expired tokens return 404; 6 wrong codes lock the code.
 - [ ] Cron endpoint rejects requests without the secret.
 - [ ] File links expire after 5 minutes.
