@@ -486,6 +486,8 @@ async def verify_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
 async def activate_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
     """Activate the company. Strict: every gate must pass — no override."""
     company = await _company_or_404(db, company_id)
+    if await db.val("select 1 from tenants where id = :t and company_id = :c", {"t": db.ctx.tenant_id, "c": company_id}):
+        raise forbidden("Your own company is activated by the myTrakIn platform team")
     db.ctx.require("account_manager", "finance", "legal")
     if company["status"] == "active":
         return {"status": "active", "business_code": company["business_code"]}

@@ -27,10 +27,10 @@ from uuid import UUID
 import orjson
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from ..config import get_settings
-from ..deps import TenantDb, onboarding_db
+from ..deps import TenantDb, onboarding_db, user_db
 from ..errors import ApiError, bad_request, conflict, forbidden, not_found
 from ..services import storage
 from ..services import w9 as w9svc
@@ -133,6 +133,26 @@ async def start_session(body: SessionIn, db: TenantDb = Depends(onboarding_db)):
            values (:t, :c, :u) returning *""",
         {"t": db.ctx.tenant_id, "c": body.country, "u": db.ctx.user_id})
     return _public_session(row)
+
+
+@router.post("/accounts", status_code=201)
+async def start_account(body: SessionIn, db: TenantDb = Depends(user_db)):
+    """Create my company: opens a new company (pending platform activation) with me as its
+    owner and starts the wizard inside it. The web app then sends X-Tenant-Id = tenant_id."""
+    try:
+        async with db.conn.begin_nested():
+            tid = await db.val("select mytrakin.start_company_account(:u)", {"u": db.ctx.user_id})
+    except DBAPIError as exc:
+        if "too_many_pending" in str(exc):
+            raise ApiError(429, "too_many_pending",
+                           "You already have 3 companies waiting — finish or wait for those first") from exc
+        raise
+    await db.run("select mytrakin.begin_request(:u, :t, 'tenant_admin', null, null, :ip, :ua)",
+                 {"u": db.ctx.user_id, "t": tid, "ip": db.ctx.ip, "ua": db.ctx.user_agent})
+    db.ctx.tenant_id = tid
+    row = await db.one("insert into onboarding_sessions (tenant_id, country, created_by) values (:t, :c, :u) returning *",
+                       {"t": tid, "c": body.country, "u": db.ctx.user_id})
+    return {**_public_session(row), "tenant_id": tid}
 
 
 @router.get("/sessions")
@@ -498,6 +518,11 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
               set status = 'complete', company_id = :c, authorized_at = :now, auth_ip = :ip
             where id = :id""",
         {"c": company["id"], "now": datetime.now(UTC), "ip": client_ip(request), "id": session_id})
+    # Registering my own company (an account still waiting for its profile): link it and name the account.
+    await db.run(
+        """update tenants set company_id = :c, name = :n, ein = :ein, state = :s
+            where id = :t and company_id is null and status = 'onboarding'""",
+        {"c": company["id"], "n": cols["name"], "ein": cols["ein"], "s": cols["state"], "t": db.ctx.tenant_id})
     return {"id": company["id"], "company_id": company["id"], "tenant_id": db.ctx.tenant_id,
             "business_code": company["business_code"], "status": company["status"],
             "company_role": "super_admin"}

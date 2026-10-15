@@ -37,6 +37,7 @@ class Ctx:
     membership_id: UUID | None = None
     signer_id: UUID | None = None
     is_platform_admin: bool = False
+    is_owner: bool = False
     ip: str | None = None
     user_agent: str | None = None
     extra: dict = field(default_factory=dict)
@@ -104,6 +105,24 @@ select cm.tenant_id, 'member' as role, null::uuid as company_id, null::uuid as c
 """
 
 
+# Paths a company may use while it waits for platform activation.
+PENDING_OK = ("/v1/session", "/v1/companies", "/v1/onboarding")
+
+
+async def _account_state(conn, ctx: Ctx):
+    """Company status + whether the caller owns it (one round trip)."""
+    return (await conn.execute(text(
+        """select t.status, t.owner_membership_id = cast(:m as uuid) as is_owner
+             from mytrakin.tenants t where t.id = :t"""), {"t": ctx.tenant_id, "m": ctx.membership_id})).mappings().first()
+
+
+def _gate(request: Request, state) -> None:
+    if state["status"] == "onboarding" and not request.url.path.startswith(PENDING_OK):
+        raise ApiError(403, "pending_activation",
+                       "Your company is waiting for activation by the myTrakIn team. "
+                       "You can finish your company profile meanwhile.")
+
+
 async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:
     ip, ua = client_ip(request), user_agent(request)
     async with get_engine().begin() as conn:
@@ -121,6 +140,9 @@ async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) 
                   membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
         if get_settings().require_mfa_for_money_roles and ctx.role in MONEY_ROLES and claims.aal != "aal2":
             raise ApiError(403, "mfa_required", "Finish two-step verification to use money features.")
+        state = await _account_state(conn, ctx)
+        ctx.is_owner = bool(state["is_owner"])
+        _gate(request, state)
         if ctx.membership_id is not None:
             # "Last active" for the users list and the owner console; written at most every 5 minutes.
             await conn.execute(text("""update mytrakin.memberships set last_active_at = now()

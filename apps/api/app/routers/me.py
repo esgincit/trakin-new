@@ -44,7 +44,7 @@ async def my_businesses(db: TenantDb = Depends(user_db)):
 async def session(db: TenantDb = Depends(tenant_db)):
     """The caller's role in the selected workspace (drives navigation in the web app)."""
     ctx = db.ctx
-    tenant = await db.one("select id, name, plan, status from tenants where id = :t", {"t": ctx.tenant_id})
+    tenant = await db.one("select id, name, plan, status, company_id from tenants where id = :t", {"t": ctx.tenant_id})
     return {
         "tenant": tenant,
         "role": ctx.role,
@@ -52,6 +52,7 @@ async def session(db: TenantDb = Depends(tenant_db)):
         "consultant_id": ctx.consultant_id,
         "membership_id": ctx.membership_id,
         "is_platform_admin": ctx.is_platform_admin,
+        "is_owner": ctx.is_owner,
         "can": {
             "see_money": ctx.allows("finance"),
             "see_bill_rate": ctx.sees_bill_rate,

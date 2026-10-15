@@ -27,6 +27,7 @@ os.environ.update({
     "SUPABASE_JWT_SECRET": SECRET,
     "SUPABASE_SERVICE_ROLE_KEY": "",
     "RESEND_API_KEY": "",
+    "EMAIL_HOST": "",          # never send real mail from tests (a local .env holds the Zoho login)
     "CRON_SECRET": "cron-test-secret",
     "WEB_ORIGIN": "http://localhost:3000",
     "MYTRAKIN_LOCAL_STORAGE": tempfile.mkdtemp(prefix="mytrakin-storage-"),
@@ -45,6 +46,8 @@ USERS = {
     "vendor": "s.rao@brightpath.example",
     "platform": "owner@mytrakin.example",
     "outsider": "someone@else.example",
+    "founder": "founder@newco.example",
+    "finance2": "finance2@example.com",
 }
 
 
