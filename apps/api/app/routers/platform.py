@@ -1,5 +1,5 @@
-"""Platform owner console (the company running myTrakIn as SaaS): tenants, sign-up
-approvals, and revenue per user."""
+"""Platform admin console (the company running myTrakIn as SaaS): every company, the
+activation queue, platform admins, and platform-wide analytics (aggregates only)."""
 
 from __future__ import annotations
 
@@ -8,10 +8,14 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
+from ..config import get_settings
 from ..deps import TenantDb, platform_db
-from ..errors import bad_request, not_found
+from ..errors import ApiError, bad_request, conflict, not_found
+from ..services.email import render, send_email
+from . import companies as companies_router
+from .admin import sync_company_owner
 
 router = APIRouter(prefix="/platform", tags=["platform"])
 
@@ -82,3 +86,138 @@ async def update_tenant(tenant_id: UUID, body: TenantPatch, db: TenantDb = Depen
     if row is None:
         raise not_found("Tenant")
     return row
+
+
+# ---------------------------------------------------------------------------- companies & activation
+async def _enter(db: TenantDb, tenant_id: UUID) -> None:
+    """Act inside one company as 'system' for a platform action (audited with the platform user's id)."""
+    await db.run("select mytrakin.begin_request(:u, :t, 'system', null, null, :ip, :ua)",
+                 {"u": db.ctx.user_id, "t": tenant_id, "ip": db.ctx.ip, "ua": db.ctx.user_agent})
+
+
+async def _leave(db: TenantDb) -> None:
+    await db.run("select mytrakin.begin_request(:u, null, 'platform_admin', null, null, :ip, :ua)",
+                 {"u": db.ctx.user_id, "ip": db.ctx.ip, "ua": db.ctx.user_agent})
+
+
+@router.get("/companies")
+async def companies(db: TenantDb = Depends(platform_db), status: str | None = None):
+    """Every company on myTrakIn. status=pending -> registered and waiting for activation."""
+    rows = await db.all("select * from mytrakin.platform_companies() order by created_at desc")
+    if status == "pending":
+        return [r for r in rows if r["status"] == "onboarding" and r["company_id"] is not None]
+    return [r for r in rows if status is None or r["status"] == status]
+
+
+@router.get("/companies/{tenant_id}")
+async def company_review(tenant_id: UUID, db: TenantDb = Depends(platform_db)):
+    """What the platform needs to decide: the company's onboarding record, W-9 and verification checks."""
+    tenant = await db.one("select * from tenants where id = :id", {"id": tenant_id})
+    if tenant is None or tenant["company_id"] is None:
+        raise not_found("Company")
+    await _enter(db, tenant_id)
+    company = await companies_router._company_or_404(db, tenant["company_id"])
+    checks = await companies_router._run_verification(db, company)
+    await _leave(db)
+    keep = ("id", "business_code", "name", "kind", "country", "state", "address", "domain", "dba", "business_type",
+            "contact_name", "contact_email", "tin", "cin", "tax_classification", "tax_address", "w9_data",
+            "w9_status", "w9_document_id", "status", "created_at")
+    return {"tenant": tenant, "company": {k: company.get(k) for k in keep}, **checks}
+
+
+class CompanyDecision(BaseModel):
+    decision: str = Field(pattern="^(activate|needs_info|reject)$")
+    note: str | None = Field(None, max_length=1000)
+
+
+@router.post("/companies/{tenant_id}/decision")
+async def decide_company(tenant_id: UUID, body: CompanyDecision, db: TenantDb = Depends(platform_db)):
+    """Activate a new company, ask its owner for more, or reject it (closed). The owner is e-mailed."""
+    tenant = await db.one("select * from tenants where id = :id for update", {"id": tenant_id})
+    if tenant is None or tenant["company_id"] is None:
+        raise not_found("Company")
+    if tenant["status"] != "onboarding":
+        raise conflict(f"This company is already {tenant['status']}")
+    if body.decision != "activate" and not body.note:
+        raise bad_request("Add a note so the owner knows why")
+    owner_email = await db.val(
+        """select coalesce(p.email, m.invited_email::text) from memberships m
+             left join profiles p on p.id = m.user_id where m.id = :m""", {"m": tenant["owner_membership_id"]})
+    if body.decision == "activate":
+        await _enter(db, tenant_id)
+        # The platform reviewed the W-9 on the review screen: that is the staff verification.
+        await db.run("""update companies set w9_status = 'verified', w9_decided_at = now(), w9_decided_by = :u
+                         where id = :c and w9_status in ('submitted', 'under_review')""",
+                     {"u": db.ctx.user_id, "c": tenant["company_id"]})
+        company = await companies_router._company_or_404(db, tenant["company_id"])
+        result = await companies_router._run_verification(db, company)
+        if result["blockers"]:
+            raise ApiError(422, "verification_failed", "Can't activate yet: " + "; ".join(result["blockers"]))
+        await db.run("update companies set status = 'active', onboarding_stage = 8, verified_at = now() where id = :c",
+                     {"c": tenant["company_id"]})
+        await _leave(db)
+    new_status = {"activate": "active", "needs_info": "onboarding", "reject": "closed"}[body.decision]
+    await db.run(
+        """update tenants set status = :s, decision_note = :n,
+                  activated_at = case when :s = 'active' then now() end,
+                  activated_by = case when :s = 'active' then cast(:u as uuid) end,
+                  trial_ends_on = case when :s = 'active' then current_date + cast(:trial as int) else trial_ends_on end
+            where id = :id""",
+        {"s": new_status, "n": body.note, "u": db.ctx.user_id, "trial": TRIAL_DAYS, "id": tenant_id})
+    if owner_email:
+        login = f"{get_settings().web_origin.rstrip('/')}/login?email={owner_email}"
+        lines = {"activate": [f"{tenant['name']} is now active on myTrakIn. Your {TRIAL_DAYS}-day trial starts today."],
+                 "needs_info": ["We need a little more before we can activate your company:", body.note or ""],
+                 "reject": ["We're not able to activate this company on myTrakIn.", body.note or ""]}[body.decision]
+        await send_email(None, to=owner_email, subject=f"{tenant['name']} on myTrakIn", kind="welcome",
+                         html_body=render(f"About {tenant['name']}", lines, button=("Open myTrakIn", login)))
+    return {"tenant_id": tenant_id, "status": new_status}
+
+
+class OwnerIn(BaseModel):
+    email: EmailStr
+
+
+@router.post("/companies/{tenant_id}/owner")
+async def set_owner(tenant_id: UUID, body: OwnerIn, db: TenantDb = Depends(platform_db)):
+    """Support action when an owner has left: make an existing active staff user the owner (audited)."""
+    await _enter(db, tenant_id)
+    m = await db.one("""select m.id, m.user_id from memberships m join profiles p on p.id = m.user_id
+                         where p.email = :e and m.status = 'active'""", {"e": body.email})
+    if m is None:
+        raise bad_request("That person isn't an active user of this company")
+    await db.run("update memberships set role = 'tenant_admin' where id = :m", {"m": m["id"]})
+    company_id = await db.val("update tenants set owner_membership_id = :m where id = :t returning company_id",
+                              {"m": m["id"], "t": tenant_id})
+    await sync_company_owner(db, tenant_id, company_id, m["user_id"])
+    await _leave(db)
+    return {"tenant_id": tenant_id, "owner_membership_id": m["id"]}
+
+
+# ---------------------------------------------------------------------------- platform admins
+@router.get("/admins")
+async def admins(db: TenantDb = Depends(platform_db)):
+    return await db.all("""select pa.user_id, p.email, p.full_name from platform_admins pa
+                             join profiles p on p.id = pa.user_id order by p.email""")
+
+
+class AdminIn(BaseModel):
+    email: EmailStr
+
+
+@router.post("/admins", status_code=201)
+async def add_admin(body: AdminIn, db: TenantDb = Depends(platform_db)):
+    uid = await db.val("select id from profiles where email = :e", {"e": body.email})
+    if uid is None:
+        raise bad_request("This person has to sign in to myTrakIn once before they can be made a platform admin")
+    await db.run("insert into platform_admins (user_id) values (:u) on conflict do nothing", {"u": uid})
+    return {"user_id": uid, "email": body.email}
+
+
+@router.delete("/admins/{user_id}")
+async def remove_admin(user_id: UUID, db: TenantDb = Depends(platform_db)):
+    if user_id == db.ctx.user_id:
+        raise bad_request("You can't remove yourself — ask another platform admin")
+    if await db.run("delete from platform_admins where user_id = :u", {"u": user_id}) == 0:
+        raise not_found("Platform admin")
+    return {"user_id": user_id, "removed": True}

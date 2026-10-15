@@ -1,4 +1,4 @@
-"""Workspace administration: users and roles, the audit log, and workspace settings."""
+"""Company administration: users and roles, ownership, the audit log, and company settings."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, EmailStr, Field
 
 from ..config import get_settings
-from ..deps import TenantDb, tenant_db
+from ..deps import INTERNAL_ROLES, TenantDb, tenant_db
 from ..errors import bad_request, conflict, forbidden, not_found
 from ..services import numbering, workflow
 from ..services.email import render, send_email
@@ -154,6 +154,10 @@ async def update_user(membership_id: UUID, body: MembershipPatch, db: TenantDb =
     target = await db.one("select role from memberships where id = :id", {"id": membership_id})
     if target is None:
         raise not_found("User")
+    owner = await db.val("select owner_membership_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    if membership_id == owner and (fields.get("role", "tenant_admin") != "tenant_admin"
+                                   or fields.get("status", "active") != "active"):
+        raise bad_request("This is the company owner — transfer ownership first")
     if target["role"] == "tenant_admin" and (fields.get("role", "tenant_admin") != "tenant_admin"
                                              or fields.get("status", "active") != "active"):
         admins = await db.val("select count(*) from memberships where role = 'tenant_admin' and status = 'active'")
@@ -170,6 +174,48 @@ async def cancel_invite(membership_id: UUID, db: TenantDb = Depends(tenant_db)):
     if await db.run("delete from memberships where id = :id and user_id is null", {"id": membership_id}) == 0:
         raise conflict("Only pending invitations can be withdrawn. Deactivate active users instead.")
     return {"id": membership_id, "deleted": True}
+
+
+# ============================================================================ ownership
+async def sync_company_owner(db: TenantDb, tenant_id, company_id, user_id) -> None:
+    """Keep the company profile's top role (super_admin, shown as Owner) on the account owner."""
+    if company_id is None:
+        return
+    await db.run("""update company_members set company_role = 'admin'
+                     where company_id = :c and company_role = 'super_admin' and user_id is distinct from :u""",
+                 {"c": company_id, "u": user_id})
+    if await db.run("""update company_members set company_role = 'super_admin', status = 'active'
+                        where company_id = :c and user_id = :u""", {"c": company_id, "u": user_id}) == 0:
+        await db.run("""insert into company_members (tenant_id, company_id, user_id, company_role, status)
+                        values (:t, :c, :u, 'super_admin', 'active')""",
+                     {"t": tenant_id, "c": company_id, "u": user_id})
+
+
+@router.post("/users/{membership_id}/transfer-ownership")
+async def transfer_ownership(membership_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """Hand the company to another staff user. They become admin + owner; you stay an admin."""
+    if not db.ctx.is_owner:
+        raise forbidden("Only the company owner can transfer ownership")
+    target = await db.one("select id, user_id, role, status from memberships where id = :id", {"id": membership_id})
+    if target is None:
+        raise not_found("User")
+    if target["id"] == db.ctx.membership_id:
+        raise bad_request("You already own this company")
+    if target["status"] != "active" or target["user_id"] is None:
+        raise bad_request("Ownership can only go to an active user who has signed in at least once")
+    if target["role"] not in INTERNAL_ROLES:
+        raise bad_request("Ownership can only go to a staff user — not a vendor, client or consultant login")
+    await db.run("update memberships set role = 'tenant_admin' where id = :id", {"id": membership_id})
+    tenant = await db.one("update tenants set owner_membership_id = :m where id = :t returning name, company_id",
+                          {"m": membership_id, "t": db.ctx.tenant_id})
+    await sync_company_owner(db, db.ctx.tenant_id, tenant["company_id"], target["user_id"])
+    new_email = await db.val("select email from profiles where id = :u", {"u": target["user_id"]})
+    for to, line in ((new_email, f"You are now the owner of {tenant['name']} on myTrakIn."),
+                     (db.ctx.email, f"You transferred ownership of {tenant['name']} to {new_email}. You remain an admin.")):
+        if to:
+            await send_email(db, to=to, subject=f"Ownership of {tenant['name']}", kind="welcome",
+                             tenant_id=db.ctx.tenant_id, html_body=render("Company ownership changed", [line]))
+    return {"owner_membership_id": membership_id}
 
 
 # ============================================================================ audit
