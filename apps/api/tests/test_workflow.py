@@ -258,3 +258,70 @@ async def test_payment_lifecycle_and_confirmation(client, auth):
         assert by_vendor.status_code == 200 and by_vendor.json()["status"] == "confirmed", by_vendor.text
     finally:
         await _sql("delete from mytrakin.payments where reference in ('WF-9', 'WF-9-AP')")
+
+
+# ---------------------------------------------------------------------------- WF-11 end to end
+async def test_verify_to_payment_confirmation_end_to_end(client, auth):
+    """New client → NDA → MSA → project → SOW → resource + contract (accepted) → timesheet → invoices → payments →
+    payment confirmations, with every workflow switch on."""
+    from datetime import date, timedelta
+    admin, finance, consultant = auth("admin"), auth("finance"), auth("consultant")
+    week = date.today() - timedelta(days=(date.today().weekday() + 1) % 7) - timedelta(weeks=12)
+    accept = lambda kind, rid: client.post("/acceptances", headers=admin, json={  # noqa: E731
+        "entity_type": kind, "entity_id": rid, "accepted_by": "Chain Client signatory"})
+
+    client_co = (await client.post("/companies", headers=admin, json={
+        "name": "Chainline Retail Inc.", "kind": "client", "domain": "chainline.example", "state": "TX",
+        "contact_name": "C. Line", "contact_email": "ap@chainline.example"})).json()["id"]
+    nda = (await client.post("/agreements", headers=admin, json={
+        "kind": "nda", "company_id": client_co, "tenant_side": "supplier", "effective_on": str(week), "status": "draft"})).json()
+    assert (await accept("agreement", nda["id"])).status_code == 201
+    msa = await client.post("/agreements", headers=admin, json={
+        "kind": "msa", "company_id": client_co, "tenant_side": "supplier", "effective_on": str(week - timedelta(days=7)),
+        "payment_terms": "Net 30", "status": "draft"})
+    assert msa.status_code == 201, msa.text
+    assert (await accept("agreement", msa.json()["id"])).status_code == 201
+    project = await client.post("/projects", headers=admin, json={"name": "Chainline POS", "client_company_id": client_co,
+                                                                   "status": "active"})
+    assert project.status_code == 201, project.text
+    pid = project.json()["id"]
+
+    sow = (await client.post(f"/projects/{pid}/sows", headers=admin, json={
+        "agreement_id": msa.json()["id"], "side": "we_bill", "title": "POS rollout", "start_date": str(week),
+        "end_date": str(week + timedelta(days=6)), "value_cap": 50000, "status": "draft"})).json()
+    work_order = (await client.post(f"/projects/{pid}/sows", headers=admin, json={
+        "agreement_id": await _agreement(client, auth, "MSA-ESG-BP"), "side": "we_pay", "title": "R. Kumar work order",
+        "start_date": str(week), "end_date": str(week + timedelta(days=6)), "status": "draft"})).json()
+    assert work_order["code"].startswith("CON-"), work_order
+    for kind, rid in (("sow", sow["id"]), ("sow", work_order["id"])):
+        assert (await accept(kind, rid)).status_code == 201
+
+    ravi = await _consultant(client, auth, "Ravi Kumar")
+    resource = await client.post(f"/sows/{sow['id']}/resources", headers=admin, json={
+        "consultant_id": ravi, "start_date": str(week), "end_date": str(week + timedelta(days=6)),
+        "ar_company_id": client_co, "bill_rate": 100, "ar_terms": "Net 30",
+        "ap_company_id": await _company(client, auth, "BrightPath Tech LLC"), "ap_sow_id": work_order["id"],
+        "pay_rate": 80, "ap_terms": "Net 30"})
+    assert resource.status_code == 201, resource.text
+    placement = resource.json()["id"]
+
+    rows = [{"placement_id": placement, "hours": [0, 8, 8, 8, 0, 0, 0]}]
+    assert (await client.put("/timesheets/mine", headers=consultant,
+                             json={"week_start": str(week), "rows": rows})).status_code == 200
+    ts = await client.post("/timesheets/mine/submit", params={"week": str(week)}, headers=consultant, json={})
+    assert ts.status_code == 200, ts.text
+    assert (await client.post(f"/timesheets/{ts.json()['id']}/approve", headers=finance)).status_code == 200
+
+    generated = (await client.post("/invoices/generate", headers=finance, json={
+        "period_start": str(week), "period_end": str(week + timedelta(days=6))})).json()
+    assert not generated["blocked"], generated
+    mine = {i["direction"]: i for i in generated["created"]}
+    assert float(mine["ar"]["amount"]) == 2400 and float(mine["ap"]["amount"]) == 1920, generated
+
+    for direction, who in (("ar", finance), ("ap", auth("vendor"))):
+        paid = await client.post(f"/invoices/{mine[direction]['id']}/payments", headers=finance, json={
+            "amount": mine[direction]["amount"], "paid_on": str(date.today()), "method": "ACH", "reference": f"E2E-{direction}"})
+        assert paid.status_code == 201, paid.text
+        confirmed = await client.post(f"/payments/{paid.json()['payment_id']}/confirm", headers=who)
+        assert confirmed.status_code == 200 and confirmed.json()["status"] == "confirmed", (direction, confirmed.text)
+    assert (await client.get(f"/invoices/{mine['ar']['id']}", headers=finance)).json()["live_status"] == "paid"
