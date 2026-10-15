@@ -179,6 +179,19 @@ async def test_us_flow_rejects_duplicate_ein(client, auth):
     assert dup.status_code == 409 and "already registered" in dup.text, dup.text
 
 
+async def test_india_step1_saves_without_email(client, auth):
+    """Step 1 (MCA details) has no e-mail field — e-mail becomes mandatory at step 2."""
+    admin = auth("admin")
+    session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "IN"})).json()
+    step1 = await client.patch(f"/onboarding/sessions/{session['id']}", headers=admin, json={
+        "step": 1, "kind": "vendor", "legal_name": "Step One Labs Pvt Ltd", "cin": "U72902MH2021PTC654322",
+        "street": "3 Main Road", "city": "Pune", "state": "Maharashtra", "pin": "411001"})
+    assert step1.status_code == 200, step1.text
+    step2 = await client.patch(f"/onboarding/sessions/{session['id']}", headers=admin, json={
+        "step": 2, "kind": "vendor", "domain": "stepone.example", "dba": "Step One"})
+    assert step2.status_code == 422 and "company_email" in step2.text, step2.text
+
+
 async def test_india_flow_moa_cin_otp(client, auth):
     admin = auth("admin")
     session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "IN"})).json()

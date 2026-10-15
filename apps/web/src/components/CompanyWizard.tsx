@@ -58,7 +58,7 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
     e.preventDefault();
     setError(null);
     try {
-      const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: formValues(e.currentTarget) });
+      const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...formValues(e.currentTarget), step: 2 } });
       setSession(s);
       setStep(3);
     } catch (e) { fail(e); }
@@ -131,7 +131,8 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
           e.preventDefault();
           setError(null);
           try {
-            const v: any = { kind: (formValues(e.currentTarget) as any).kind, ...parsed };
+            const v: any = { ...parsed, ...formValues(e.currentTarget), step: 1 };
+            if (manual) v.manual = true;
             delete v.engine; delete v.needs_review; delete v.needs_manual; delete v.note;
             if (manual) v.manual = true;
             const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: v });
@@ -161,7 +162,7 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
         <form className="form" onSubmit={async (e) => {
           e.preventDefault();
           setError(null);
-          const v: any = formValues(e.currentTarget);
+          const v: any = { ...formValues(e.currentTarget), step: 1 };
           try {
             const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...v, kind: v.kind } });
             setSession(s);

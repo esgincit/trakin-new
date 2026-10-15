@@ -189,6 +189,7 @@ async def upload_session_w9(session_id: UUID, file: UploadFile = File(), db: Ten
 
 class DetailsIn(BaseModel):
     kind: str = Field(pattern=KINDS)
+    step: int | None = Field(None, ge=1, le=4)   # wizard stage; step 1 saves MCA/W-9 data only
     domain: str | None = Field(None, max_length=253)
     company_email: EmailStr | None = None
     dba: str | None = Field(None, max_length=200)
@@ -226,7 +227,9 @@ async def save_details(session_id: UUID, body: DetailsIn, db: TenantDb = Depends
         except ApiError as exc:
             errors["domain"] = exc.message
     email = values.get("company_email") or details.get("company_email") or row.get("company_email")
-    if not email:
+    if not email and values.get("step") != 1:
+        # Step 1 (MCA details / W-9 review) has no e-mail field by design —
+        # e-mail becomes mandatory from step 2, and verified before creation.
         errors["company_email"] = "Company e-mail is required"
     details.update({k: v for k, v in values.items() if k in
                     ("kind", "domain", "company_email", "dba", "contact_name", "contact_phone")})
