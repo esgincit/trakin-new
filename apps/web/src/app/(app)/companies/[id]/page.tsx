@@ -29,10 +29,11 @@ export default function CompanyDetail() {
   const canDecideW9 = allows(workspace, "finance", "legal");
   const myRole = c?.my_company_role;
   const isTenantAdmin = allows(workspace, "tenant_admin");
-  const canManage = canEdit || ["super_admin", "owner", "admin"].includes(myRole);
+  const ownerLike = ["super_admin", "owner", "admin"].includes(myRole);
+  const canManage = canEdit || ownerLike;
   const canGrantSuper = myRole === "super_admin" || isTenantAdmin;
   const canGrantOwner = canGrantSuper || myRole === "owner";
-  const taxFull = allows(workspace, "finance", "legal") || ["super_admin", "owner", "admin"].includes(myRole);
+  const taxFull = allows(workspace, "finance", "legal") || ownerLike;
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;

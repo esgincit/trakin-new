@@ -65,7 +65,9 @@ const MEMBER_NAV: Section[] = [
   { title: "Your network", items: [{ href: "/network", label: "Feed, people & messages" }, { href: "/businesses", label: "My businesses" }] },
   { title: "Account", items: [{ href: "/profile", label: "My profile" }, { href: "/account", label: "Account & security" }] },
 ];
-const MEMBER_PATHS = MEMBER_NAV.flatMap((s) => s.items.map((i) => i.href));
+// Company profiles aren't nav entries, but company members open them from My
+// businesses — the API enforces who may see what.
+const MEMBER_PATHS = [...MEMBER_NAV.flatMap((s) => s.items.map((i) => i.href)), "/companies"];
 const inMemberArea = (path: string) => MEMBER_PATHS.some((p) => path === p || path.startsWith(p + "/"));
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -133,7 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             );
           })}
-          {noWorkspace && MEMBER_NAV.map((sec, i) => (
+          {noWorkspace && !workspace && MEMBER_NAV.map((sec, i) => (
             <div key={i}>
               <div className="sec">{sec.title}</div>
               {sec.items.map((it) => (

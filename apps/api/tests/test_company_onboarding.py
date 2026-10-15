@@ -322,20 +322,59 @@ async def test_company_member_without_workspace_can_start_onboarding(client, aut
             text("select id from auth.users where email = 'someone@else.example'"))).scalar()
         company = (await conn.execute(
             text("select id, tenant_id from mytrakin.companies where name = 'BrightPath Tech LLC'"))).mappings().first()
+        northwind_id = (await conn.execute(
+            text("select id from mytrakin.companies where name = 'Northwind Consulting'"))).scalar()
         await conn.execute(
             text("""insert into mytrakin.company_members (tenant_id, company_id, user_id, company_role, status)
                     values (:t, :c, :u, 'member', 'active')"""),
             {"t": company["tenant_id"], "c": company["id"], "u": uid})
+    created_id: str | None = None
     try:
         created = await client.post("/onboarding/sessions", headers=auth("outsider"), json={"country": "IN"})
         assert created.status_code == 201, created.text
+        sid = created.json()["id"]
         mine = await client.get("/onboarding/sessions", headers=auth("outsider"))
-        assert mine.status_code == 200 and any(s["id"] == created.json()["id"] for s in mine.json()), mine.text
+        assert mine.status_code == 200 and any(s["id"] == sid for s in mine.json()), mine.text
         businesses = await client.get("/my/businesses", headers=auth("outsider"))
         assert any(b["company_name"] == "BrightPath Tech LLC" and b["company_role"] == "member"
                    for b in businesses.json()), businesses.text
+
+        # Full completion as a workspace-less member: details → MOA → OTP → create.
+        details = await client.patch(f"/onboarding/sessions/{sid}", headers=auth("outsider"), json={
+            "kind": "vendor", "legal_name": "Outsider Labs Pvt Ltd", "cin": "U72905MH2023PTC654325",
+            "street": "5 Outer Ring Road", "city": "Bengaluru", "state": "Karnataka", "pin": "560001",
+            "domain": "outsiderlabs.example", "company_email": "hello@outsiderlabs.example"})
+        assert details.status_code == 200, details.text
+        moa = await client.post(f"/onboarding/sessions/{sid}/moa", headers=auth("outsider"),
+                                files={"file": ("moa.pdf", w9_pdf(), "application/pdf")})
+        assert moa.status_code == 200, moa.text
+        code = (await client.post(f"/onboarding/sessions/{sid}/email-code",
+                                  headers=auth("outsider"), json={})).json()
+        verified = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=auth("outsider"),
+                                     json={"code": code["test_code"]})
+        assert verified.status_code == 200, verified.text
+        done = await client.post(f"/onboarding/sessions/{sid}/complete", headers=auth("outsider"),
+                                 json={"authorized": True})
+        assert done.status_code == 201, done.text
+        assert done.json()["company_role"] == "super_admin"
+        created_id = done.json()["id"]
+
+        # Own profile opens; unrelated businesses stay invisible (404, not a leak).
+        mine_profile = await client.get(f"/companies/{created_id}", headers=auth("outsider"))
+        assert mine_profile.status_code == 200, mine_profile.text
+        assert mine_profile.json()["my_company_role"] == "super_admin", mine_profile.text
+        other = await client.get(f"/companies/{northwind_id}", headers=auth("outsider"))
+        assert other.status_code == 404, other.text
     finally:
         async with get_engine().begin() as conn:
+            if created_id is not None:
+                await conn.execute(text("delete from mytrakin.company_members where company_id = :c"),
+                                   {"c": created_id})
+                await conn.execute(text("delete from mytrakin.documents where owner_type = 'company' and owner_id = :c"),
+                                   {"c": created_id})
+                await conn.execute(text("delete from mytrakin.tracked_documents where company_id = :c"),
+                                   {"c": created_id})
+                await conn.execute(text("delete from mytrakin.companies where id = :c"), {"c": created_id})
             await conn.execute(text("delete from mytrakin.onboarding_sessions where created_by = :u"), {"u": uid})
             await conn.execute(text("delete from mytrakin.company_members where user_id = :u"), {"u": uid})
 

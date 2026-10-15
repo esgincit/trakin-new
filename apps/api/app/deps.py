@@ -91,11 +91,29 @@ select a.tenant_id, a.role, a.company_id, a.consultant_id, a.membership_id, a.is
 """
 
 
+_COMPANY_TENANT_SQL = """
+select cm.tenant_id, 'member' as role, null::uuid as company_id, null::uuid as consultant_id,
+       null::uuid as membership_id, false as is_platform_admin,
+       mytrakin.begin_request(:uid, cm.tenant_id, 'member', null, null, :ip, :ua)
+  from mytrakin.company_members cm
+  join mytrakin.tenants t on t.id = cm.tenant_id
+ where cm.user_id = :uid and cm.status = 'active' and t.status <> 'closed'
+   and (cast(:tid as uuid) is null or cm.tenant_id = :tid)
+ order by cm.created_at
+ limit 1
+"""
+
+
 async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:
     ip, ua = client_ip(request), user_agent(request)
     async with get_engine().begin() as conn:
-        row = (await conn.execute(text(_START_SQL), {"uid": claims.user_id, "tid": _tenant_header(request),
-                                                     "ip": ip, "ua": ua})).mappings().first()
+        params = {"uid": claims.user_id, "tid": _tenant_header(request), "ip": ip, "ua": ua}
+        row = (await conn.execute(text(_START_SQL), params)).mappings().first()
+        if row is None:
+            # No workspace membership — but an active company membership still grants
+            # role 'member' inside that company's workspace (company profiles, members,
+            # onboarding). Everything else stays role-gated downstream.
+            row = (await conn.execute(text(_COMPANY_TENANT_SQL), params)).mappings().first()
         if row is None:
             raise ApiError(403, "no_access", "You don't have access to this workspace yet. Ask your administrator for an invite.")
         ctx = Ctx(user_id=claims.user_id, tenant_id=row["tenant_id"], role=row["role"], email=claims.email,
@@ -103,10 +121,11 @@ async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) 
                   membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
         if get_settings().require_mfa_for_money_roles and ctx.role in MONEY_ROLES and claims.aal != "aal2":
             raise ApiError(403, "mfa_required", "Finish two-step verification to use money features.")
-        # "Last active" for the users list and the owner console; written at most every 5 minutes.
-        await conn.execute(text("""update mytrakin.memberships set last_active_at = now()
-                                    where id = :id and (last_active_at is null or last_active_at < now() - interval '5 minutes')"""),
-                           {"id": ctx.membership_id})
+        if ctx.membership_id is not None:
+            # "Last active" for the users list and the owner console; written at most every 5 minutes.
+            await conn.execute(text("""update mytrakin.memberships set last_active_at = now()
+                                        where id = :id and (last_active_at is null or last_active_at < now() - interval '5 minutes')"""),
+                               {"id": ctx.membership_id})
         yield TenantDb(conn, ctx)
 
 
@@ -129,19 +148,6 @@ async def member_db(request: Request, claims: Claims = Depends(current_claims)) 
         if get_settings().require_mfa_for_money_roles and ctx.role in MONEY_ROLES and claims.aal != "aal2":
             raise ApiError(403, "mfa_required", "Finish two-step verification to use money features.")
         yield TenantDb(conn, ctx)
-
-
-_COMPANY_TENANT_SQL = """
-select cm.tenant_id, 'member' as role, null::uuid as company_id, null::uuid as consultant_id,
-       null::uuid as membership_id, false as is_platform_admin,
-       mytrakin.begin_request(:uid, cm.tenant_id, 'member', null, null, :ip, :ua)
-  from mytrakin.company_members cm
-  join mytrakin.tenants t on t.id = cm.tenant_id
- where cm.user_id = :uid and cm.status = 'active' and t.status <> 'closed'
-   and (cast(:tid as uuid) is null or cm.tenant_id = :tid)
- order by cm.created_at
- limit 1
-"""
 
 
 async def onboarding_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:
