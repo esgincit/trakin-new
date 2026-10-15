@@ -164,6 +164,8 @@ async def test_us_flow_creates_company_and_super_admin(client, auth):
     assert company["business_code"].startswith("C-"), company
     assert company["status"] == "onboarding"
     assert company["company_role"] == "super_admin"
+    # The wizard navigates by these — a missing key once sent users to /companies/undefined.
+    assert company["company_id"] == company["id"] and company["tenant_id"], company
     members = (await client.get(f"/companies/{company['id']}/members", headers=auth("admin"))).json()
     assert any(m["company_role"] == "super_admin" and m["status"] == "active" for m in members), members
     businesses = (await client.get("/my/businesses", headers=auth("admin"))).json()

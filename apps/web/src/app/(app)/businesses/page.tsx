@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { CompanyWizard } from "@/components/CompanyWizard";
-import { Chip, ErrorBox, Loading, PageHead } from "@/components/ui";
+import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
 import { currentTenant } from "@/lib/api";
 import { clearCache, useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
@@ -12,15 +12,22 @@ import { useSession } from "@/lib/session";
 export default function Businesses() {
   const router = useRouter();
   const { switchTenant } = useSession();
+  const { run } = useAction();
   const { data, error, loading, reload } = useApi<any[]>("/my/businesses");
   const [creating, setCreating] = useState(false);
 
   const open = async (b: any) => {
-    if (b.tenant_id !== currentTenant()) {
-      await switchTenant(b.tenant_id);
+    const cid = b.company_id ?? b.id;
+    const tid = b.tenant_id ?? currentTenant();
+    if (!cid || !tid) {
+      await run(async () => { throw new Error("The new business has no ID to open — reload the list and try again."); });
+      return;
+    }
+    if (tid !== currentTenant()) {
+      await switchTenant(tid);
       clearCache();
     }
-    router.push(`/companies/${b.company_id}`);
+    router.push(`/companies/${cid}`);
   };
 
   if (loading) return <Loading rows={6} />;
@@ -28,7 +35,6 @@ export default function Businesses() {
     <>
       <PageHead title="My businesses" sub="Every business you created or belong to — owner, admin or member, across all workspaces."
         actions={<button className="btn pri" onClick={() => setCreating(true)}>New company</button>} />
-      <ErrorBox error={error} retry={reload} />
       <ErrorBox error={error} retry={reload} />
       {!data?.length ? <p className="muted">No businesses yet. Companies you create or are invited to appear here.</p> : (
         <div className="grid c2">

@@ -498,5 +498,6 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
               set status = 'complete', company_id = :c, authorized_at = :now, auth_ip = :ip
             where id = :id""",
         {"c": company["id"], "now": datetime.now(UTC), "ip": client_ip(request), "id": session_id})
-    return {"id": company["id"], "business_code": company["business_code"], "status": company["status"],
+    return {"id": company["id"], "company_id": company["id"], "tenant_id": db.ctx.tenant_id,
+            "business_code": company["business_code"], "status": company["status"],
             "company_role": "super_admin"}

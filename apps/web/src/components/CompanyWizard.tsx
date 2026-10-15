@@ -91,6 +91,7 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
     setError(null);
     try {
       const c = await api(`/onboarding/sessions/${session.id}/complete`, { body: { authorized } }, );
+      if (!c?.id) throw new Error("The business was saved but returned no ID — find it in My businesses.");
       onDone(c);
     } catch (e) { fail(e); }
   };
