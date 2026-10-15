@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Chip, Field, formValues, Modal, useAction } from "./ui";
+import { Chip, Field, formValues, Modal, useAction, useToast } from "./ui";
 import { api, ApiError } from "@/lib/api";
 
 type Country = "US" | "IN";
@@ -12,6 +12,7 @@ type Country = "US" | "IN";
  *  Nothing is created until every gate passes; the creator becomes Super Admin. */
 export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone: (c: any) => void }) {
   const { run, busy } = useAction();
+  const toast = useToast();
   const [country, setCountry] = useState<Country | null>(null);
   const [session, setSession] = useState<any>(null);
   const [step, setStep] = useState(1);
@@ -29,7 +30,11 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
     if (s) { setCountry(c); setSession(s); setStep(1); }
   };
 
-  const fail = (e: unknown) => setError((e as ApiError).message);
+  const fail = (e: unknown) => {
+    const message = (e as ApiError).message;
+    setError(message);   // persistent inline error
+    toast(message);      // transient toast with the exact backend message
+  };
 
   const uploadW9 = async (file?: File) => {
     if (!file || !session) return;
