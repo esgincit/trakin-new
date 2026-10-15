@@ -204,7 +204,7 @@ function Review({ row, onClose, onDone }: { row: any; onClose: () => void; onDon
             <dt>Registered</dt><dd>{dateTime(c.created_at)}</dd>
           </dl>
           <h3 className="mt">Checks</h3>
-          {Object.entries(detail.data.checks ?? {}).map(([k, v]: [string, any]) => (
+          {Object.entries(detail.data.checks ?? {}).filter(([, v]: [string, any]) => v?.status).map(([k, v]: [string, any]) => (
             <div key={k} className="alert"><Chip status={v.status === "pass" ? "active" : v.status === "warn" ? "pending" : "overdue"}>{v.status}</Chip>
               <b>{label(k)}</b><span className="muted">{v.detail}</span></div>
           ))}

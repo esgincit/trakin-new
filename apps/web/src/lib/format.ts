@@ -29,7 +29,7 @@ export function label(v: string | null | undefined): string {
   const special: Record<string, string> = {
     w2_fulltime: "W-2 full-time", w2_contract: "W-2 contract", c2c: "C2C", e2e: "E2E", "1099": "1099", ar: "AR", ap: "AP",
     prime_vendor: "Prime vendor", end_client: "End client", tenant_admin: "Admin", account_manager: "Account manager",
-    vendor_admin: "Vendor", client_user: "Client", msa: "MSA", nda: "NDA", ica: "Contractor agreement",
+    vendor_admin: "Vendor", client_user: "Client", super_admin: "Owner", owner: "Co-owner", msa: "MSA", nda: "NDA", ica: "Contractor agreement",
     we_bill: "We bill", we_pay: "We pay", due_30: "Within 30 days", due_120: "Within 120 days", ok: "OK", i9_reverification: "I-9 reverification", ead: "EAD", i94: "I-94", coi: "COI", w9: "W-9",
   };
   return special[v] ?? v.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());

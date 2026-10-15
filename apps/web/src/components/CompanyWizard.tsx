@@ -5,6 +5,8 @@ import { Chip, Field, formValues, Modal, useAction, useToast } from "./ui";
 import { api, ApiError, setTenant } from "@/lib/api";
 
 type Country = "US" | "IN";
+/** Registering your own company: what it does (stored as the company kind). */
+const OWN_KINDS: [string, string][] = [["vendor", "Staffing company / vendor"], ["prime_vendor", "Prime vendor"], ["client", "Client — hires consultants"], ["end_client", "End client"]];
 
 /** Country-first business creation.
  *  US: W-9 upload (parsed + validated) → domain/e-mail/DBA → OTP → authorize → created.
@@ -158,7 +160,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
             <Field label="City" name="city" defaultValue={parsed.city ?? ""} />
             <Field label="State" name="state" defaultValue={parsed.state ?? ""} maxLength={2} />
             <Field label="ZIP" name="zip" defaultValue={parsed.zip ?? ""} />
-            <Field label="Business role" name="kind" as="select" required options={[["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
+            <Field label={account ? "What does your company do?" : "Business role"} name="kind" as="select" required options={account ? OWN_KINDS : [["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
           </div>
           <div className="row mt">
             <button className="btn" disabled={busy} onClick={() => setParsed(null)}>Re-upload</button>
@@ -187,7 +189,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
             <Field label="City" name="city" required />
             <Field label="State" name="state" required />
             <Field label="PIN code" name="pin" required placeholder="400001" />
-            <Field label="Business role" name="kind" as="select" required options={[["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
+            <Field label={account ? "What does your company do?" : "Business role"} name="kind" as="select" required options={account ? OWN_KINDS : [["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
           </div>
           <input ref={moafile} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadMoa(e.target.files?.[0])} />
           <div className="row mt">
@@ -204,7 +206,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
         <form className="form" onSubmit={saveDetails}>
           <div className="fields">
             {country === "IN" && <p className="muted" style={{ gridColumn: "1 / -1" }}>CIN verified{session.details?.cin ? ` (${session.details.cin})` : ""}. Now the online identity.</p>}
-            <Field label="Business role" name="kind" as="select" required options={[["vendor", "Vendor"], ["client", "Client"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue={session.details?.kind ?? "vendor"} full />
+            <Field label={account ? "What does your company do?" : "Business role"} name="kind" as="select" required options={account ? OWN_KINDS : [["vendor", "Vendor"], ["client", "Client"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue={session.details?.kind ?? "vendor"} full />
             <Field label="Company domain" name="domain" required placeholder={country === "US" ? "acme.com" : "acme.in"} />
             <Field label="Company e-mail" name="company_email" type="email" required defaultValue={session.company_email ?? ""} />
             <Field label="DBA (if different)" name="dba" defaultValue={session.details?.dba ?? ""} full />
@@ -254,7 +256,9 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
             <button className="btn" disabled={busy} onClick={() => setStep(3)}>Back</button>
             <button className="btn pri" disabled={busy || !authorized} onClick={create}>Create business</button>
           </div>
-          {!authorized && <p className="note">Tick the authorization box to create the business. You become its Super Admin.</p>}
+          {!authorized && <p className="note">{account
+            ? "Tick the authorization box to create your company. You become its owner; the myTrakIn team activates it after a quick review."
+            : "Tick the authorization box to create the business. You become its owner."}</p>}
         </>
       )}
     </Modal>

@@ -177,8 +177,8 @@ export default function CompanyDetail() {
             {canManage && m.status === "active" && <>
               {m.company_role === "member" && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "admin" } }), "Made admin")) reload(); }}>Make admin</button>}
               {m.company_role === "admin" && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "member" } }), "Made member")) reload(); }}>Make member</button>}
-              {(m.company_role === "member" || m.company_role === "admin") && canGrantOwner && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "owner" } }), "Made owner")) reload(); }}>Make owner</button>}
-              {m.company_role === "super_admin" && canGrantSuper && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "owner" } }), "Made owner")) reload(); }}>Make owner</button>}
+              {(m.company_role === "member" || m.company_role === "admin") && canGrantOwner && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "owner" } }), "Now a co-owner")) reload(); }}>Make co-owner</button>}
+              {m.company_role === "super_admin" && canGrantSuper && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "PATCH", body: { company_role: "owner" } }), "Now a co-owner")) reload(); }}>Make co-owner</button>}
               <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/members/${m.id}`, { method: "DELETE" }), "Removed")) reload(); }}>Remove</button>
             </>}
           </div>
@@ -194,7 +194,7 @@ export default function CompanyDetail() {
               <input className="ctl" name="email" type="email" required placeholder="person@company.com" style={{ flex: 2 }} aria-label="E-mail" />
               <select className="ctl" value={memberRole} onChange={(e) => setMemberRole(e.target.value)} aria-label="Role" style={{ flex: 1 }}>
                 <option value="member">Member</option><option value="admin">Admin</option><option value="owner">Owner</option>
-                {canGrantSuper && <option value="super_admin">Super Admin</option>}
+                {canGrantSuper && <option value="super_admin">Owner</option>}
               </select>
               <button className="btn sm pri" disabled={busy}>Invite</button>
             </div>

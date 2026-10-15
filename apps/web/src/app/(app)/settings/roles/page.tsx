@@ -39,7 +39,9 @@ export default function Roles() {
         <DataTable id="custom-roles" rows={data.roles} onRowClick={setEditing} columns={[
           { key: "name", label: "Role" }, { key: "base_role", label: "Based on", type: "label" },
           { key: "permissions", label: "Limits", value: (r) => Object.entries(r.permissions ?? {})
-              .filter(([, v]) => v !== "write").map(([k, v]) => `${label(k)}: ${v === "read" ? "view" : "hidden"}`).join(", ") || "None" },
+              .filter(([, v]) => v !== "write")
+              .map(([k, v]) => `${data.modules.find((m: any) => m.key === k)?.label ?? label(k)}: ${v === "read" ? "view only" : "hidden"}`)
+              .join(", ") || "None" },
           { key: "members", label: "People", type: "number" },
         ]} />
       ) : <p className="muted">No custom roles yet. Everyone has the full access of their base role.</p>)}
