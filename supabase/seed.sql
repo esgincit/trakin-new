@@ -68,6 +68,11 @@ begin
   values (t, v_consultant_email, 'consultant', ravi, 'SAP GRC Consultant');
 
   -- Agreements and SOWs --------------------------------------------------------------
+  -- Resource contracts (WF-05): W-2 consultants work under a signed offer letter.
+  insert into mytrakin.agreements (tenant_id, code, kind, consultant_id, tenant_side, effective_on, status, signed_by) values
+    (t, 'OFFER-ESG-AD', 'offer_letter', anita, 'employer', current_date - 905, 'active', 'Madhavi Gonnala'),
+    (t, 'OFFER-ESG-GO', 'offer_letter', grace, 'employer', current_date - 30, 'active', 'Madhavi Gonnala'),
+    (t, 'OFFER-ESG-PN', 'offer_letter', priya, 'employer', current_date - 135, 'active', 'Madhavi Gonnala');
   -- Verify → NDA → MSA (WF-02): every seeded client and vendor has its NDA on file.
   insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, effective_on, status, signed_by) values
     (t, 'NDA-NW-ESG', 'nda', northwind, 'supplier', current_date - 960, 'active', 'Madhavi Gonnala'),

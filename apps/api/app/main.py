@@ -19,6 +19,7 @@ from .db import get_engine
 from .errors import install_error_handlers
 from .responses import AppJSONResponse
 from .routers import (
+    acceptances,
     admin,
     companies,
     compliance,
@@ -81,7 +82,7 @@ async def security_headers(request: Request, call_next):
 
 v1 = APIRouter(prefix="/v1")
 for module in (me, dashboard, companies, contracts, projects, timesheets, invoices, people_pay, esign, compliance, data,
-               admin, network, insights, platform, public, cron, uploads, onboarding):
+               admin, network, insights, platform, public, cron, uploads, onboarding, acceptances):
     v1.include_router(module.router)
 v1.include_router(consultants.router)
 app.include_router(v1)

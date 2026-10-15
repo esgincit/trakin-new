@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..deps import TenantDb, tenant_db
 from ..errors import ApiError, bad_request, not_found
+from ..services import workflow
 from ..services.timesheet_checks import Entry, PlacementInfo, run_checks, summarize
 from ..utils import week_start
 
@@ -70,6 +71,36 @@ async def _checks(db: TenantDb, ts: dict) -> tuple[list, dict]:
         show_money=db.ctx.allows("finance"),
     )
     return [c.as_dict() for c in checks], summarize(checks)
+
+
+async def _contract_gate(db: TenantDb, timesheet_id) -> None:
+    """Resource contract → acceptance → timesheet (WF-05). For each project on the week: the resource needs a contract
+    (vendor / 1099 work order, or a W-2 offer letter) and, when acceptance is required, that contract and the client
+    SOW must be accepted (signed or recorded). Each check follows its tenant workflow switch."""
+    rules = await workflow.rules(db)
+    if not (rules["requireContract"] or rules["requireAcceptance"]):
+        return
+    rows = await db.all(
+        """select distinct pr.name as project, et.pay_model, aps.code as ap_sow, aps.status as ap_status,
+                  ars.code as ar_sow, ars.status as ar_status,
+                  (select o.status from agreements o where o.consultant_id = p.consultant_id and o.kind = 'offer_letter'
+                    order by o.status = 'active' desc, o.created_at desc limit 1) as offer_status
+             from timesheet_entries e join placements p on p.id = e.placement_id join projects pr on pr.id = p.project_id
+             join consultants c on c.id = p.consultant_id join engagement_types et on et.code = c.engagement
+             left join sows aps on aps.id = p.ap_sow_id left join sows ars on ars.id = p.ar_sow_id
+            where e.timesheet_id = :id""", {"id": timesheet_id})
+    for r in rows:
+        payroll = r["pay_model"] == "payroll"
+        contract_status = r["offer_status"] if payroll else r["ap_status"]
+        what = "offer letter" if payroll else "vendor / contractor work order"
+        if rules["requireContract"] and contract_status is None:
+            raise workflow.blocked("contract_required", f"{r['project']}: no {what} for this resource yet — add it before "
+                                                        "timesheets (or turn off 'Require contract' in Settings → Workflow)")
+        if rules["requireAcceptance"]:
+            if contract_status is not None and contract_status != "active":
+                raise workflow.blocked("acceptance_required", f"{r['project']}: the {what} isn't accepted yet")
+            if r["ar_sow"] and r["ar_status"] != "active":
+                raise workflow.blocked("acceptance_required", f"{r['project']}: client SOW {r['ar_sow']} isn't accepted yet")
 
 
 @router.get("")
@@ -190,6 +221,7 @@ async def submit_my_week(body: Decision, db: TenantDb = Depends(tenant_db), week
     total = await db.val("select coalesce(sum(hours), 0) from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
     if total <= 0:
         raise bad_request("Enter your hours first")
+    await _contract_gate(db, ts["id"])
     await db.run("update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null where id = :id", {"id": ts["id"]})
     return {"id": ts["id"], "status": "submitted"}
 
@@ -233,6 +265,7 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 @router.post("/{timesheet_id}/approve")
 async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     db.ctx.require(*APPROVER_ROLES)
+    await _contract_gate(db, timesheet_id)
     row = await db.one(
         """update timesheets set status = 'approved', decided_by = :u, decided_at = now(), reject_reason = null
             where id = :id and status = 'submitted' returning id, status""",
@@ -270,9 +303,13 @@ async def approve_all_passing(db: TenantDb = Depends(tenant_db), week: date = Qu
     """Approve every submitted timesheet for the week whose checks all pass."""
     db.ctx.require(*APPROVER_ROLES)
     overview = await week_overview(db, _sunday(week))
-    approved = []
+    approved, skipped = [], []
     for r in overview["rows"]:
         if r["status"] == "submitted" and r["checks"] and r["checks"]["result"] == "pass":
-            await approve(r["id"], db)
+            try:
+                await approve(r["id"], db)
+            except ApiError as exc:     # contract / acceptance missing: leave it for review
+                skipped.append(f"{r['full_name']}: {exc.message}")
+                continue
             approved.append(r["full_name"])
-    return {"approved": approved}
+    return {"approved": approved, "skipped": skipped}

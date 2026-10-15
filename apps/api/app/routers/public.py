@@ -256,6 +256,14 @@ async def _complete(db: TenantDb, env: dict) -> None:
             """update sows s set end_date = coalesce(a.new_end_date, s.end_date),
                       value_cap = case when a.value_change is null then s.value_cap else coalesce(s.value_cap, 0) + a.value_change end
                  from sow_amendments a where a.id = :id and s.id = a.sow_id""", {"id": env["amendment_id"]})
+    # WF-06: the signature is the acceptance — keep it in the acceptance history.
+    for entity_type, entity_id in (("agreement", env["agreement_id"]), ("sow", env["sow_id"]),
+                                   ("amendment", env["amendment_id"])):
+        if entity_id:
+            await db.run(
+                """insert into acceptances (tenant_id, entity_type, entity_id, accepted_by, method, envelope_id)
+                   values (:t, :type, :id, :by, 'esign', :env)""",
+                {"t": env["tenant_id"], "type": entity_type, "id": entity_id, "by": names, "env": env["id"]})
 
     link = await storage.signed_url("esign", path, expires_in=7 * 24 * 3600)
     sender = await db.val("select email from profiles where id = :u", {"u": env["sent_by"]}) if env["sent_by"] else None

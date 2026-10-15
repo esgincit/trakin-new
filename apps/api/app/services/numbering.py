@@ -24,6 +24,8 @@ COUNTER_KEYS = {"invoice_ar": "inv_AR", "invoice_ap": "inv_AP"}   # existing cou
 _TAKEN = {"project": ("projects", "code"), "sow": ("sows", "code"), "contract": ("sows", "code"),
           "invoice_ar": ("invoices", "number"), "invoice_ap": ("invoices", "number"), "envelope": ("envelopes", "number"),
           **{k: ("agreements", "code") for k in ("msa", "subcontract", "ica", "nda", "offer_letter")}}
+# ponytail: codes only collide with numbers already in use (imports, hand-typed); 50 skips is plenty.
+MAX_TRIES = 50
 _TOKEN = re.compile(r"\{([A-Z]+)(?::(\d+))?\}")
 
 
@@ -71,7 +73,7 @@ async def next_code(db, entity: str, **values: Any) -> str:
     """Take the next number for the entity (skipping any already in use)."""
     template = await template_for(db, entity)
     key = COUNTER_KEYS.get(entity, entity)
-    for _ in range(500):
+    for _ in range(MAX_TRIES):
         seq = await db.val("select mytrakin.next_number(:t, :k)", {"t": db.ctx.tenant_id, "k": key})
         code = format_code(template, seq, date.today(), values)
         if not await _taken(db, entity, code):
@@ -84,7 +86,7 @@ async def preview_code(db, entity: str, **values: Any) -> str:
     template = await template_for(db, entity)
     seq = await db.val("select coalesce((select value from counters where key = :k), 0)",
                        {"k": COUNTER_KEYS.get(entity, entity)})
-    for step in range(1, 501):
+    for step in range(1, MAX_TRIES + 1):
         code = format_code(template, seq + step, date.today(), values)
         if not await _taken(db, entity, code):
             return code

@@ -169,3 +169,48 @@ async def test_no_active_msa_blocks_invoices_and_new_sows(client, auth):
         "code": "WO-NW-OLD-1", "agreement_id": old.json()["id"], "side": "we_bill", "title": "Too late",
         "start_date": "2026-11-01", "end_date": "2026-12-31"})
     assert sow.status_code == 409 and "expired" in sow.text, sow.text
+
+
+# ---------------------------------------------------------------------------- WF-05/06 acceptance + resource contract
+async def test_manual_acceptance_activates_and_is_kept_in_history(client, auth):
+    admin = auth("admin")
+    msa = await _agreement(client, auth, "MSA-AF-ESG")
+    sow = (await client.post("/sows", headers=admin, json={
+        "agreement_id": msa, "side": "we_bill", "title": "Paper-signed SOW", "start_date": "2026-11-02",
+        "end_date": "2027-01-29", "status": "draft"})).json()
+    accepted = await client.post("/acceptances", headers=admin, json={
+        "entity_type": "sow", "entity_id": sow["id"], "accepted_by": "J. Brooks (Atlas Foods)", "note": "Wet ink, scanned"})
+    assert accepted.status_code == 201, accepted.text
+    assert (await client.get(f"/sows/{sow['id']}", headers=admin)).json()["status"] == "active"
+    history = (await client.get("/acceptances", params={"entity_type": "sow", "entity_id": sow["id"]},
+                                headers=admin)).json()
+    assert len(history) == 1 and history[0]["method"] == "manual" and history[0]["accepted_by"].startswith("J. Brooks")
+    assert (await client.post("/acceptances", headers=auth("vendor"), json={
+        "entity_type": "sow", "entity_id": sow["id"], "accepted_by": "Someone"})).status_code == 403
+
+
+async def test_timesheet_needs_the_resource_contract(client, auth):
+    from datetime import date, timedelta
+    consultant = auth("consultant")
+    week = date.today() - timedelta(days=(date.today().weekday() + 1) % 7) - timedelta(weeks=20)
+    finance = auth("finance")
+    ravi = next(p for p in (await client.get("/placements", headers=finance)).json()
+                if p["consultant"] == "Ravi Kumar" and p["ar_company"] == "Northwind Consulting")
+    mine = (await client.get("/timesheets/mine", params={"week": str(week)}, headers=consultant)).json()
+    rows = [{"placement_id": ravi["id"], "hours": [0, 8, 8, 0, 0, 0, 0]}]
+    assert any(p["placement_id"] == ravi["id"] for p in mine["projects"]), mine
+    await _sql("update mytrakin.placements set ap_sow_id = null where id = :id", id=ravi["id"])
+    try:
+        saved = await client.put("/timesheets/mine", headers=consultant, json={"week_start": str(week), "rows": rows})
+        assert saved.status_code == 200, saved.text
+        blocked = await client.post("/timesheets/mine/submit", params={"week": str(week)}, headers=consultant, json={})
+        assert blocked.status_code == 409 and "contract_required" in blocked.text, blocked.text
+        await _switch(client, auth, requireContract=False)
+        ok = await client.post("/timesheets/mine/submit", params={"week": str(week)}, headers=consultant, json={})
+        assert ok.status_code == 200, ok.text
+    finally:
+        await _switch(client, auth, requireContract=True)
+        await _sql("update mytrakin.placements set ap_sow_id = (select id from mytrakin.sows where code = :c) where id = :id",
+                   c=ravi["ap_sow"], id=ravi["id"])
+        await _sql("delete from mytrakin.timesheets where consultant_id = (select consultant_id from mytrakin.placements "
+                   "where id = :id) and week_start = :w", id=ravi["id"], w=week)
