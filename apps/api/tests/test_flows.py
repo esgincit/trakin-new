@@ -195,19 +195,6 @@ async def test_public_registration_and_approval(client, auth):
     assert approved["created"]["name"] == "Acme Talent LLC"
 
 
-async def test_signup_and_platform_approval(client, auth):
-    response = await client.post("/public/signups", json={"company": "Lone Star Staffing", "contact_name": "Kim Park",
-                                                           "email": "kim@lonestar.example", "plan": "growth", "seats": 12})
-    assert response.status_code == 201, response.text
-    signups = (await client.get("/platform/signups", headers=auth("platform"))).json()
-    signup = next(s for s in signups if s["company"] == "Lone Star Staffing")
-    decided = await client.post(f"/platform/signups/{signup['id']}/decision", headers=auth("platform"), json={"decision": "approved"})
-    assert decided.status_code == 200, decided.text
-    tenants = (await client.get("/platform/tenants", headers=auth("platform"))).json()
-    new = next(t for t in tenants if t["name"] == "Lone Star Staffing")
-    assert new["invited_users"] == 1 and new["status"] == "onboarding"
-
-
 # ---------------------------------------------------------------------------- import / export
 async def test_templates_import_and_export(client, auth):
     admin = auth("admin")

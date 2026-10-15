@@ -347,43 +347,6 @@ async def register(
     return {"id": reg["id"], "status": "pending"}
 
 
-class SignupIn(BaseModel):
-    company: str = Field(min_length=2, max_length=200)
-    contact_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
-    phone: str | None = None
-    state: str | None = Field(None, max_length=2)
-    ein: str | None = Field(None, pattern=r"^\d{2}-?\d{7}$")
-    plan: str = Field("growth", pattern="^(starter|growth|enterprise)$")
-    seats: int = Field(5, ge=1, le=10000)
-
-
-async def anonymous_db(request: Request) -> AsyncIterator[TenantDb]:
-    async for db in open_public(request, None):
-        yield db
-
-
-@router.post("/signups", status_code=201)
-async def signup(body: SignupIn, db: TenantDb = Depends(anonymous_db)):
-    """A staffing company asks for a workspace. The platform owner approves it."""
-    domain = body.email.split("@")[1].lower()
-    flag = "Personal e-mail domain — confirm the company" if domain in FREE_MAIL else None
-    row = {"id": uuid4()}
-    await db.run(
-        """insert into tenant_signups (id, company, contact_name, email, phone, state, ein, plan, seats, checks, flag)
-           values (:id, :co, :n, :e, :p, :s, :ein, :plan, :seats, cast(:checks as jsonb), :flag)""",
-        {"id": row["id"], "co": body.company.strip(), "n": body.contact_name.strip(), "e": body.email, "p": body.phone,
-         "s": body.state.upper() if body.state else None, "ein": body.ein, "plan": body.plan, "seats": body.seats,
-         "checks": orjson.dumps({"email_free_domain": domain in FREE_MAIL, "ein_given": bool(body.ein),
-                                 "submitted_ip": db.ctx.ip}).decode(),
-         "flag": flag})
-    await send_email(None, to=body.email, subject="Your myTrakIn request", kind="signup",
-                     html_body=render("Thanks for your interest in myTrakIn",
-                                      [f"We received the request for {body.company}.",
-                                       "We verify every company before opening a workspace — usually within one business day."]))
-    return {"id": row["id"], "status": "pending"}
-
-
 def _safe_name(filename: str | None) -> str:
     keep = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in (filename or "file"))
     return keep[-120:] or "file"
