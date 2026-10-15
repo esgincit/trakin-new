@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
+import { Acceptance } from "@/components/Acceptance";
 import { Attachments } from "@/components/Attachments";
 import { Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -62,6 +63,7 @@ export default function SowDetail() {
           {s.envelopes.map((e: any) => <div key={e.id} className="alert click" onClick={() => router.push(`/esign/${e.id}`)}><Chip status={e.status} />{e.number} · {e.title}</div>)}
         </div>
       </div>
+      <Acceptance entityType="sow" entityId={id} canRecord={canEdit && s.status !== "active"} onRecorded={reload} />
       <Attachments ownerType="sow" ownerId={id} canEdit={canEdit} />
       {amending && (
         <Modal title={`Amend ${s.code}`} onClose={() => setAmending(false)}>

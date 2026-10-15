@@ -7,8 +7,21 @@ import { useApi } from "@/lib/useApi";
 
 const SETUP = ["Company details", "Invite your team", "Add clients & vendors", "Import existing data", "Add MSAs & SOWs", "Projects & placements", "Policies & reminders", "Go live"];
 
+const SWITCHES: [string, string, string][] = [
+  ["requireNDA", "Require NDA", "A client or vendor needs a signed NDA before its MSA, and before a project with it goes active."],
+  ["requireMSA", "Require MSA", "Projects, invoices and vendor payments need an active MSA (or subcontract / 1099 agreement)."],
+  ["requireContract", "Require resource contract", "Timesheets need the resource's work order (vendor / 1099) or offer letter (W-2)."],
+  ["requireAcceptance", "Require acceptance", "That contract and the client SOW must be signed or accepted before timesheets."],
+];
+const ENTITIES: Record<string, string> = {
+  project: "Project", msa: "MSA", subcontract: "Subcontract", ica: "1099 agreement", nda: "NDA", offer_letter: "Offer letter",
+  sow: "Client SOW", contract: "Resource contract (work order)", invoice_ar: "Client invoice", invoice_ap: "Vendor payable", envelope: "E-sign envelope",
+};
+
 export default function Settings() {
   const { data: t, error, loading, reload } = useApi("/workspace");
+  const workflow = useApi<Record<string, boolean>>("/workspace/workflow");
+  const numbering = useApi<Record<string, { template: string; next: string }>>("/workspace/numbering");
   const { run, busy } = useAction();
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} retry={reload} />;
@@ -62,6 +75,38 @@ export default function Settings() {
           <Field label="Sign out after (hours idle)" name="session_hours" type="number" min={1} max={720} defaultValue={s.session_hours ?? 12} />
           <Field label="Invoice footer" name="invoice_footer" as="textarea" defaultValue={s.invoice_footer ?? ""} placeholder="Remit to: … ACH routing …" />
           <p className="note">Which methods actually work also depends on the providers enabled in your Supabase project (Authentication → Providers).</p>
+          <button className="btn pri mt" disabled={busy}>Save</button>
+        </form>
+      </div>
+      <div className="grid c2 mt">
+        <form className="card form" onSubmit={async (e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          const values = Object.fromEntries(SWITCHES.map(([k]) => [k, !!f.get(k)]));
+          if (await run(() => api("/workspace", { method: "PATCH", body: { settings: { workflow: values } } }), "Workflow saved")) workflow.reload();
+        }}>
+          <h3>Workflow</h3>
+          <p className="muted">Register → Verify → NDA → MSA → Project → SOW → Acceptance → Resource contract → Acceptance → Timesheet → Invoice → Payment → Confirmation.</p>
+          {workflow.data && SWITCHES.map(([k, l, help]) => (
+            <label key={k} className="row" style={{ color: "var(--ink)", alignItems: "flex-start" }}>
+              <input type="checkbox" className="toggle" name={k} defaultChecked={workflow.data![k]} />
+              <span><b>{l}</b><div className="muted" style={{ fontSize: 12.5 }}>{help}</div></span>
+            </label>
+          ))}
+          <button className="btn pri mt" disabled={busy}>Save</button>
+        </form>
+        <form className="card form" onSubmit={async (e) => {
+          e.preventDefault();
+          const v = formValues(e.currentTarget) as Record<string, string>;
+          const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val && val !== numbering.data?.[k]?.template));
+          if (!Object.keys(changed).length) return;
+          if (await run(() => api("/workspace", { method: "PATCH", body: { settings: { numbering: changed } } }), "Numbering saved")) numbering.reload();
+        }}>
+          <h3>Numbering</h3>
+          <p className="muted">Placeholders: {"{YEAR} {YY} {MM} {YYYYMM} {SEQ} {SEQ:4} {CLIENT} {PROJECT}"}. Every template needs {"{SEQ}"}.</p>
+          {numbering.data && Object.entries(numbering.data).map(([k, n]) => (
+            <Field key={k} label={`${ENTITIES[k] ?? k} — next: ${n.next}`} name={k} defaultValue={n.template} />
+          ))}
           <button className="btn pri mt" disabled={busy}>Save</button>
         </form>
       </div>

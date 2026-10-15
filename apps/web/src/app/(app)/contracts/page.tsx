@@ -91,7 +91,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
         <div className="fields">
           <Field label="Type" name="kind_select" as="select" value={kind} onChange={(e: any) => setKind(e.target.value)}
                  options={[["msa", "MSA (client or prime)"], ["subcontract", "Subcontractor agreement (vendor)"], ["ica", "Independent contractor agreement (1099)"], ["nda", "NDA"], ["offer_letter", "Offer letter"]]} />
-          <Field label="Agreement ID" name="code" required placeholder="MSA-NOVA-01" />
+          <Field label="Agreement ID" name="code" placeholder="Leave blank to number it automatically" />
           {personal ? (
             <Field label="Consultant" name="consultant_id" as="select" required options={[["", "Choose…"], ...(consultants.data ?? []).map((c) => [c.id, c.full_name] as [string, string])]} />
           ) : (
@@ -116,6 +116,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
 function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) => void }) {
   const agreements = useApi<any[]>("/agreements");
   const sows = useApi<any[]>("/sows", { side: "we_bill" });
+  const projects = useApi<any[]>("/projects");
   const { run, busy } = useAction();
   return (
     <Modal title="Add SOW / work order" onClose={onClose}>
@@ -127,7 +128,8 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
         if (r) onDone(r);
       }}>
         <div className="fields">
-          <Field label="SOW ID" name="code" required />
+          <Field label="SOW / work order ID" name="code" placeholder="Leave blank to number it automatically" />
+          <Field label="Project" name="project_id" as="select" options={[["", "–"], ...(projects.data ?? []).map((p) => [p.id, `${p.code} · ${p.name}`] as [string, string])]} />
           <Field label="Under agreement" name="agreement_id" as="select" required options={[["", "Choose…"], ...(agreements.data ?? []).filter((a) => ["msa", "subcontract", "ica"].includes(a.kind)).map((a) => [a.id, `${a.code} · ${a.counterparty}`] as [string, string])]} />
           <Field label="Side" name="side" as="select" options={[["we_bill", "We bill (client SOW)"], ["we_pay", "We pay (vendor / 1099 work order)"]]} />
           <Field label="Title" name="title" required />

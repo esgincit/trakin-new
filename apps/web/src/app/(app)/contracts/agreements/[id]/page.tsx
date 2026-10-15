@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { Acceptance } from "@/components/Acceptance";
 import { Attachments } from "@/components/Attachments";
 import { Bar, Chip, ErrorBox, Loading, PageHead } from "@/components/ui";
 import { date, label } from "@/lib/format";
@@ -51,6 +52,7 @@ export default function AgreementDetail() {
           {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
         </div>
       </div>
+      <Acceptance entityType="agreement" entityId={id} canRecord={allows(workspace, "legal", "account_manager") && a.status !== "active"} onRecorded={reload} />
       <Attachments ownerType="agreement" ownerId={id} canEdit={canEdit} />
     </>
   );
