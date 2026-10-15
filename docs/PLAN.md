@@ -276,7 +276,7 @@ own invoices and projects.
 | AGR-06 | Tabs: offer letters & NDAs per consultant; policy acceptance matrix (consultant × policy); missing checklist with Remind. | ✅ verify tabs |
 | AGR-07 | Add existing MSA/SOW (already signed) with PDF; import MSAs/SOWs; templates. | ✅ |
 | AGR-08 | Amendments: draft → send for signature → applied automatically when signed. | ✅ |
-| AGR-09 | Block: invoices/payments for a company with no active MSA; new SOWs after MSA expiry. | 🟡 verify enforcement |
+| AGR-09 | Block: invoices/payments for a company with no active MSA; new SOWs after MSA expiry. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
 | AGR-10 | Expiry e-mails to legal at 90/60/30 days. | ✅ |
 
 ### 5.12 E-signatures (`/esign`, `/sign/[token]`)
@@ -308,7 +308,7 @@ own invoices and projects.
 | TS-04 | Approver list per week: KPIs waiting / approved / not submitted / flagged; daily hours; checks summary; approve; **approve all that pass**; **remind not submitted**. | ✅ verify remind button |
 | TS-05 | Detail shows "what approval creates": AR amount and AP amount (finance/admin). | ✅ |
 | TS-06 | All-weeks history for every consultant/project with filters and CSV. | ✅ verify |
-| TS-07 | **Adjustment after approval**: request adjustment → re-approval; adjusts un-invoiced amounts or creates a correction line. | ❌ |
+| TS-07 | **Adjustment after approval**: request adjustment → re-approval; adjusts un-invoiced amounts or creates a correction line. | 🟡 reopening blocked once invoiced (2026-10-15); credit-note path still Phase 1 |
 | TS-08 | Reminders Fri 3 pm, Mon 9 am, escalate Tue (HR/vendor admin). | ✅ |
 | TS-09 | Vendors see their consultants' timesheets read-only. | ✅ |
 | TS-10 | Approved time off pre-filled on the timesheet; client approver notified. | ❌ |
@@ -478,17 +478,17 @@ Acceptance → Timesheet → Invoice → Payment → **Payment confirmation**. I
 
 | ID | Requirement | Status |
 |---|---|---|
-| WF-01 | Tenant workflow switches `requireNDA`, `requireMSA`, `requireAcceptance`, `requireContract` (default on), editable by the company admin; every gate reads them — no hard-coded gates. | ❌ |
-| WF-02 | NDA with each client/vendor company before its MSA (when `requireNDA`); NDA status and acceptance history stored and audited. | ❌ (consultant NDAs only) |
-| WF-03 | Project can't be **activated** until the client's NDA and MSA requirements are met (per switches). | ❌ |
-| WF-04 | **SOW belongs to a project**; a project has many SOWs; a SOW has one or many resources (placements), each with its own contract, acceptance, timesheets, invoices, payments, confirmation. `POST /projects/{id}/sows`, `GET/POST /sows/{id}/resources`. | 🟡 many placements per SOW exist; no SOW→project link |
-| WF-05 | Resource contract (vendor/contractor work order, or offer letter for W-2) required before timesheets when `requireContract`; must be accepted (signed or manually accepted) when `requireAcceptance`. | ❌ |
-| WF-06 | **Acceptance records** (entity, accepted by, when, method e-sign/manual) + history; e-sign completion writes one. | 🟡 e-sign events only |
-| WF-07 | Engagement types as a lookup table (code, name, active, behaviour) — C2C, **E2E (employer-to-employer)**, 1099, W-2 — new types without schema change. | ❌ fixed check constraint |
-| WF-08 | **Naming engine**: per-tenant templates stored in the database (`PROJ-{YEAR}-{SEQ}`, `MSA-{CLIENT}-{SEQ}`, `SOW-{PROJECT}-{SEQ}`, `INV-{YYYYMM}-{SEQ}`, `CON-{YEAR}-{SEQ}`), custom placeholders, new entity types by config. | ❌ prefixes in code |
-| WF-09 | Payment status (pending → processing → completed → **confirmed**) and **payment confirmation** (who, when) that closes the financial lifecycle. | ❌ |
-| WF-10 | Status / approval / acceptance / payment history for major entities (audit log + acceptance + payment confirmation). | 🟡 audit log exists |
-| WF-11 | Workflow tests: single- and multi-resource SOW, NDA/MSA on/off, C2C/E2E/1099, invoice generation, payment lifecycle + confirmation, naming templates. | ❌ |
+| WF-01 | Tenant workflow switches `requireNDA`, `requireMSA`, `requireAcceptance`, `requireContract` (default on), editable by the company admin; every gate reads them — no hard-coded gates. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-02 | NDA with each client/vendor company before its MSA (when `requireNDA`); NDA status and acceptance history stored and audited. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-03 | Project can't be **activated** until the client's NDA and MSA requirements are met (per switches). | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-04 | **SOW belongs to a project**; a project has many SOWs; a SOW has one or many resources (placements), each with its own contract, acceptance, timesheets, invoices, payments, confirmation. `POST /projects/{id}/sows`, `GET/POST /sows/{id}/resources`. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-05 | Resource contract (vendor/contractor work order, or offer letter for W-2) required before timesheets when `requireContract`; must be accepted (signed or manually accepted) when `requireAcceptance`. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-06 | **Acceptance records** (entity, accepted by, when, method e-sign/manual) + history; e-sign completion writes one. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-07 | Engagement types as a lookup table (code, name, active, behaviour) — C2C, **E2E (employer-to-employer)**, 1099, W-2 — new types without schema change. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-08 | **Naming engine**: per-tenant templates stored in the database (`PROJ-{YEAR}-{SEQ}`, `MSA-{CLIENT}-{SEQ}`, `SOW-{PROJECT}-{SEQ}`, `INV-{YYYYMM}-{SEQ}`, `CON-{YEAR}-{SEQ}`), custom placeholders, new entity types by config. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-09 | Payment status (pending → processing → completed → **confirmed**) and **payment confirmation** (who, when) that closes the financial lifecycle. | ✅ built 2026-10-15 on `feat/wf-workflow` — API tests written, **not yet run in CI** |
+| WF-10 | Status / approval / acceptance / payment history for major entities (audit log + acceptance + payment confirmation). | 🟡 audit log + acceptance history + payment confirmation; no per-entity status-history screen |
+| WF-11 | Workflow tests: single- and multi-resource SOW, NDA/MSA on/off, C2C/E2E/1099, invoice generation, payment lifecycle + confirmation, naming templates. | 🟡 written (not run in CI): single + multi resource, NDA/MSA/contract switches on/off, E2E onboarding, naming, payment lifecycle, full chain for C2C; 1099 / E2E full chain not yet |
 
 ## 6. Open decisions (product owner)
 
@@ -619,7 +619,8 @@ Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted
 - 2026-10-15 · WF-01…11, RULE-07, AGR/PRJ/TS gaps · Owner e-mail "master specification" adopted (wins over prototype;
   E2E = employer-to-employer; business rules first for 25 Oct). Added §5.30 + Phase W. Plans written (uncommitted):
   `superpowers/plans/2026-10-15-workflow-master-spec.md` (Phase W) and `…-contracts-projects-timesheets-gaps.md`
-  (UI/prototype gaps, after go-live). CI on main is red (3 onboarding tests) — W.0 first. No code changed yet.
+  (UI/prototype gaps, after go-live). Same day: Phase W W.0–W.10 implemented on branch `feat/wf-workflow` (11 commits,
+  not pushed; ruff, tsc, `next build` and unit tests pass locally; API tests need CI). Left: push + CI, click-test per role.
 
 - 2026-10-14 · AUTH-13 · Owner tested Google sign-in on https://www.mytrackin.com: it worked but showed the "Almost
   there / request a workspace" wall. Fixed on branch `feat/AUTH-no-workspace-home` (uncommitted→committed locally, NOT

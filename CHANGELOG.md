@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Approved workflow** (owner e-mail 2026-10-15, PLAN §5.30): Register → Verify → NDA → MSA → Project → SOW →
+  Acceptance → Resource contract → Acceptance → Timesheet → Invoice → Payment → Payment confirmation.
+  - Settings → Workflow: switches `requireNDA`, `requireMSA`, `requireContract`, `requireAcceptance` (default on).
+  - NDA needed before a company's MSA and before a project with it is activated; MSA needed for project activation,
+    client invoices and vendor payments; no new SOWs under an expired agreement.
+  - SOWs and work orders belong to a project (`POST /projects/{id}/sows`); one SOW carries one or many resources
+    (`GET/POST /sows/{id}/resources`), each with its own contract, timesheets, invoices and payments.
+  - Timesheets need the resource's contract (vendor / 1099 work order or W-2 offer letter) and its acceptance.
+  - Acceptance records: e-signature completion records one; staff can record paper / e-mail acceptance; history shown
+    on agreement and SOW pages.
+  - Engagement types are a table (W-2 full-time, W-2 contract, C2C, **E2E (employer-to-employer)**, 1099).
+  - Numbering templates per document type in Settings → Numbering (`PROJ-{YEAR}-{SEQ:3}`, `INV-{YYYYMM}-{SEQ}` …).
+  - Payments move pending → processing → completed → **confirmed**; finance or the payee confirms.
+- Fixes: a Super Admin counts as company owner for activation; an approved timesheet can no longer be reopened after
+  its hours are invoiced (the change was silently never billed); timesheet reminder e-mails link to `/my/timesheet`.
+
 - A new person who signs in (Google, Microsoft or e-mail) without a workspace now lands on the Network feed with a
   limited menu (Network, My businesses, My profile, Account & security) instead of a "request a workspace" screen.
   The network API works without a workspace; posts default to "Everyone in my network".
