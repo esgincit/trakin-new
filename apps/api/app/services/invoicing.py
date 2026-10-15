@@ -104,27 +104,8 @@ async def record_payment(db: Db, *, tenant_id: Any, user_id: Any, invoice_id: An
                          paid_on: date, method: str, reference: str | None, status: str = "completed") -> dict:
     """Record money received (AR) or paid (AP). For AR, returns AP invoices that this releases.
     status pending / processing records a payment in flight; it counts once it is completed (WF-09)."""
-    # Lock the invoice so two people recording payments at once can't overpay it.
-    if await db.one("select id from invoices where id = :id for update", {"id": invoice_id}) is None:
-        raise not_found("Invoice")
-    invoice = await db.one("select * from invoice_balances where id = :id", {"id": invoice_id})
-    if invoice is None:
-        raise not_found("Invoice")
-    if invoice["status"] == "void":
-        raise conflict("This invoice is void")
     amount = money(amount)
-    if amount <= 0:
-        raise bad_request("Enter an amount above zero")
-    if amount > money(invoice["balance"]):
-        raise bad_request(f"That is more than the open balance of ${money(invoice['balance']):,.2f}")
-    if invoice["direction"] == "ap" and invoice["live_status"] in {"held", "exception"}:
-        raise conflict("This vendor invoice is on hold — resolve it before paying")
-    # Money received from a customer is always recorded; money paid out needs an active agreement with the payee.
-    if invoice["direction"] == "ap" and (await workflow.rules(db))["requireMSA"] and not await workflow.has_active_agreement(
-            db, kinds=workflow.MASTER_KINDS, company_id=invoice["company_id"], consultant_id=invoice["consultant_id"],
-            on=paid_on):
-        raise conflict("No active agreement with this payee — vendor payments are blocked until one is signed")
-
+    await check_payable(db, invoice_id, amount, paid_on)
     payment_id = await db.val(
         """insert into payments (tenant_id, invoice_id, amount, paid_on, method, reference, created_by, status)
            values (:t, :i, :a, :d, :m, :r, :u, :s) returning id""",
@@ -133,6 +114,35 @@ async def record_payment(db: Db, *, tenant_id: Any, user_id: Any, invoice_id: An
     )
     return {"payment_id": payment_id, "invoice_id": invoice_id, "amount": amount, "status": status,
             **await settle(db, invoice_id)}
+
+
+async def check_payable(db: Db, invoice_id: Any, amount: Decimal, paid_on: date, *, exclude_payment: Any = None) -> None:
+    """Every rule a payment must pass — when it is recorded and again when an in-flight payment is completed.
+    Locks the invoice so two people paying at once can't overpay it. Payments still in flight (pending /
+    processing) count against the balance here, so in-flight payments can never add up to more than is owed."""
+    if await db.one("select id from invoices where id = :id for update", {"id": invoice_id}) is None:
+        raise not_found("Invoice")
+    invoice = await db.one("select * from invoice_balances where id = :id", {"id": invoice_id})
+    if invoice is None:
+        raise not_found("Invoice")
+    if invoice["status"] == "void":
+        raise conflict("This invoice is void")
+    if amount <= 0:
+        raise bad_request("Enter an amount above zero")
+    in_flight = money(await db.val(
+        """select coalesce(sum(amount), 0) from payments where invoice_id = :id and status in ('pending', 'processing')
+             and id is distinct from cast(:x as uuid)""", {"id": invoice_id, "x": exclude_payment}))
+    open_balance = money(invoice["balance"]) - in_flight
+    if amount > open_balance:
+        raise bad_request(f"That is more than the open balance of ${open_balance:,.2f}"
+                          + (f" (${in_flight:,.2f} is already in flight)" if in_flight else ""))
+    if invoice["direction"] == "ap" and invoice["live_status"] in {"held", "exception"}:
+        raise conflict("This vendor invoice is on hold — resolve it before paying")
+    # Money received from a customer is always recorded; money paid out needs an active agreement with the payee.
+    if invoice["direction"] == "ap" and (await workflow.rules(db))["requireMSA"] and not await workflow.has_active_agreement(
+            db, kinds=workflow.MASTER_KINDS, company_id=invoice["company_id"], consultant_id=invoice["consultant_id"],
+            on=paid_on):
+        raise conflict("No active agreement with this payee — vendor payments are blocked until one is signed")
 
 
 async def settle(db: Db, invoice_id: Any) -> dict:

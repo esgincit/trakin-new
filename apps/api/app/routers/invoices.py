@@ -16,7 +16,7 @@ from ..deps import TenantDb, tenant_db
 from ..errors import ApiError, bad_request, not_found
 from ..services import workflow
 from ..services.email import render, send_email
-from ..services.invoicing import generate_invoices, next_invoice_number, record_payment, settle
+from ..services.invoicing import check_payable, generate_invoices, next_invoice_number, record_payment, settle
 from ..utils import money, parse_terms_days
 
 router = APIRouter(tags=["invoices"])
@@ -238,11 +238,14 @@ async def advance_payment(payment_id: UUID, body: PaymentStatusIn, db: TenantDb 
     """Move a payment in flight forward: pending → processing → completed. Completed counts against the invoice."""
     db.ctx.require("finance")
     order = ["pending", "processing", "completed"]
-    current = await db.one("select invoice_id, status from payments where id = :id for update", {"id": payment_id})
+    current = await db.one("select invoice_id, status, amount from payments where id = :id for update", {"id": payment_id})
     if current is None:
         raise not_found("Payment")
     if current["status"] not in order or order.index(body.status) <= order.index(current["status"]):
         raise ApiError(409, "bad_transition", f"A {current['status']} payment can't move to {body.status}")
+    if body.status == "completed":
+        # The same rules as recording a payment: not void, not on hold, payee agreement, no overpayment.
+        await check_payable(db, current["invoice_id"], current["amount"], date.today(), exclude_payment=payment_id)
     await db.run("update payments set status = :s where id = :id", {"s": body.status, "id": payment_id})
     result = {"id": payment_id, "status": body.status}
     if body.status == "completed":

@@ -325,3 +325,20 @@ async def test_verify_to_payment_confirmation_end_to_end(client, auth):
         confirmed = await client.post(f"/payments/{paid.json()['payment_id']}/confirm", headers=who)
         assert confirmed.status_code == 200 and confirmed.json()["status"] == "confirmed", (direction, confirmed.text)
     assert (await client.get(f"/invoices/{mine['ar']['id']}", headers=finance)).json()["live_status"] == "paid"
+
+
+async def test_in_flight_payments_cannot_overpay(client, auth):
+    finance = auth("finance")
+    ar = await _invoice(client, auth, "ar", "ESG-AR-0414")
+    balance = float((await client.get(f"/invoices/{ar['id']}", headers=finance)).json()["balance"])
+    body = {"amount": balance, "paid_on": "2026-10-01", "method": "ACH", "reference": "WF-9-DUP", "status": "pending"}
+    try:
+        first = await client.post(f"/invoices/{ar['id']}/payments", headers=finance, json=body)
+        assert first.status_code == 201, first.text
+        second = await client.post(f"/invoices/{ar['id']}/payments", headers=finance, json=body)
+        assert second.status_code == 400 and "in flight" in second.text, second.text
+        done = await client.post(f"/payments/{first.json()['payment_id']}/status", headers=finance, json={"status": "completed"})
+        assert done.status_code == 200, done.text           # completing re-checks and still fits
+    finally:
+        await _sql("delete from mytrakin.payments where reference = 'WF-9-DUP'")
+        await _sql("update mytrakin.invoices set status = 'sent' where number = 'ESG-AR-0414'")

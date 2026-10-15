@@ -63,7 +63,24 @@ export default function InvoiceDetail() {
           <h3>Payments</h3>
           {inv.payments.length ? (
             <table><tbody>{inv.payments.map((p: any) => (
-              <tr key={p.id}><td>{date(p.paid_on)}</td><td>{p.method}</td><td>{p.reference}</td><td className="num">{money(p.amount)}</td></tr>
+              <tr key={p.id}>
+                <td>{date(p.paid_on)}</td><td>{p.method}</td><td>{p.reference}</td><td className="num">{money(p.amount)}</td>
+                <td><Chip status={p.status === "confirmed" ? "ok" : p.status === "completed" ? "paid" : "pending"}>{p.status}</Chip>
+                  {p.confirmed_by_name && <div className="muted" style={{ fontSize: 12 }}>by {p.confirmed_by_name}, {date(p.confirmed_at)}</div>}</td>
+                <td>
+                  {finance && ["pending", "processing"].includes(p.status) && (
+                    <button className="btn sm" disabled={busy} onClick={async () => {
+                      const next = p.status === "pending" ? "processing" : "completed";
+                      if (await run(() => api(`/payments/${p.id}/status`, { body: { status: next } }), `Marked ${next}`)) reload();
+                    }}>{p.status === "pending" ? "Mark processing" : "Mark completed"}</button>
+                  )}
+                  {p.status === "completed" && (finance || !ar) && (
+                    <button className="btn sm" disabled={busy} onClick={async () => {
+                      if (await run(() => api(`/payments/${p.id}/confirm`, { method: "POST" }), "Payment confirmed")) reload();
+                    }}>{ar ? "Confirm received" : "Confirm payment"}</button>
+                  )}
+                </td>
+              </tr>
             ))}</tbody></table>
           ) : <p className="muted">No payments yet.</p>}
           {finance && Number(inv.balance) > 0 && inv.status !== "void" && (
@@ -77,7 +94,9 @@ export default function InvoiceDetail() {
                 <Field label="Date" name="paid_on" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
                 <Field label="Method" name="method" as="select" options={["ACH", "Wire", "Check", "Card", "Other"]} />
                 <Field label="Reference" name="reference" placeholder="Trace / check number" />
+                <Field label="Status" name="status" as="select" options={[["completed", "Completed (money moved)"], ["processing", "Processing"], ["pending", "Pending"]]} />
               </div>
+              <p className="note">Pending and processing payments don't reduce the balance until marked completed. Confirmation by the receiving side closes the payment.</p>
               <button className="btn pri mt" disabled={busy}>{ar ? "Record payment received" : "Record payment made"}</button>
             </form>
           )}
