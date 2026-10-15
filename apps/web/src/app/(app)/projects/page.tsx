@@ -67,7 +67,7 @@ function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: an
     <Modal title="New project" onClose={onClose}>
       <form className="form" onSubmit={async (e) => { e.preventDefault(); const r = await run(() => api("/projects", { body: formValues(e.currentTarget) }), "Project created"); if (r) onDone(r); }}>
         <div className="fields">
-          <Field label="Code" name="code" required placeholder="PRJ-05" defaultValue={nextCode.data?.code} key={nextCode.data?.code ?? "loading"} />
+          <Field label="Code (auto-assigned)" name="code" required readOnly defaultValue={nextCode.data?.code} key={nextCode.data?.code ?? "loading"} />
           <Field label="Name" name="name" required />
           <Field label="Client (end client)" name="client_company_id" as="select" options={opts(["client", "end_client"])} />
           <Field label="Prime vendor (if you're a sub)" name="prime_company_id" as="select" options={opts(["prime_vendor"])} />

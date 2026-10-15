@@ -29,6 +29,7 @@ header{display:flex;align-items:center;gap:12px;padding:12px 24px;background:var
 header .grow{flex:1}
 .menu-btn{display:none}
 .ctl{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.ctl[readonly]{background:var(--soft);color:var(--muted);cursor:not-allowed}
 .btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:500}
 .btn:hover{background:var(--soft)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
