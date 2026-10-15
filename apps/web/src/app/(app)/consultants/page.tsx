@@ -16,6 +16,7 @@ const ENGAGEMENTS = [
   { key: "w2_fulltime", title: "W-2 employee (full-time)", text: "Offer letter, I-9, E-Verify, W-4, benefits" },
   { key: "w2_contract", title: "W-2 contract employee", text: "Contract offer, I-9, E-Verify, W-4" },
   { key: "c2c", title: "C2C (through a vendor)", text: "Vendor MSA + SOW, employer handles I-9" },
+  { key: "e2e", title: "E2E (employer-to-employer)", text: "Employed by a vendor company; vendor MSA + work order" },
   { key: "1099", title: "1099 independent contractor", text: "Contractor agreement, W-9, classification review" },
 ];
 
@@ -87,7 +88,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
           <Field label="Start date" name="start_date" type="date" required />
           <Field label="Job title" name="title" />
           <Field label="Work location" name="location" placeholder="City, ST" />
-          {engagement === "c2c" && (
+          {(engagement === "c2c" || engagement === "e2e") && (
             <Field label="Employer (vendor)" name="employer_company_id" as="select" required
                    options={[["", "Choose…"], ...(vendors.data ?? []).map((v) => [v.id, v.name] as [string, string])]} full />
           )}

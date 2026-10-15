@@ -35,6 +35,14 @@ def validate(switches: Any) -> dict[str, bool]:
     return switches
 
 
+async def pay_model(db, engagement: str) -> str:
+    """payroll (W-2), vendor (C2C, E2E) or self (1099) — from the engagement_types table (WF-07)."""
+    model = await db.val("select pay_model from engagement_types where code = :c and is_active", {"c": engagement})
+    if model is None:
+        raise ApiError(400, "bad_request", f"Unknown engagement type '{engagement}'")
+    return model
+
+
 def blocked(code: str, message: str) -> ApiError:
     """409 with a code the UI maps to the switch (Settings → Workflow) that would allow the action."""
     return ApiError(409, code, message)

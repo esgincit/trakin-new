@@ -101,13 +101,14 @@ async def work_authorization(db: TenantDb = Depends(tenant_db)):
     return await db.all(
         """select c.id, c.full_name, c.engagement, c.status, c.work_auth_type, c.work_auth_expires, c.i9_status, c.everify_status,
                   (c.work_auth_expires - current_date) as days_left, emp.name as employer,
-                  case when c.engagement = 'c2c' then 'Employer (' || coalesce(emp.name, 'vendor') || ') is responsible for Form I-9'
-                       when c.engagement = '1099' then 'Not an employee — no Form I-9'
+                  case when et.pay_model = 'vendor' then 'Employer (' || coalesce(emp.name, 'vendor') || ') is responsible for Form I-9'
+                       when et.pay_model = 'self' then 'Not an employee — no Form I-9'
                        when c.i9_status is null then 'Form I-9 not recorded'
                        when c.work_auth_expires < current_date then 'Work authorization expired — stop work and reverify'
                        when c.work_auth_expires <= current_date + 90 then 'Reverification due within 90 days'
                        else 'OK' end as finding
              from consultants c left join companies emp on emp.id = c.employer_company_id
+             join engagement_types et on et.code = c.engagement
             where c.status <> 'former'
             order by c.work_auth_expires nulls last""")
 
@@ -133,14 +134,15 @@ async def add_policy(
     name: str = Form(min_length=2, max_length=200),
     version: str = Form(min_length=1, max_length=20),
     effective_on: date = Form(),
-    applies_to: str = Form("w2_fulltime,w2_contract,c2c,1099", description="Comma-separated engagement types"),
+    applies_to: str = Form("w2_fulltime,w2_contract,c2c,e2e,1099", description="Comma-separated engagement types"),
     file: UploadFile | None = File(None),
 ):
     """Publish a policy (or a new version). Older versions of the same policy are retired."""
     db.ctx.require("hr", "legal")
     groups = [g.strip() for g in applies_to.split(",") if g.strip()]
-    if not groups or any(g not in {"w2_fulltime", "w2_contract", "c2c", "1099"} for g in groups):
-        raise bad_request("applies_to must list w2_fulltime, w2_contract, c2c and/or 1099")
+    known = {r["code"] for r in await db.all("select code from engagement_types where is_active")}
+    if not groups or any(g not in known for g in groups):
+        raise bad_request(f"applies_to must list engagement types from: {', '.join(sorted(known))}")
     path = None
     if file is not None:
         data = await file.read()

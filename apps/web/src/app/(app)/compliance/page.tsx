@@ -133,8 +133,8 @@ function Policies() {
           <form className="form" onSubmit={async (e) => {
             e.preventDefault();
             const form = new FormData(e.currentTarget);
-            const groups = ["w2_fulltime", "w2_contract", "c2c", "1099"].filter((g) => form.get(`g_${g}`));
-            ["w2_fulltime", "w2_contract", "c2c", "1099"].forEach((g) => form.delete(`g_${g}`));
+            const groups = ["w2_fulltime", "w2_contract", "c2c", "e2e", "1099"].filter((g) => form.get(`g_${g}`));
+            ["w2_fulltime", "w2_contract", "c2c", "e2e", "1099"].forEach((g) => form.delete(`g_${g}`));
             form.set("applies_to", groups.join(","));
             if (!(form.get("file") as File)?.name) form.delete("file");
             if (await run(() => api("/policies", { form }), "Published — consultants will be asked to accept it")) { setAdding(false); reload(); }
@@ -146,7 +146,7 @@ function Policies() {
               <div><label htmlFor="pf">PDF</label><input id="pf" name="file" type="file" accept="application/pdf" className="ctl" /></div>
             </div>
             <label>Who must accept</label>
-            <div className="row">{["w2_fulltime", "w2_contract", "c2c", "1099"].map((g) => <label key={g} className="row" style={{ color: "var(--ink)", margin: 0 }}><input type="checkbox" name={`g_${g}`} defaultChecked /> {label(g)}</label>)}</div>
+            <div className="row">{["w2_fulltime", "w2_contract", "c2c", "e2e", "1099"].map((g) => <label key={g} className="row" style={{ color: "var(--ink)", margin: 0 }}><input type="checkbox" name={`g_${g}`} defaultChecked /> {label(g)}</label>)}</div>
             <p className="note">Publishing a new version retires the previous one; everyone is asked to accept again.</p>
             <button className="btn pri mt" disabled={busy}>Publish</button>
           </form>

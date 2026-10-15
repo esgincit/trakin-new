@@ -12,11 +12,10 @@ from pydantic import BaseModel, EmailStr, Field
 from ..config import get_settings
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, not_found
+from ..services import workflow
 from ..services.email import render, send_email
 
 router = APIRouter(prefix="/consultants", tags=["consultants"])
-
-ENGAGEMENT = "^(w2_fulltime|w2_contract|c2c|1099)$"
 
 CHECKLISTS = {
     "w2_fulltime": ["Offer letter signed", "Form I-9 Section 1 (by day 1)", "Form I-9 Section 2 (within 3 business days)",
@@ -32,13 +31,25 @@ CHECKLISTS = {
              "Classification review (1099 vs W-2) documented", "Certificate of insurance (if required)",
              "NDA signed", "Company policies accepted", "Projects assigned & timesheet access"],
 }
+# A new engagement type (engagement_types table) uses the checklist of its pay model until it gets its own.
+_MODEL_CHECKLIST = {"payroll": "w2_contract", "vendor": "c2c", "self": "1099"}
+
+
+def checklist_for(code: str, pay_model: str) -> list[dict]:
+    return [{"item": item, "done": False} for item in CHECKLISTS.get(code) or CHECKLISTS[_MODEL_CHECKLIST[pay_model]]]
+
+
+@router.get("/engagement-types")
+async def engagement_types(db: TenantDb = Depends(tenant_db)):
+    """C2C, E2E (employer-to-employer), 1099, W-2 … — from the engagement_types table."""
+    return await db.all("select code, name, pay_model from engagement_types where is_active order by sort, name")
 
 
 class ConsultantIn(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     email: EmailStr
     phone: str | None = None
-    engagement: str = Field(pattern=ENGAGEMENT)
+    engagement: str = Field(min_length=2, max_length=30)   # a code from engagement_types
     employer_company_id: UUID | None = None
     title: str | None = None
     location: str | None = None
@@ -100,16 +111,17 @@ async def list_consultants(db: TenantDb = Depends(tenant_db), status: str | None
 async def onboard(body: ConsultantIn, db: TenantDb = Depends(tenant_db)):
     """Start onboarding. The checklist depends on the engagement type."""
     db.ctx.require("hr", "account_manager", "legal")
-    if body.engagement == "c2c" and body.employer_company_id is None:
-        raise bad_request("C2C consultants need their employer (vendor) company")
-    checklist = [{"item": item, "done": False} for item in CHECKLISTS[body.engagement]]
+    pay_model = await workflow.pay_model(db, body.engagement)
+    if pay_model == "vendor" and body.employer_company_id is None:
+        raise bad_request("C2C and E2E consultants need their employer (vendor) company")
+    checklist = checklist_for(body.engagement, pay_model)
     consultant = await db.one(
         """insert into consultants (tenant_id, full_name, email, phone, engagement, employer_company_id, title, location,
                                     status, start_date, onboarding_checklist, skills)
            values (:t, :name, :email, :phone, :eng, :emp, :title, :loc, 'onboarding', :start, cast(:cl as jsonb), :skills)
            returning *""",
         {"t": db.ctx.tenant_id, "name": body.full_name.strip(), "email": body.email, "phone": body.phone,
-         "eng": body.engagement, "emp": body.employer_company_id if body.engagement == "c2c" else None,
+         "eng": body.engagement, "emp": body.employer_company_id if pay_model == "vendor" else None,
          "title": body.title, "loc": body.location, "start": body.start_date, "cl": orjson.dumps(checklist).decode(),
          "skills": body.skills},
     )
@@ -228,7 +240,7 @@ async def rehire(consultant_id: UUID, db: TenantDb = Depends(tenant_db)):
         raise not_found("Former consultant")
     if c["rehire_eligible"] is False:
         raise bad_request("This person is marked not eligible for rehire")
-    checklist = [{"item": item, "done": False} for item in CHECKLISTS[c["engagement"]]]
+    checklist = checklist_for(c["engagement"], await workflow.pay_model(db, c["engagement"]))
     await db.run(
         """update consultants set status = 'onboarding', end_date = null, leave_reason = null, start_date = current_date,
                   onboarding_checklist = cast(:cl as jsonb) where id = :id""",

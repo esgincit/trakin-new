@@ -148,7 +148,8 @@ async def _consultant_id(db: Db, key: str | None) -> Any:
 
 
 ENGAGEMENTS = {"w-2 full-time": "w2_fulltime", "w2_fulltime": "w2_fulltime", "w-2 contract": "w2_contract",
-               "w2_contract": "w2_contract", "c2c": "c2c", "1099": "1099"}
+               "w2_contract": "w2_contract", "c2c": "c2c", "e2e": "e2e", "1099": "1099"}
+VENDOR_EMPLOYED = {"c2c", "e2e"}
 COMPANY_KINDS = {"client": "client", "prime vendor": "prime_vendor", "prime_vendor": "prime_vendor",
                  "vendor": "vendor", "c2c vendor": "vendor", "end client": "end_client", "end_client": "end_client"}
 
@@ -189,14 +190,14 @@ async def import_company(db: Db, tenant: Any, r: dict[str, str]) -> str:
 async def import_consultant(db: Db, tenant: Any, r: dict[str, str]) -> str:
     engagement = ENGAGEMENTS[r["Engagement type"].lower()]
     status = {"active": "active", "former": "former"}.get((r.get("Status") or "").lower(), "onboarding")
-    employer = await _company_id(db, r.get("Employer (C2C only)")) if engagement == "c2c" else None
+    employer = await _company_id(db, r.get("Employer (C2C only)")) if engagement in VENDOR_EMPLOYED else None
     existing = await _consultant_id(db, r.get("Email") or r["Full name"])
     params = {"t": tenant, "name": r["Full name"], "email": r.get("Email") or None, "phone": r.get("Mobile") or None,
               "eng": engagement, "emp": employer, "title": r.get("Job title") or None, "loc": r.get("Work location") or None,
               "status": status, "start": _date(r.get("Start date")), "end": _date(r.get("End date (former only)")),
               "why": r.get("Reason for leaving") or None, "rehire": _bool(r.get("Eligible for rehire (Y/N)")), "id": existing}
-    if engagement == "c2c" and employer is None:
-        raise ValueError("Employer (C2C only) must match an existing vendor company")
+    if engagement in VENDOR_EMPLOYED and employer is None:
+        raise ValueError("Employer (C2C only) must match an existing vendor company (C2C and E2E)")
     if existing:
         await db.run("""update consultants set full_name=:name, email=coalesce(:email, email), phone=coalesce(:phone, phone),
                         engagement=:eng, employer_company_id=:emp, title=coalesce(:title, title), location=coalesce(:loc, location),
@@ -392,7 +393,7 @@ _register(Template("companies", "Clients & vendors (active and inactive)", [
 
 _register(Template("consultants", "Consultants (current, onboarding and former)", [
     Column("Full name", True), Column("Email", True, "email"), Column("Mobile"),
-    Column("Engagement type", True, "choice", ("W-2 full-time", "W-2 contract", "C2C", "1099")),
+    Column("Engagement type", True, "choice", ("W-2 full-time", "W-2 contract", "C2C", "E2E", "1099")),
     Column("Employer (C2C only)"), Column("Job title"), Column("Start date", True, "date"), Column("Work location"),
     Column("Status", kind="choice", choices=("Onboarding", "Active", "Former")), Column("End date (former only)", kind="date"),
     Column("Reason for leaving"), Column("Eligible for rehire (Y/N)", kind="bool")],

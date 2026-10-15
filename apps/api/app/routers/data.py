@@ -132,7 +132,7 @@ async def import_jobs(db: TenantDb = Depends(tenant_db)):
 # ============================================================================ export
 _KIND_LABEL = "case c.kind when 'client' then 'Client' when 'prime_vendor' then 'Prime vendor' when 'vendor' then 'Vendor' else 'End client' end"
 _ENG_LABEL = ("case c.engagement when 'w2_fulltime' then 'W-2 full-time' when 'w2_contract' then 'W-2 contract' "
-              "when 'c2c' then 'C2C' else '1099' end")
+              "when 'c2c' then 'C2C' when 'e2e' then 'E2E' when '1099' then '1099' else c.engagement end")
 
 EXPORTS: dict[str, tuple[tuple[str, ...], str]] = {
     "companies": (("tenant_admin", "finance", "account_manager", "legal", "hr", "viewer"), f"""
