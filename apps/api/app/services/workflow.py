@@ -1,0 +1,52 @@
+"""Tenant workflow switches (owner e-mail 2026-10-15, PLAN WF-01).
+
+Register → Verify → NDA → MSA → Project → SOW → Acceptance → Resource contract → Acceptance → Timesheet → Invoice →
+Payment → Payment confirmation. Every gate on that path reads these switches; none is hard-coded."""
+
+from __future__ import annotations
+
+from datetime import date
+from typing import Any
+
+import orjson
+
+from ..errors import ApiError
+
+DEFAULTS = {"requireNDA": True, "requireMSA": True, "requireAcceptance": True, "requireContract": True}
+
+# Agreements that let a company (or 1099 contractor) be invoiced and paid.
+MASTER_KINDS = ("msa", "subcontract", "ica")
+
+
+def _as_dict(value: Any) -> dict:
+    if isinstance(value, (str, bytes)):
+        value = orjson.loads(value)
+    return value or {}
+
+
+async def rules(db) -> dict[str, bool]:
+    saved = _as_dict(await db.val("select settings -> 'workflow' from tenants where id = :t", {"t": db.ctx.tenant_id}))
+    return {k: bool(saved.get(k, v)) for k, v in DEFAULTS.items()}
+
+
+def validate(switches: Any) -> dict[str, bool]:
+    if not isinstance(switches, dict) or any(k not in DEFAULTS or not isinstance(v, bool) for k, v in switches.items()):
+        raise ApiError(400, "bad_request", f"Workflow switches are {', '.join(DEFAULTS)} and must be true or false")
+    return switches
+
+
+def blocked(code: str, message: str) -> ApiError:
+    """409 with a code the UI maps to the switch (Settings → Workflow) that would allow the action."""
+    return ApiError(409, code, message)
+
+
+async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = None, consultant_id: Any = None,
+                               on: date | None = None) -> bool:
+    """An active agreement of one of these kinds with the party covers the date."""
+    return bool(await db.val(
+        """select exists (select 1 from agreements
+                           where status = 'active' and kind = any(:kinds)
+                             and (company_id = cast(:co as uuid) or consultant_id = cast(:con as uuid))
+                             and coalesce(effective_on, cast(:d as date)) <= :d
+                             and coalesce(expires_on, cast(:d as date)) >= :d)""",
+        {"kinds": list(kinds), "co": company_id, "con": consultant_id, "d": on or date.today()}))

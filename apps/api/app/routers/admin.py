@@ -16,6 +16,7 @@ from pydantic import BaseModel, EmailStr, Field
 from ..config import get_settings
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, conflict, forbidden, not_found
+from ..services import workflow
 from ..services.email import render, send_email
 
 router = APIRouter(tags=["administration"])
@@ -222,12 +223,23 @@ async def workspace(db: TenantDb = Depends(tenant_db)):
     return row
 
 
+@router.get("/workspace/workflow")
+async def workspace_workflow(db: TenantDb = Depends(tenant_db)):
+    """The workflow switches every gate reads (NDA, MSA, acceptance, resource contract)."""
+    if not db.ctx.internal:
+        raise forbidden()
+    return await workflow.rules(db)
+
+
 @router.patch("/workspace")
 async def update_workspace(body: WorkspaceIn, db: TenantDb = Depends(tenant_db)):
     db.ctx.require("tenant_admin")
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         raise bad_request("Nothing to change")
+    if fields.get("settings") and "workflow" in fields["settings"]:
+        # The jsonb merge below is shallow; merge the switches here so one change keeps the others.
+        fields["settings"]["workflow"] = {**await workflow.rules(db), **workflow.validate(fields["settings"]["workflow"])}
     params: dict[str, Any] = {"t": db.ctx.tenant_id}
     sets = []
     for key, value in fields.items():
