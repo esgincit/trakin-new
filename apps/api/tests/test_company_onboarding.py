@@ -293,3 +293,37 @@ async def test_w9_form_fields_map_exactly(client, auth):
     assert extraction["address"] == "4100 Commerce Street", extraction
     assert (extraction["city"], extraction["state"], extraction["zip"]) == ("Dallas", "TX", "75207"), extraction
     assert extraction["needs_review"] == [], extraction
+
+
+async def test_w9_spaced_digit_ein_parses(client, auth):
+    """Digit-box renderings ("22 333 4409") must still yield the EIN."""
+    admin = auth("admin")
+    session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "US"})).json()
+    uploaded = await client.post(f"/onboarding/sessions/{session['id']}/w9", headers=admin,
+                                 files={"file": ("w9.pdf", w9_pdf("22 333 4409"), "application/pdf")})
+    assert uploaded.status_code == 200, uploaded.text
+    extraction = uploaded.json()["extraction"]
+    assert extraction["tin"] == "22-3334409" and extraction["tin_type"] == "ein", extraction
+
+
+async def test_us_manual_entry_completes_without_upload(client, auth):
+    """Unparseable W-9s fall back to typed details (manual: true) — still gated on OTP."""
+    admin = auth("admin")
+    session = (await client.post("/onboarding/sessions", headers=admin, json={"country": "US"})).json()
+    sid = session["id"]
+    details = await client.patch(f"/onboarding/sessions/{sid}", headers=admin, json={
+        "manual": True, "kind": "vendor", "legal_name": "Manual Entry LLC", "business_type": "LLC",
+        "tin_type": "ein", "ein": "22-3334411", "address": "9 Manual Rd", "city": "Dallas",
+        "state": "TX", "zip": "75207", "domain": "manualentry.example",
+        "company_email": "billing@manualentry.example", "dba": "Manual"})
+    assert details.status_code == 200, details.text
+    code = (await client.post(f"/onboarding/sessions/{sid}/email-code", headers=admin, json={})).json()
+    verified = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=admin,
+                                 json={"code": code["test_code"]})
+    assert verified.status_code == 200, verified.text
+    created = await client.post(f"/onboarding/sessions/{sid}/complete", headers=admin,
+                                json={"authorized": True})
+    assert created.status_code == 201, created.text
+    assert created.json()["company_role"] == "super_admin"
+    detail = (await client.get(f"/companies/{created.json()['id']}", headers=admin)).json()
+    assert detail["tin"] == "22-3334411" and detail["w9_status"] == "submitted", detail

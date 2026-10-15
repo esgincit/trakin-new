@@ -181,6 +181,7 @@ def _extract_form_fields(data: bytes) -> dict | None:
         return None
 
     slots: dict[str, str] = {}
+    unmapped: list[str] = []   # exact values geometry couldn't place (mapped by text order later)
     check_labels: list[tuple[float, str]] = []
     digit_rows: list[tuple[float, float, str]] = []   # (page, top, digits) for TIN boxes
     found_any = False
@@ -226,6 +227,8 @@ def _extract_form_fields(data: bytes) -> dict | None:
                     if len(digits) == 9 and "tin" not in slots:
                         slots["tin"] = _format_tin(digits, slot)
                         slots["tin_type"] = slot
+                else:
+                    unmapped.append(text)
             for (pno, _bucket), cells in singles.items():
                 row = "".join(t for _, t, _ in sorted(cells))
                 digits = re.sub(r"\D", "", row)
@@ -250,7 +253,7 @@ def _extract_form_fields(data: bytes) -> dict | None:
             slots["tin_type"] = slot
     if check_labels and "tax_classification" not in slots:
         slots["tax_classification"] = sorted(check_labels)[0][1]
-    return slots or None
+    return {"slots": slots, "unmapped": unmapped}
 
 
 def _format_tin(digits: str, kind: str) -> str:
@@ -319,6 +322,52 @@ def _classify_from_markers(text: str) -> str | None:
     return None
 
 
+def _despace_digits(text: str) -> str:
+    """Digit-box renderings and OCR split numbers ("12 3456789", "1 2 3 4 5 6 7 8 9").
+    Join digits separated only by spaces so TIN/ZIP patterns still match."""
+    return re.sub(r"(?<=\d)[ \t]+(?=\d)", "", text)
+
+
+def _sections_of(text: str) -> list[tuple[str | None, str]]:
+    """Split text into (section_key, line) with section tracking (None = preamble)."""
+    out: list[tuple[str | None, str]] = []
+    current: str | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        key, _remainder = _split_section(line)
+        if key == "skip":
+            continue
+        if key is not None:
+            if key in _VALUE_SECTIONS:
+                current = key
+            out.append((key, line))
+            continue
+        out.append((current, line))
+    return out
+
+
+def _map_values_by_text_order(values: list[str], text: str) -> dict[str, str]:
+    """Assign exact widget values to sections by text order. Values can only come
+    from the widgets themselves — this decides mapping, never content."""
+    sectioned = _sections_of(text)
+
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", " ", s).strip()
+
+    assigned: dict[str, str] = {}
+    for value in values:
+        needle = norm(value)
+        if len(needle) < 2:
+            continue
+        for section, line in sectioned:
+            if section in _VALUE_SECTIONS and needle in norm(line) and section not in assigned:
+                assigned[section] = value
+                break
+    return assigned
+
+
 def _split_city_state_zip(value: str | None) -> tuple[str | None, str | None, str | None]:
     if not value:
         return None, None, None
@@ -371,10 +420,13 @@ def parse_w9_text(text: str) -> dict:
         state = m.group(1) if m else None
 
     tin = tin_type = None
-    ein_at = text.find("Employer identification")
-    ssn_at = text.find("Social security")
-    candidates_ein = [(m.start(), f"{m.group(1)}-{m.group(2)}", "ein") for m in _EIN_RE.finditer(text)]
-    candidates_ssn = [(m.start(), f"{m.group(1)}-{m.group(2)}-{m.group(3)}", "ssn") for m in _SSN_RE.finditer(text)]
+    # Digit-box renderings and OCR split numbers ("12 3456789", "1 2 3 4 5 6 7 8 9"):
+    # search a copy with digit-adjacent spaces removed.
+    atext = _despace_digits(text)
+    ein_at = atext.find("Employer identification")
+    ssn_at = atext.find("Social security")
+    candidates_ein = [(m.start(), f"{m.group(1)}-{m.group(2)}", "ein") for m in _EIN_RE.finditer(atext)]
+    candidates_ssn = [(m.start(), f"{m.group(1)}-{m.group(2)}-{m.group(3)}", "ssn") for m in _SSN_RE.finditer(atext)]
     candidates = sorted(candidates_ein + candidates_ssn)
     if candidates:
         # Prefer the number printed nearest its label (Part I of the form).
@@ -426,11 +478,25 @@ async def extract_w9(data: bytes, content_type: str) -> dict:
     text, engine, fields = await asyncio.to_thread(_work)
     if engine == "form-fields":
         assert fields is not None
-        city, state, zip_code = _split_city_state_zip(fields.get("city_state_zip"))
-        parsed = {"legal_name": fields.get("legal_name"), "dba": fields.get("dba"),
-                  "tax_classification": fields.get("tax_classification"),
-                  "tin": fields.get("tin"), "tin_type": fields.get("tin_type"),
-                  "address": fields.get("address"), "city": city, "state": state, "zip": zip_code}
+        slots = fields["slots"]
+        # Values geometry couldn't place: map them by position in the text.
+        # They are still exact keystrokes — this only decides which field each is.
+        if fields["unmapped"]:
+            pdf_text = await asyncio.to_thread(_pdf_text, data)
+            for section, value in _map_values_by_text_order(fields["unmapped"], pdf_text).items():
+                if section == "1" and slots.get("legal_name") is None:
+                    slots["legal_name"] = value
+                elif section == "2" and slots.get("dba") is None:
+                    slots["dba"] = value
+                elif section == "5" and slots.get("address") is None:
+                    slots["address"] = value
+                elif section == "6" and slots.get("city_state_zip") is None:
+                    slots["city_state_zip"] = value
+        city, state, zip_code = _split_city_state_zip(slots.get("city_state_zip"))
+        parsed = {"legal_name": slots.get("legal_name"), "dba": slots.get("dba"),
+                  "tax_classification": slots.get("tax_classification"),
+                  "tin": slots.get("tin"), "tin_type": slots.get("tin_type"),
+                  "address": slots.get("address"), "city": city, "state": state, "zip": zip_code}
         # Text corroboration for slots the form left blank — TIN (bare numbers can't
         # be labels) and marker-detected classification only. Names/addresses stay
         # null rather than risk label bleed.

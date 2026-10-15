@@ -163,8 +163,15 @@ async def upload_session_w9(session_id: UUID, file: UploadFile = File(), db: Ten
         raise ApiError(422, "w9_unreadable",
                        parsed.get("note") or "This W-9 couldn't be read. Upload a digital PDF or type the details manually.")
     if not parsed.get("legal_name") or not parsed.get("tin"):
+        missing = [label for label, value in (("legal name", parsed.get("legal_name")),
+                                              ("EIN/SSN", parsed.get("tin"))) if not value]
+        found = [label for label, value in
+                 (("business name", parsed.get("dba")), ("address", parsed.get("address")),
+                  ("city", parsed.get("city")), ("classification", parsed.get("tax_classification"))) if value]
         raise ApiError(422, "w9_incomplete",
-                       "The W-9 was read but the legal name or EIN is missing — upload a clearer copy or fill them in.")
+                       f"We read the W-9 but couldn't find the {' and '.join(missing)}."
+                       + (f" Found: {', '.join(found)}." if found else "")
+                       + " Upload a clearer copy or enter the details manually.")
     digits = _digits(parsed.get("tin"))
     if len(digits) != 9:
         raise ApiError(422, "w9_bad_tin", "The EIN on this W-9 doesn't have 9 digits")
@@ -187,9 +194,11 @@ class DetailsIn(BaseModel):
     dba: str | None = Field(None, max_length=200)
     contact_name: str | None = Field(None, max_length=120)
     contact_phone: str | None = Field(None, max_length=40)
-    # US: corrections to the parsed W-9.
+    # US: corrections to the parsed W-9 (or a fully manual entry when parsing failed).
+    manual: bool = False
     legal_name: str | None = Field(None, min_length=2, max_length=200)
     business_type: str | None = Field(None, max_length=120)
+    tin_type: str | None = Field(None, pattern="^(ein|ssn)$")
     ein: str | None = Field(None, max_length=20)
     address: str | None = None
     city: str | None = Field(None, max_length=120)
@@ -225,15 +234,17 @@ async def save_details(session_id: UUID, body: DetailsIn, db: TenantDb = Depends
     if row["country"] == "US":
         w9 = payload.get("w9")
         if not w9:
-            raise bad_request("Upload the W-9 first — parsing comes before details")
-        for key in ("legal_name", "business_type", "ein", "address", "city", "state", "zip"):
+            if not values.get("manual"):
+                raise bad_request("Upload the W-9 first — parsing comes before details")
+            w9 = {"manual_entry": True}
+        for key in ("legal_name", "business_type", "tin_type", "ein", "address", "city", "state", "zip"):
             if key in values and values[key]:
                 w9[key] = values[key]
         ein_digits = _digits(w9.get("tin") or w9.get("ein"))
         if w9.get("ein"):
             ein_digits = _digits(w9["ein"])
             if len(ein_digits) != 9:
-                errors["ein"] = "The EIN must have 9 digits (XX-XXXXXXX)"
+                errors["ein"] = "The EIN/SSN must have 9 digits"
         if not w9.get("legal_name"):
             errors["legal_name"] = "Legal name is required"
         if ein_digits and len(ein_digits) == 9:
@@ -391,12 +402,13 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
         taken = await _ein_taken(db, digits)
         if taken:
             raise conflict(f"This EIN is already registered to {taken['name']} ({taken['business_code']})")
-        ein = f"{digits[:2]}-{digits[2:]}"
+        ein = (f"{digits[:3]}-{digits[3:5]}-{digits[5:]}"
+               if (w9.get("tin_type") or "").lower() == "ssn" else f"{digits[:2]}-{digits[2:]}")
         w9_data = {k: w9.get(k) for k in
                    ("legal_name", "dba", "tax_classification", "tin", "tin_type",
                     "address", "city", "state", "zip")}
         w9_data["tin"] = ein
-        tax = {"tin": ein, "ein": ein, "tax_classification": w9.get("tax_classification"),
+        tax = {"tin": ein, "ein": None if (w9.get("tin_type") or "").lower() == "ssn" else ein, "tax_classification": w9.get("tax_classification"),
                "tax_address": ", ".join(p for p in
                                         [w9.get("address"), w9.get("city"),
                                          f"{w9.get('state') or ''} {w9.get('zip') or ''}".strip()] if p),
@@ -461,10 +473,11 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
         await db.run("update documents set owner_type = 'company', owner_id = :c where id = any(cast(:ids as uuid[]))",
                      {"c": company["id"], "ids": doc_ids})
     if row["country"] == "US":
-        await db.run(
-            """insert into tracked_documents (tenant_id, company_id, doc_type, label, status)
-               values (:t, :c, 'w9', 'Form W-9', 'valid') on conflict do nothing""",
-            {"t": db.ctx.tenant_id, "c": company["id"]})
+        if tax.get("w9_document_id"):
+            await db.run(
+                """insert into tracked_documents (tenant_id, company_id, doc_type, label, status)
+                   values (:t, :c, 'w9', 'Form W-9', 'valid') on conflict do nothing""",
+                {"t": db.ctx.tenant_id, "c": company["id"]})
     else:
         await db.run(
             """insert into tracked_documents (tenant_id, company_id, doc_type, label, status)

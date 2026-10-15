@@ -16,6 +16,7 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
   const [session, setSession] = useState<any>(null);
   const [step, setStep] = useState(1);
   const [parsed, setParsed] = useState<any>(null);
+  const [manual, setManual] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,7 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
   const uploadW9 = async (file?: File) => {
     if (!file || !session) return;
     setError(null);
+    setManual(false);
     const form = new FormData();
     form.set("file", file);
     try {
@@ -118,6 +120,9 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
           <p className="muted">First, the signed W-9 (PDF or photo). Legal name, business type, EIN and address are read automatically and the EIN is checked for duplicates.</p>
           <input ref={w9file} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadW9(e.target.files?.[0])} />
           <button className="btn pri mt" disabled={busy} onClick={() => w9file.current?.click()}>Upload W-9</button>
+          {error && /couldn't find|manually/.test(error) && (
+            <p className="mt"><button className="btn" disabled={busy} onClick={() => { setError(null); setManual(true); setParsed({}); }}>Enter details manually instead</button></p>
+          )}
         </>
       )}
 
@@ -126,15 +131,19 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
           e.preventDefault();
           setError(null);
           try {
-            const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { kind: (formValues(e.currentTarget) as any).kind, ...parsed } });
+            const v: any = { kind: (formValues(e.currentTarget) as any).kind, ...parsed };
+            delete v.engine; delete v.needs_review; delete v.needs_manual; delete v.note;
+            if (manual) v.manual = true;
+            const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: v });
             setSession(s); setStep(2);
           } catch (e) { fail(e); }
         }}>
-          <p className="muted">Read from the W-9{parsed.engine === "ocr" ? " (scan)" : parsed.engine === "form-fields" ? " (form fields)" : ""} — correct anything misread.</p>
+          <p className="muted">{manual ? "Type the W-9 details exactly as they appear on the form." : `Read from the W-9${parsed.engine === "ocr" ? " (scan)" : parsed.engine === "form-fields" ? " (form fields)" : ""} — correct anything misread.`}</p>
           <div className="fields">
             <Field label="Legal name" name="legal_name" required defaultValue={parsed.legal_name ?? ""} full />
             <Field label="Business type" name="business_type" defaultValue={parsed.tax_classification ?? ""} />
-            <Field label="EIN" name="ein" required defaultValue={parsed.tin ?? ""} />
+            <Field label="ID type" name="tin_type" as="select" defaultValue={parsed.tin_type ?? "ein"} options={[["ein", "EIN"], ["ssn", "SSN (sole proprietor)"]]} />
+            <Field label="EIN / SSN" name="ein" required defaultValue={parsed.tin ?? ""} />
             <Field label="Address" name="address" defaultValue={parsed.address ?? ""} full />
             <Field label="City" name="city" defaultValue={parsed.city ?? ""} />
             <Field label="State" name="state" defaultValue={parsed.state ?? ""} maxLength={2} />
