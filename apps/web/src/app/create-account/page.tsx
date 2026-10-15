@@ -8,7 +8,7 @@ import { Field, formValues } from "@/components/ui";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/lib/supabase";
 
-/** Self-service user signup: name, e-mail, password. Workspace access still needs an invite. */
+/** Self-service user signup: name, e-mail, password. Then create a company (platform-activated) or accept an invite. */
 export default function CreateAccount() {
   const router = useRouter();
   const { refresh } = useSession();
@@ -52,8 +52,8 @@ export default function CreateAccount() {
       <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><i>mT</i>myTrakIn</div>
       <div className="card">
         <h2>Create your account</h2>
-        <p className="muted">One account works across every workspace that invites you.
-          Opening a workspace needs an invite from its administrator.</p>
+        <p className="muted">One account works across every company that invites you.
+          After signing in, create your own company (we activate it after a quick review) or join one that invites you.</p>
         <form className="form" onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true); setError(null);

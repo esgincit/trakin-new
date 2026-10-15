@@ -139,7 +139,7 @@ function Login() {
         New user? <Link href="/create-account">Create an account</Link>
       </p>
       <p className="muted" style={{ textAlign: "center" }}>
-        New company? <Link href="/signup">Request a workspace</Link>
+        New company? <Link href="/create-account">Create an account</Link>, then create your company
       </p>
     </>}>
         {step === "choose" && (

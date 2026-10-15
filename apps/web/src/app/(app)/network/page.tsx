@@ -45,7 +45,7 @@ function Feed() {
         {!workspace && (
           <p className="muted" style={{ marginTop: 0 }}>
             <b>Welcome!</b> You can post, connect and message right away. To use payments, timesheets and contracts, ask your
-            administrator to invite <b>{me?.profile?.email}</b>, or <Link href="/signup">request a workspace</Link> for your company.
+            administrator to invite <b>{me?.profile?.email}</b>, or <Link href="/businesses">create your company</Link>.
             Tip: add two-step verification under <Link href="/account">Account & security</Link>.
           </p>
         )}

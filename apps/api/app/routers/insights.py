@@ -143,9 +143,9 @@ async def ask(body: AskIn, db: TenantDb = Depends(tenant_db)):
     settings = get_settings()
     provider = settings.ai_provider
     if provider == "deepseek" and not settings.deepseek_api_key:
-        raise ApiError(501, "ai_disabled", "AI answers are not enabled for this workspace (DEEPSEEK_API_KEY is not set).")
+        raise ApiError(501, "ai_disabled", "AI answers are not enabled for this company (DEEPSEEK_API_KEY is not set).")
     if provider == "anthropic" and not settings.anthropic_api_key:
-        raise ApiError(501, "ai_disabled", "AI answers are not enabled for this workspace (ANTHROPIC_API_KEY is not set).")
+        raise ApiError(501, "ai_disabled", "AI answers are not enabled for this company (ANTHROPIC_API_KEY is not set).")
     items = await suggestions(db)
     context = orjson.dumps([{k: v for k, v in s.items() if k != "link"} for s in items[:40]], default=str).decode()
     system = ("You help staff at a US staffing company decide what to do next in myTrakIn. Answer only from "

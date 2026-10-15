@@ -26,14 +26,14 @@ export default function Settings() {
   const { run, busy } = useAction();
   const { workspace } = useSession();
   if (workspace && !allows(workspace, "tenant_admin")) {
-    return <PageHead title="Workspace settings" sub="Only the workspace admin can change these settings." />;
+    return <PageHead title="Company settings" sub="Only a company admin can change these settings." />;
   }
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const s = t.settings ?? {};
   return (
     <>
-      <PageHead title="Workspace settings" sub={<>{t.name} · {label(t.plan)} plan · <Chip status={t.status} />{t.trial_ends_on && ` · trial until ${date(t.trial_ends_on)}`}</>} />
+      <PageHead title="Company settings" sub={<>{t.name} · {label(t.plan)} plan · <Chip status={t.status} />{t.trial_ends_on && ` · trial until ${date(t.trial_ends_on)}`}</>} />
       <div className="card">
         <h3>Setup checklist</h3>
         <div className="steps">

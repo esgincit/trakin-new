@@ -248,7 +248,7 @@ async def post(body: PostIn, db: TenantDb = Depends(member_db)):
     if body.kind == "announcement" and not db.ctx.allows("hr"):
         raise forbidden("Only HR and admins can post announcements")
     if db.ctx.tenant_id is None and body.audience == "company":
-        raise bad_request("You're not in a workspace yet, so post to “Everyone in my network”.")
+        raise bad_request("You're not in a company yet, so post to “Everyone in my network”.")
     return await db.one(
         "insert into posts (tenant_id, author_id, kind, body) values (:t, :u, :k, :b) returning *",
         {"t": db.ctx.tenant_id if body.audience == "company" else None, "u": db.ctx.user_id, "k": body.kind, "b": body.body.strip()})

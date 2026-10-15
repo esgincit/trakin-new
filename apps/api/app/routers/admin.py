@@ -85,7 +85,7 @@ async def invite(body: InviteIn, db: TenantDb = Depends(tenant_db)):
         if existing_user is None:
             existing_user = await db.val("select id from profiles where email = :e", {"e": body.email})
     if existing_user and await db.val("select 1 from memberships where user_id = :u", {"u": existing_user}):
-        raise conflict("This person is already a user in this workspace")
+        raise conflict("This person is already a user in this company")
     row = await db.one(
         """insert into memberships (tenant_id, user_id, invited_email, role, title, company_id, consultant_id, manager_id,
                                     signing_limit, status)
@@ -166,7 +166,7 @@ async def update_user(membership_id: UUID, body: MembershipPatch, db: TenantDb =
                                              or fields.get("status", "active") != "active"):
         admins = await db.val("select count(*) from memberships where role = 'tenant_admin' and status = 'active'")
         if admins <= 1:
-            raise bad_request("A workspace needs at least one active admin")
+            raise bad_request("A company needs at least one active admin")
     sets = ", ".join(f"{k} = :{k}" for k in fields)
     return await db.one(f"update memberships set {sets} where id = :id returning *", {**fields, "id": membership_id})
 
