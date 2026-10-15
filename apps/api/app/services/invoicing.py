@@ -101,8 +101,9 @@ async def generate_invoices(db: Db, *, tenant_id: Any, user_id: Any, period_star
 
 
 async def record_payment(db: Db, *, tenant_id: Any, user_id: Any, invoice_id: Any, amount: Decimal,
-                         paid_on: date, method: str, reference: str | None) -> dict:
-    """Record money received (AR) or paid (AP). For AR, returns AP invoices that this releases."""
+                         paid_on: date, method: str, reference: str | None, status: str = "completed") -> dict:
+    """Record money received (AR) or paid (AP). For AR, returns AP invoices that this releases.
+    status pending / processing records a payment in flight; it counts once it is completed (WF-09)."""
     # Lock the invoice so two people recording payments at once can't overpay it.
     if await db.one("select id from invoices where id = :id for update", {"id": invoice_id}) is None:
         raise not_found("Invoice")
@@ -124,22 +125,29 @@ async def record_payment(db: Db, *, tenant_id: Any, user_id: Any, invoice_id: An
             on=paid_on):
         raise conflict("No active agreement with this payee — vendor payments are blocked until one is signed")
 
-    await db.run(
-        """insert into payments (tenant_id, invoice_id, amount, paid_on, method, reference, created_by)
-           values (:t, :i, :a, :d, :m, :r, :u)""",
-        {"t": tenant_id, "i": invoice_id, "a": amount, "d": paid_on, "m": method, "r": reference, "u": user_id},
+    payment_id = await db.val(
+        """insert into payments (tenant_id, invoice_id, amount, paid_on, method, reference, created_by, status)
+           values (:t, :i, :a, :d, :m, :r, :u, :s) returning id""",
+        {"t": tenant_id, "i": invoice_id, "a": amount, "d": paid_on, "m": method, "r": reference, "u": user_id,
+         "s": status},
     )
-    after = await db.one("select balance from invoice_balances where id = :id", {"id": invoice_id})
-    if after and money(after["balance"]) <= 0:
-        await db.run("update invoices set status = 'paid' where id = :id", {"id": invoice_id})
+    return {"payment_id": payment_id, "invoice_id": invoice_id, "amount": amount, "status": status,
+            **await settle(db, invoice_id)}
 
+
+async def settle(db: Db, invoice_id: Any) -> dict:
+    """After a payment counts (completed / confirmed): mark the invoice paid when nothing is left, and a fully
+    paid AR invoice releases the pay-when-paid vendor invoices waiting on it."""
+    after = await db.one("select direction, balance from invoice_balances where id = :id", {"id": invoice_id})
+    balance = money(after["balance"]) if after else Decimal(0)
     released: list[dict] = []
-    if invoice["direction"] == "ar" and after and money(after["balance"]) <= 0:
-        released = await db.all(
-            """update invoices ap set due_on = coalesce(ap.due_on, current_date + 3)
-                where ap.pay_when_paid_of = :id and ap.direction = 'ap' and ap.status not in ('paid', 'void', 'exception')
-                returning ap.id, ap.number""",
-            {"id": invoice_id},
-        )
-    return {"invoice_id": invoice_id, "amount": amount, "balance": money(after["balance"]) if after else Decimal(0),
-            "released": released}
+    if after and balance <= 0:
+        await db.run("update invoices set status = 'paid' where id = :id", {"id": invoice_id})
+        if after["direction"] == "ar":
+            released = await db.all(
+                """update invoices ap set due_on = coalesce(ap.due_on, current_date + 3)
+                    where ap.pay_when_paid_of = :id and ap.direction = 'ap' and ap.status not in ('paid', 'void', 'exception')
+                    returning ap.id, ap.number""",
+                {"id": invoice_id},
+            )
+    return {"balance": balance, "released": released}

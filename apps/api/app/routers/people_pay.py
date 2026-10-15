@@ -190,7 +190,7 @@ async def form_1099(db: TenantDb = Depends(tenant_db), year: int = Query(ge=2000
                   sum(p.amount) as paid, count(distinct i.id) as invoices,
                   exists (select 1 from tracked_documents d where d.consultant_id = k.id and d.doc_type = 'w9' and d.status = 'valid') as w9_on_file
              from payments p join invoices i on i.id = p.invoice_id join consultants k on k.id = i.consultant_id
-            where i.direction = 'ap' and extract(year from p.paid_on) = :y
+            where i.direction = 'ap' and extract(year from p.paid_on) = :y and p.status in ('completed', 'confirmed')
             group by k.id""", {"y": year})
     referrers = await db.all(
         """select 'referral' as kind, null as id, r.referrer_name as payee, null as email, sum(rp.amount) as paid,

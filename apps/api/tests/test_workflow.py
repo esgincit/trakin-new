@@ -214,3 +214,47 @@ async def test_timesheet_needs_the_resource_contract(client, auth):
                    c=ravi["ap_sow"], id=ravi["id"])
         await _sql("delete from mytrakin.timesheets where consultant_id = (select consultant_id from mytrakin.placements "
                    "where id = :id) and week_start = :w", id=ravi["id"], w=week)
+
+
+# ---------------------------------------------------------------------------- WF-09 payment status + confirmation
+async def _invoice(client, auth, direction: str, number: str) -> dict:
+    rows = (await client.get("/invoices", params={"direction": direction}, headers=auth("finance"))).json()
+    return next(r for r in rows if r["number"] == number)
+
+
+async def test_payment_lifecycle_and_confirmation(client, auth):
+    finance = auth("finance")
+    ar = await _invoice(client, auth, "ar", "ESG-AR-0412")
+    detail = lambda: client.get(f"/invoices/{ar['id']}", headers=finance)  # noqa: E731
+    before = (await detail()).json()["balance"]
+
+    recorded = await client.post(f"/invoices/{ar['id']}/payments", headers=finance, json={
+        "amount": 100, "paid_on": "2026-10-01", "method": "ACH", "reference": "WF-9", "status": "processing"})
+    assert recorded.status_code == 201, recorded.text
+    payment = recorded.json()["payment_id"]
+    assert (await detail()).json()["balance"] == before                     # in flight: not counted yet
+    assert (await client.post(f"/payments/{payment}/confirm", headers=finance)).status_code == 409
+    done = await client.post(f"/payments/{payment}/status", headers=finance, json={"status": "completed"})
+    assert done.status_code == 200, done.text
+    assert float((await detail()).json()["balance"]) == float(before) - 100
+    back = await client.post(f"/payments/{payment}/status", headers=finance, json={"status": "processing"})
+    assert back.status_code == 409, back.text
+
+    assert (await client.post(f"/payments/{payment}/confirm", headers=auth("vendor"))).status_code in (403, 404)
+    confirmed = await client.post(f"/payments/{payment}/confirm", headers=finance)
+    assert confirmed.status_code == 200 and confirmed.json()["status"] == "confirmed", confirmed.text
+    assert confirmed.json()["confirmed_by_name"]
+    assert (await client.post(f"/payments/{payment}/confirm", headers=finance)).status_code == 409
+
+    # The vendor confirms money paid to it.
+    ap = await _invoice(client, auth, "ap", "BP-INV-1187")
+    await _sql("""insert into mytrakin.payments (tenant_id, invoice_id, amount, paid_on, method, reference, status)
+                  select tenant_id, id, 10, current_date, 'ACH', 'WF-9-AP', 'completed' from mytrakin.invoices where id = :id""",
+               id=ap["id"])
+    try:
+        ap_payment = next(p for p in (await client.get(f"/invoices/{ap['id']}", headers=finance)).json()["payments"]
+                          if p["reference"] == "WF-9-AP")
+        by_vendor = await client.post(f"/payments/{ap_payment['id']}/confirm", headers=auth("vendor"))
+        assert by_vendor.status_code == 200 and by_vendor.json()["status"] == "confirmed", by_vendor.text
+    finally:
+        await _sql("delete from mytrakin.payments where reference in ('WF-9', 'WF-9-AP')")

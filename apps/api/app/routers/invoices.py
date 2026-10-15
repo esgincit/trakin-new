@@ -16,7 +16,7 @@ from ..deps import TenantDb, tenant_db
 from ..errors import ApiError, bad_request, not_found
 from ..services import workflow
 from ..services.email import render, send_email
-from ..services.invoicing import generate_invoices, next_invoice_number, record_payment
+from ..services.invoicing import generate_invoices, next_invoice_number, record_payment, settle
 from ..utils import money, parse_terms_days
 
 router = APIRouter(tags=["invoices"])
@@ -51,6 +51,11 @@ class PaymentIn(BaseModel):
     paid_on: date
     method: str = Field(pattern="^(ACH|Wire|Check|Card|Other)$")
     reference: str | None = Field(None, max_length=80)
+    status: str = Field("completed", pattern="^(pending|processing|completed)$")   # WF-09: in flight or done
+
+
+class PaymentStatusIn(BaseModel):
+    status: str = Field(pattern="^(processing|completed)$")
 
 
 class NoteIn(BaseModel):
@@ -103,7 +108,7 @@ async def get_invoice(invoice_id: UUID, db: TenantDb = Depends(tenant_db)):
     row = await db.one(_LIST_SQL + " where b.id = :id", {"id": invoice_id})
     if row is None:
         raise not_found("Invoice")
-    row["payments"] = await db.all("select id, amount, paid_on, method, reference from payments where invoice_id = :id order by paid_on",
+    row["payments"] = await db.all("select id, amount, paid_on, method, reference, status, confirmed_by_name, confirmed_at from payments where invoice_id = :id order by paid_on",
                                    {"id": invoice_id})
     if db.ctx.internal:
         row["notes"] = await db.all("select body, author_name, created_at from collection_notes where invoice_id = :id order by created_at",
@@ -223,7 +228,51 @@ async def add_payment(invoice_id: UUID, body: PaymentIn, db: TenantDb = Depends(
     if body.paid_on > date.today():
         raise bad_request("The payment date can't be in the future")
     return await record_payment(db, tenant_id=db.ctx.tenant_id, user_id=db.ctx.user_id, invoice_id=invoice_id,
-                                amount=body.amount, paid_on=body.paid_on, method=body.method, reference=body.reference)
+                                amount=body.amount, paid_on=body.paid_on, method=body.method, reference=body.reference,
+                                status=body.status)
+
+
+# ----------------------------------------------------------------------------- payment lifecycle (WF-09)
+@router.post("/payments/{payment_id}/status")
+async def advance_payment(payment_id: UUID, body: PaymentStatusIn, db: TenantDb = Depends(tenant_db)):
+    """Move a payment in flight forward: pending → processing → completed. Completed counts against the invoice."""
+    db.ctx.require("finance")
+    order = ["pending", "processing", "completed"]
+    current = await db.one("select invoice_id, status from payments where id = :id for update", {"id": payment_id})
+    if current is None:
+        raise not_found("Payment")
+    if current["status"] not in order or order.index(body.status) <= order.index(current["status"]):
+        raise ApiError(409, "bad_transition", f"A {current['status']} payment can't move to {body.status}")
+    await db.run("update payments set status = :s where id = :id", {"s": body.status, "id": payment_id})
+    result = {"id": payment_id, "status": body.status}
+    if body.status == "completed":
+        result |= await settle(db, current["invoice_id"])
+    return result
+
+
+@router.post("/payments/{payment_id}/confirm")
+async def confirm_payment(payment_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """Payment confirmation closes the financial lifecycle: finance confirms money received from a customer;
+    the vendor (or 1099 contractor) — or finance on their behalf — confirms money paid to them."""
+    payment = await db.one(
+        """select p.id, p.status, i.direction, i.company_id, i.consultant_id from payments p
+             join invoices i on i.id = p.invoice_id where p.id = :id""", {"id": payment_id})
+    if payment is None:
+        raise not_found("Payment")
+    payee = payment["direction"] == "ap" and (
+        (db.ctx.role == "vendor_admin" and payment["company_id"] == db.ctx.company_id)
+        or (db.ctx.role == "consultant" and payment["consultant_id"] == db.ctx.consultant_id))
+    if not (db.ctx.allows("finance") or payee):
+        raise ApiError(403, "forbidden", "Only finance or the payee can confirm this payment")
+    if payment["status"] != "completed":
+        raise ApiError(409, "not_completed", "Only a completed payment can be confirmed"
+                       + (" — it is already confirmed" if payment["status"] == "confirmed" else ""))
+    name = await db.val("select full_name from profiles where id = :u", {"u": db.ctx.user_id}) or db.ctx.email
+    return await db.one(
+        """update payments set status = 'confirmed', confirmed_by = :u, confirmed_by_name = :n, confirmed_at = now()
+            where id = :id and status = 'completed'
+        returning id, status, confirmed_by_name, confirmed_at""",
+        {"u": db.ctx.user_id, "n": name, "id": payment_id})
 
 
 @router.post("/invoices/{invoice_id}/notes", status_code=201)
@@ -284,7 +333,7 @@ async def ledger(db: TenantDb = Depends(tenant_db), since: date | None = Query(N
     if not (db.ctx.allows("finance") or db.ctx.role == "vendor_admin"):
         raise ApiError(403, "forbidden", "Finance only")
     return await db.all(
-        """select p.id, p.paid_on, case i.direction when 'ar' then 'in' else 'out' end as direction, p.amount, p.method, p.reference,
+        """select p.id, p.paid_on, case i.direction when 'ar' then 'in' else 'out' end as direction, p.amount, p.method, p.reference, p.status, p.confirmed_by_name, p.confirmed_at,
                   i.number as invoice, coalesce(co.name, k.full_name) as party
              from payments p join invoices i on i.id = p.invoice_id
              left join companies co on co.id = i.company_id left join consultants k on k.id = i.consultant_id

@@ -34,7 +34,7 @@ async def dashboard(db: TenantDb = Depends(tenant_db)):
     )
     collected = await db.val(
         """select coalesce(sum(p.amount), 0) from payments p join invoices i on i.id = p.invoice_id
-            where i.direction = 'ar' and p.paid_on >= current_date - 30"""
+            where i.direction = 'ar' and p.paid_on >= current_date - 30 and p.status in ('completed', 'confirmed')"""
     )
     expiring = await db.val(
         """select (select count(*) from sows where end_date between current_date and current_date + 60 and status = 'active')

@@ -106,9 +106,9 @@ async def my_consultant_overview(db: TenantDb = Depends(tenant_db)):
     periods = await db.all(
         """select ar.period_start, ar.period_end, ar.hours, pr.name as project, ar.issued_on, ar.due_on,
                   ar.live_status as customer_status,
-                  (select max(paid_on) from payments where invoice_id = ar.id) as customer_paid_on,
+                  (select max(paid_on) from payments where invoice_id = ar.id and status in ('completed', 'confirmed')) as customer_paid_on,
                   ap.live_status as payee_status, ap.scheduled_on as payee_scheduled_on, ap.due_on as payee_due_on,
-                  (select max(paid_on) from payments where invoice_id = ap.id) as payee_paid_on,
+                  (select max(paid_on) from payments where invoice_id = ap.id and status in ('completed', 'confirmed')) as payee_paid_on,
                   cust.name as customer, payee.name as payee
              from invoice_balances ar
              join placements p on p.id = ar.placement_id
