@@ -12,7 +12,8 @@ export type Role =
   | "vendor_admin" | "client_user" | "consultant";
 
 export type Workspace = {
-  tenant: { id: string; name: string; plan: string; status: string };
+  tenant: { id: string; name: string; plan: string; status: string; company_id: string | null };
+  is_owner: boolean;
   role: Role;
   company_id: string | null;
   consultant_id: string | null;

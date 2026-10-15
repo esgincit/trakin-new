@@ -2,15 +2,17 @@
 
 import { useRef, useState } from "react";
 import { Chip, Field, formValues, Modal, useAction, useToast } from "./ui";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, setTenant } from "@/lib/api";
 
 type Country = "US" | "IN";
 
 /** Country-first business creation.
  *  US: W-9 upload (parsed + validated) → domain/e-mail/DBA → OTP → authorize → created.
  *  IN: manual details + mandatory MOA → domain/e-mail/DBA → OTP → authorize → created.
- *  Nothing is created until every gate passes; the creator becomes Super Admin. */
-export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone: (c: any) => void }) {
+ *  Nothing is created until every gate passes; the creator becomes its owner.
+ *  account: registering your own company — it gets its own account and waits for platform activation.
+ *  Otherwise a client/vendor record is added inside the current company. */
+export function CompanyWizard({ onClose, onDone, account = false }: { onClose: () => void; onDone: (c: any) => void; account?: boolean }) {
   const { run, busy } = useAction();
   const toast = useToast();
   const [country, setCountry] = useState<Country | null>(null);
@@ -26,7 +28,8 @@ export function CompanyWizard({ onClose, onDone }: { onClose: () => void; onDone
 
   const start = async (c: Country) => {
     setError(null);
-    const s = await run(() => api("/onboarding/sessions", { body: { country: c } }));
+    const s = await run(() => api<any>(account ? "/onboarding/accounts" : "/onboarding/sessions", { body: { country: c } }));
+    if (s?.tenant_id) setTenant(s.tenant_id);   // the rest of the wizard runs inside the new company
     if (s) { setCountry(c); setSession(s); setStep(1); }
   };
 

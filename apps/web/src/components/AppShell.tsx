@@ -62,13 +62,16 @@ const NAV: Section[] = [
 
 /** What someone with no workspace yet (a fresh Google/Microsoft sign-up) can open: the network, their own businesses and account. */
 const MEMBER_NAV: Section[] = [
-  { title: "Your network", items: [{ href: "/network", label: "Feed, people & messages" }, { href: "/businesses", label: "My businesses" }] },
+  { title: "Your network", items: [{ href: "/network", label: "Feed, people & messages" }, { href: "/businesses", label: "My companies" }] },
   { title: "Account", items: [{ href: "/profile", label: "My profile" }, { href: "/account", label: "Account & security" }] },
 ];
 // Company profiles aren't nav entries, but company members open them from My
 // businesses — the API enforces who may see what.
 const MEMBER_PATHS = [...MEMBER_NAV.flatMap((s) => s.items.map((i) => i.href)), "/companies"];
 const inMemberArea = (path: string) => MEMBER_PATHS.some((p) => path === p || path.startsWith(p + "/"));
+// While a new company waits for platform activation it can only finish its profile.
+const PENDING_PATHS = [...MEMBER_PATHS, "/companies"];
+const inPendingArea = (path: string) => PENDING_PATHS.some((p) => path === p || path.startsWith(p + "/"));
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { ready, session, me, workspace, error, switchTenant, signOut } = useRequireSession();
@@ -113,6 +116,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
   if (noWorkspace && !inMemberArea(path)) return <div className="content"><Loading /></div>;
+  const pending = workspace?.tenant.status === "onboarding" && !inPendingArea(path);
 
   const name = me?.profile?.full_name ?? me?.profile?.email;
   return (
@@ -182,7 +186,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link href="/account" role="menuitem">Account & security</Link>
           <a role="menuitem" onClick={signOut}>Sign out</a>
         </div>
-        <div className="content">{children}</div>
+        <div className="content">{pending && workspace ? (
+          <div className="card">
+            <h2>Waiting for activation</h2>
+            <p className="muted">The myTrakIn team is reviewing {workspace.tenant.name}. We&apos;ll e-mail you as soon as it&apos;s active.
+              Meanwhile you can complete your company profile.</p>
+            {workspace.tenant.company_id && <p><Link className="btn pri" href={`/companies/${workspace.tenant.company_id}`}>Open company profile</Link></p>}
+          </div>
+        ) : children}</div>
       </main>
       <div className={`scrim ${navOpen ? "open" : ""}`} onClick={() => setNavOpen(false)} />
     </div>

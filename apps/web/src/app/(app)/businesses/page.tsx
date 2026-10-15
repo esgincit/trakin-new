@@ -11,7 +11,7 @@ import { useSession } from "@/lib/session";
 /** Every business the caller created or belongs to — any role, any workspace. */
 export default function Businesses() {
   const router = useRouter();
-  const { switchTenant } = useSession();
+  const { switchTenant, refresh } = useSession();
   const { run } = useAction();
   const { data, error, loading, reload } = useApi<any[]>("/my/businesses");
   const [creating, setCreating] = useState(false);
@@ -33,10 +33,10 @@ export default function Businesses() {
   if (loading) return <Loading rows={6} />;
   return (
     <>
-      <PageHead title="My businesses" sub="Every business you created or belong to — owner, admin or member, across all workspaces."
-        actions={<button className="btn pri" onClick={() => setCreating(true)}>New company</button>} />
+      <PageHead title="My companies" sub="Every company you created or belong to. A new company is reviewed and activated by the myTrakIn team."
+        actions={<button className="btn pri" onClick={() => setCreating(true)}>Create your company</button>} />
       <ErrorBox error={error} retry={reload} />
-      {!data?.length ? <p className="muted">No businesses yet. Companies you create or are invited to appear here.</p> : (
+      {!data?.length ? <p className="muted">No companies yet. Create your company to get started — companies you're invited to appear here too.</p> : (
         <div className="grid c2">
           {data.map((b: any) => (
             <div key={`${b.tenant_id}:${b.company_id}`} className="card click" onClick={() => open(b)}>
@@ -52,7 +52,8 @@ export default function Businesses() {
           )          )}
         </div>
       )}
-      {creating && <CompanyWizard onClose={() => { setCreating(false); reload(); }} onDone={(c) => open(c)} />}
+      {creating && <CompanyWizard account onClose={() => { setCreating(false); reload(); refresh(); }}
+        onDone={async (c) => { await refresh(); open(c); }} />}
     </>
   );
 }
