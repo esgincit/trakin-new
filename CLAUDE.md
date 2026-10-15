@@ -14,7 +14,8 @@ across the vendor chain. Built to match the customer's clickable prototype.
 4. `README.md`, `docs/technical.md`, `docs/functional.md` — how the product is built and run.
 5. `docs/legacy-contrack.md` — what is (and is not) taken from the old Contrack project: Zoho SMTP settings and a
    security/billing-test checklist only. **Never copy or implement functionality from the old project** (owner's rule,
-   PLAN RULE-07); the prototype is the only requirement.
+   PLAN RULE-07); the prototype is the requirement, **except where the owner's e-mail spec
+   `docs/requirements/2026-10-15-mail-master-spec.md` differs — the e-mail wins** (PLAN §5.30, Phase W).
 Then run `git status` — uncommitted work from a previous session is the thing most likely to be missed.
 
 ## How to work an item

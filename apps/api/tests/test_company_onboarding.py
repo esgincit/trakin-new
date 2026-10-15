@@ -107,8 +107,6 @@ async def test_last_owner_is_protected_and_members_managed(client, auth):
     admin = auth("admin")
     company = await _new_company(client, auth)
     cid = company["id"]
-    owner = next(m for m in (await client.get(f"/companies/{cid}/members", headers=admin)).json()
-                 if m["company_role"] == "owner")
 
     # A second owner with an account is active immediately (a bare e-mail invite stays
     # "invited" until they sign up, and pending invites don't satisfy the owner rule).
@@ -118,7 +116,7 @@ async def test_last_owner_is_protected_and_members_managed(client, auth):
 
     # Demoting the invited owner is fine while the creator (Super Admin) remains;
     # removing the last privileged member is not.
-    demote = await client.patch(f"/companies/{cid}/members/{owner['id']}", headers=admin,
+    demote = await client.patch(f"/companies/{cid}/members/{invited.json()['id']}", headers=admin,
                                 json={"company_role": "member"})
     assert demote.status_code == 200, demote.text
     members = (await client.get(f"/companies/{cid}/members", headers=admin)).json()

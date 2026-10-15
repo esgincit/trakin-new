@@ -436,7 +436,7 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
         if dup:
             raise conflict(f"This CIN is already registered to business {dup}")
         if not (payload.get("moa") or {}).get("document_id"):
-            raise ApiError(422, "moa_required", "Upload the Memorandum of Association first")
+            raise ApiError(422, "moa_required", "Upload the Memorandum of Association (MOA) first")
         tax = {"cin": cin}
 
     code = await _assign_business_code(db)

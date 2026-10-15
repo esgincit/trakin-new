@@ -439,7 +439,7 @@ async def _run_verification(db: TenantDb, company: dict) -> dict:
     owner = await db.val(
         """select coalesce(p.full_name, cm.invited_email::text) from company_members cm
              left join profiles p on p.id = cm.user_id
-            where cm.company_id = :c and cm.company_role = 'owner' and cm.status = 'active'
+            where cm.company_id = :c and cm.company_role in ('super_admin', 'owner') and cm.status = 'active'
             order by cm.created_at limit 1""", {"c": company["id"]})
     checks["owner"] = {"status": "pass" if owner else "fail",
                        "detail": f"Owner: {owner}" if owner else "No active owner assigned"}

@@ -52,7 +52,7 @@ staffing company is a workspace (tenant); the platform owner runs the SaaS.
 | RULE-04 | Every change, sign-in, approval, export and file action is audited (who, when, IP, device, before/after). |
 | RULE-05 | Platform staff cannot see tenant data except through time-boxed, tenant-approved support access. |
 | RULE-06 | Sensitive data (SSN, bank account numbers) is never accepted in CSV or free text — only on W-9 / bank forms. |
-| RULE-07 | **Nothing is copied or implemented from the old Contrack project** (owner's instruction). Only its service settings (Zoho SMTP) and security/engineering lessons are used — see [legacy-contrack.md](legacy-contrack.md). A feature that is not in the prototype is not built. |
+| RULE-07 | **Nothing is copied or implemented from the old Contrack project** (owner's instruction). Only its service settings (Zoho SMTP) and security/engineering lessons are used — see [legacy-contrack.md](legacy-contrack.md). A feature that is not in the prototype is not built. **Amended 2026-10-15:** the owner's e-mail "MyTrakin implementation master specification" ([requirements/2026-10-15-mail-master-spec.md](requirements/2026-10-15-mail-master-spec.md)) is also a requirement source and **wins over the prototype where they differ** (§5.30). |
 
 ---
 
@@ -471,6 +471,25 @@ Phase 0.4 and applied whenever the matching code is touched.
 
 ---
 
+### 5.30 Approved workflow (owner e-mail 2026-10-15 — overrides the prototype where they differ)
+Flow: Register → Verify → **NDA** → MSA → Project → **SOW (under the project)** → Acceptance → **Resource contract** →
+Acceptance → Timesheet → Invoice → Payment → **Payment confirmation**. Internal release **2026-10-25**, internal go-live
+**2026-10-30**. Business logic before UI. Plan: [superpowers/plans/2026-10-15-workflow-master-spec.md](superpowers/plans/2026-10-15-workflow-master-spec.md).
+
+| ID | Requirement | Status |
+|---|---|---|
+| WF-01 | Tenant workflow switches `requireNDA`, `requireMSA`, `requireAcceptance`, `requireContract` (default on), editable by the company admin; every gate reads them — no hard-coded gates. | ❌ |
+| WF-02 | NDA with each client/vendor company before its MSA (when `requireNDA`); NDA status and acceptance history stored and audited. | ❌ (consultant NDAs only) |
+| WF-03 | Project can't be **activated** until the client's NDA and MSA requirements are met (per switches). | ❌ |
+| WF-04 | **SOW belongs to a project**; a project has many SOWs; a SOW has one or many resources (placements), each with its own contract, acceptance, timesheets, invoices, payments, confirmation. `POST /projects/{id}/sows`, `GET/POST /sows/{id}/resources`. | 🟡 many placements per SOW exist; no SOW→project link |
+| WF-05 | Resource contract (vendor/contractor work order, or offer letter for W-2) required before timesheets when `requireContract`; must be accepted (signed or manually accepted) when `requireAcceptance`. | ❌ |
+| WF-06 | **Acceptance records** (entity, accepted by, when, method e-sign/manual) + history; e-sign completion writes one. | 🟡 e-sign events only |
+| WF-07 | Engagement types as a lookup table (code, name, active, behaviour) — C2C, **E2E (employer-to-employer)**, 1099, W-2 — new types without schema change. | ❌ fixed check constraint |
+| WF-08 | **Naming engine**: per-tenant templates stored in the database (`PROJ-{YEAR}-{SEQ}`, `MSA-{CLIENT}-{SEQ}`, `SOW-{PROJECT}-{SEQ}`, `INV-{YYYYMM}-{SEQ}`, `CON-{YEAR}-{SEQ}`), custom placeholders, new entity types by config. | ❌ prefixes in code |
+| WF-09 | Payment status (pending → processing → completed → **confirmed**) and **payment confirmation** (who, when) that closes the financial lifecycle. | ❌ |
+| WF-10 | Status / approval / acceptance / payment history for major entities (audit log + acceptance + payment confirmation). | 🟡 audit log exists |
+| WF-11 | Workflow tests: single- and multi-resource SOW, NDA/MSA on/off, C2C/E2E/1099, invoice generation, payment lifecycle + confirmation, naming templates. | ❌ |
+
 ## 6. Open decisions (product owner)
 
 | # | Decision | Options | Blocks |
@@ -501,6 +520,21 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 | 0.3 | Fix doc drift: README/deployment say `iad1`, Resend-only, Anthropic-only | D2, D3 | S |
 | 0.5 | Verify the security checklist (SEC-01…18) against the code; fix what fails; one secret scan of the repo | §5.29 | M |
 | 0.4 | Get D1–D8 decided | §6 | — |
+
+### Phase W — approved workflow (owner e-mail; internal release 2026-10-25) — do before Phase 1
+| # | Item | IDs | Size |
+|---|---|---|---|
+| W.0 | Get CI green (3 failing company-onboarding tests) | — | S |
+| W.1 | Workflow switches + gate helper | WF-01 | S |
+| W.2 | Engagement types table incl. E2E | WF-07 | M |
+| W.3 | Naming engine | WF-08 | M |
+| W.4 | SOW → project link, project SOWs + resources endpoints | WF-04 | M |
+| W.5 | NDA/MSA gates (MSA create, project activation, invoices, vendor payments, new SOWs) | WF-02, WF-03, AGR-09 | M |
+| W.6 | Acceptance records + resource-contract gate on timesheets | WF-05, WF-06 | M |
+| W.7 | Payment status + confirmation | WF-09 | M |
+| W.8 | Money-safety fixes: no re-opening invoiced timesheets; reminder link | TS-07 | S |
+| W.9 | End-to-end workflow tests (single/multi resource, switches on/off, C2C/E2E/1099) | WF-11 | M |
+| W.10 | Minimal UI for W.1–W.7 (settings switches, project SOWs/resources, accept, confirm payment) | WF-* | M |
 
 ### Phase 1 — money & control gaps (highest business value)
 | # | Item | IDs | Size |
@@ -581,6 +615,11 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-15 · WF-01…11, RULE-07, AGR/PRJ/TS gaps · Owner e-mail "master specification" adopted (wins over prototype;
+  E2E = employer-to-employer; business rules first for 25 Oct). Added §5.30 + Phase W. Plans written (uncommitted):
+  `superpowers/plans/2026-10-15-workflow-master-spec.md` (Phase W) and `…-contracts-projects-timesheets-gaps.md`
+  (UI/prototype gaps, after go-live). CI on main is red (3 onboarding tests) — W.0 first. No code changed yet.
 
 - 2026-10-14 · AUTH-13 · Owner tested Google sign-in on https://www.mytrackin.com: it worked but showed the "Almost
   there / request a workspace" wall. Fixed on branch `feat/AUTH-no-workspace-home` (uncommitted→committed locally, NOT
