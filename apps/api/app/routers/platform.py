@@ -13,6 +13,7 @@ from pydantic import BaseModel, EmailStr, Field
 from ..config import get_settings
 from ..deps import TenantDb, platform_db
 from ..errors import ApiError, bad_request, conflict, not_found
+from ..services import storage
 from ..services.email import render, send_email
 from . import companies as companies_router
 from .admin import sync_company_owner
@@ -138,11 +139,14 @@ async def company_review(tenant_id: UUID, db: TenantDb = Depends(platform_db)):
     await _enter(db, tenant_id)
     company = await companies_router._company_or_404(db, tenant["company_id"])
     checks = await companies_router._run_verification(db, company)
+    path = company.get("w9_document_id") and await db.val(
+        "select storage_path from documents where id = :d", {"d": company["w9_document_id"]})
     await _leave(db)
+    w9_url = await storage.signed_url("documents", path) if path else None
     keep = ("id", "business_code", "name", "kind", "country", "state", "address", "domain", "dba", "business_type",
             "contact_name", "contact_email", "tin", "cin", "tax_classification", "tax_address", "w9_data",
             "w9_status", "w9_document_id", "status", "created_at")
-    return {"tenant": tenant, "company": {k: company.get(k) for k in keep}, **checks}
+    return {"tenant": tenant, "company": {k: company.get(k) for k in keep}, "w9_url": w9_url, **checks}
 
 
 class CompanyDecision(BaseModel):

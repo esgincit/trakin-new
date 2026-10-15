@@ -71,6 +71,7 @@ async def test_platform_activates_company_and_owner_gets_in(client, auth):
     assert row["name"] == "Founder 2 Staffing LLC" and row["owner_email"] == "founder@newco.example"
     detail = (await client.get(f"/platform/companies/{acct['tenant_id']}", headers=p)).json()
     assert detail["company"]["w9_status"] == "submitted" and "checks" in detail
+    assert detail["w9_url"]                                  # the reviewer can open the W-9 itself
     no_note = await client.post(f"/platform/companies/{acct['tenant_id']}/decision", headers=p, json={"decision": "needs_info"})
     assert no_note.status_code == 400
     ok = await client.post(f"/platform/companies/{acct['tenant_id']}/decision", headers=p, json={"decision": "activate"})
