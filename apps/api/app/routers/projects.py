@@ -10,9 +10,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.exc import IntegrityError
 
+from ..config import get_settings
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, not_found
 from ..services import numbering, workflow
+from ..services.email import render, send_email
 from ..utils import week_start
 
 router = APIRouter(tags=["projects"])
@@ -250,6 +252,18 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
          "apco": body.ap_company_id, "apcon": body.ap_consultant_id, "apsow": body.ap_sow_id, "pay": body.pay_rate,
          "apterms": body.ap_terms, "pwp": body.pay_when_paid})
     full = await db.one(_PLACEMENT_SQL + " where p.id = :id", {"id": row["id"]})
+    consultant = await db.one("select email, full_name from consultants where id = :id", {"id": body.consultant_id})
+    if consultant and consultant.get("email"):
+        tenant = await db.val("select name from tenants where id = :t", {"t": db.ctx.tenant_id})
+        when = f"{full['start_date']}" + (f" to {full['end_date']}" if full.get("end_date") else "")
+        await send_email(db, to=consultant["email"], subject=f"New project assignment: {full['project']}",
+                         kind="placement", tenant_id=db.ctx.tenant_id, ref_type="placement", ref_id=row["id"],
+                         html_body=render(f"You've been assigned to {full['project']}",
+                                          [f"Role: {full['role_title'] or 'Consultant'}. Period: {when}. "
+                                           f"{full['hours_per_week']} hours per week."
+                                           + (f" Work order: {full['ar_sow'] or full['ap_sow']}." if (full.get("ar_sow") or full.get("ap_sow")) else ""),
+                                           f"{tenant} manages timesheets, documents and payment status in myTrakIn."],
+                                          button=("Open myTimesheet", f"{get_settings().web_origin.rstrip('/')}/my/timesheet")))
     return placement_view(full, db.ctx)
 
 

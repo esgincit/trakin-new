@@ -33,6 +33,7 @@ function Consultants() {
   const [adding, setAdding] = useState(false);
 
   const columns: Column<any>[] = [
+    { key: "user_code", label: "ID", value: (r: any) => r.user_code ?? "—" },
     { key: "full_name", label: "Name" },
     { key: "engagement", label: "Type", type: "label", filter: true },
     { key: "title", label: "Title", hideSm: true },

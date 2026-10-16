@@ -383,3 +383,39 @@ async def test_large_file_direct_upload(client, auth):
         "purpose": "attachment", "filename": "x.pdf", "content_type": "application/pdf", "size": 10,
         "owner_type": "company", "owner_id": company["id"]})
     assert other.status_code == 403
+
+
+async def test_placement_assignment_notifies_consultant(client, auth):
+    """Assigning a project notifies the consultant (e-mail + notification log)."""
+    admin = auth("admin")
+    consultant = next(c for c in (await client.get("/consultants", params={"status": "active"}, headers=admin)).json()
+                      if c["email"])
+    project = (await client.get("/projects", headers=admin)).json()[0]
+    created = await client.post("/placements", headers=admin, json={
+        "consultant_id": consultant["id"], "project_id": project["id"], "start_date": str(date.today())})
+    assert created.status_code == 201, created.text
+    pid = created.json()["id"]
+    try:
+        async with get_engine().begin() as conn:
+            note = (await conn.execute(
+                text("select to_address, kind, status from mytrakin.notifications "
+                     "where kind = 'placement' and ref_id = :id order by sent_at desc limit 1"),
+                {"id": pid})).mappings().first()
+        assert note is not None, "placement assignment was not logged as a notification"
+        assert consultant["email"] in note["to_address"], note
+    finally:
+        async with get_engine().begin() as conn:
+            await conn.execute(text("delete from mytrakin.notifications where ref_type = 'placement' and ref_id = :id"),
+                               {"id": pid})
+            await conn.execute(text("delete from mytrakin.placements where id = :id"), {"id": pid})
+
+
+async def test_consultant_uid_is_visible(client, auth):
+    """Every consultant shows their system-wide UID (U-ID), or null before first sign-in."""
+    admin = auth("admin")
+    listed = await client.get("/consultants", params={"status": "active"}, headers=admin)
+    assert listed.status_code == 200
+    assert all("user_code" in r for r in listed.json()), listed.json()
+    first = listed.json()[0]
+    detail = await client.get(f"/consultants/{first['id']}", headers=admin)
+    assert detail.status_code == 200 and "user_code" in detail.json(), detail.text

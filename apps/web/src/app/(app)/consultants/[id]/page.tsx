@@ -25,7 +25,7 @@ export default function ConsultantDetail() {
 
   return (
     <>
-      <PageHead title={c.full_name} sub={<>{label(c.engagement)}{c.employer && ` via ${c.employer}`} · {c.title ?? ""} · <Chip status={c.status} /></>}
+      <PageHead title={c.full_name} sub={<>{c.user_code ? <>ID <code>{c.user_code}</code> · </> : null}{label(c.engagement)}{c.employer && ` via ${c.employer}`} · {c.title ?? ""} · <Chip status={c.status} /></>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && <button className="btn" onClick={() => setModal("edit")}>Edit</button>}

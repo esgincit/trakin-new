@@ -91,7 +91,7 @@ def _view(row: dict, ctx) -> dict:
 @router.get("")
 async def list_consultants(db: TenantDb = Depends(tenant_db), status: str | None = None):
     rows = await db.all(
-        """select c.id, c.full_name, c.email, c.engagement, c.title, c.location, c.status, c.start_date, c.end_date,
+        """select c.id, uc.code as user_code, c.full_name, c.email, c.engagement, c.title, c.location, c.status, c.start_date, c.end_date,
                   c.work_auth_type, c.work_auth_expires, c.i9_status, c.everify_status, c.leave_reason, c.rehire_eligible,
                   emp.name as employer,
                   jsonb_array_length(c.onboarding_checklist) as checklist_total,
@@ -100,8 +100,9 @@ async def list_consultants(db: TenantDb = Depends(tenant_db), status: str | None
                     where p.consultant_id = c.id and p.status in ('active', 'ending', 'onboarding')) as projects,
                   (select count(*) from placements p where p.consultant_id = c.id and p.status in ('active', 'ending')) as active_placements
              from consultants c left join companies emp on emp.id = c.employer_company_id
-            where (cast(:status as text) is null or c.status = :status)
-            order by c.status, c.full_name""",
+             left join user_codes uc on uc.user_id = c.user_id
+             where (cast(:status as text) is null or c.status = :status)
+             order by c.status, c.full_name""",
         {"status": status},
     )
     return [_view(r, db.ctx) for r in rows]
@@ -150,7 +151,9 @@ async def onboard(body: ConsultantIn, db: TenantDb = Depends(tenant_db)):
 @router.get("/{consultant_id}")
 async def get_consultant(consultant_id: UUID, db: TenantDb = Depends(tenant_db)):
     c = await db.one(
-        "select c.*, emp.name as employer from consultants c left join companies emp on emp.id = c.employer_company_id where c.id = :id",
+        "select c.*, uc.code as user_code, emp.name as employer from consultants c "
+        "left join companies emp on emp.id = c.employer_company_id "
+        "left join user_codes uc on uc.user_id = c.user_id where c.id = :id",
         {"id": consultant_id})
     if c is None:
         raise not_found("Consultant")
