@@ -8,7 +8,8 @@
   only — submitted companies still wait for the platform decision). Migration `20261016000800`.
 - **W-9 extraction fix (2026-10-16):** a March-2024 W-9 whose section-1 label wraps mid-sentence across two lines
   no longer bleeds the wrap ("entity's name on line 2.)") into `legal_name` — e.g. DREP Software solution parses
-  exactly. Regression test in `tests/test_w9_parse.py`.
+  exactly. The line-1 label's own mention of "disregarded" also no longer misfiles filled-PDF line-1 values as the
+  DBA (which left `legal_name` empty with "couldn't find the legal name"). Regression tests in `tests/test_w9_parse.py`.
 - **Fixes from a live click-through of the money flow (2026-10-16):**
   - A consultant can fix and resubmit a week their approver returned (saving a returned week failed with
     "You don't have permission to do that" — the RLS update policy didn't allow the row to stay `rejected`).

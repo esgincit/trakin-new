@@ -123,6 +123,16 @@ def _classify_label(label: str) -> str:
     low = label.lower()
     if "requester" in low:
         return "ignore"
+    # Line 1 (the legal name) BEFORE the dba rule: the March-2024 line-1 label
+    # itself mentions "disregarded" ("... enter the business/disregarded
+    # entity's name on line 2"), which used to misfile the line-1 value as dba
+    # and leave legal_name empty. Line 2's own label ("... if different from
+    # above") never contains these signals.
+    if ("name of entity" in low or "name of individual" in low or "name on line 1" in low
+            or ("name on line 2" in low and "if different" not in low)
+            or re.search(r"(^|\s)1\s+name", low)
+            or "name (as shown" in low or ("name" in low and "shown" in low)):
+        return "legal_name"
     if "disregarded" in low or "business name" in low:
         return "dba"
     if "account number" in low:
@@ -137,8 +147,6 @@ def _classify_label(label: str) -> str:
         return "ein"
     if "exempt" in low or "fatca" in low or "signature" in low or "certification" in low:
         return "ignore"
-    if "income tax return" in low or re.search(r"(^|\s)1\s+name", low) or ("name" in low and "shown" in low):
-        return "legal_name"
     return "unknown"
 
 
