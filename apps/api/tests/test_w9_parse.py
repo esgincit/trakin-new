@@ -33,3 +33,21 @@ def test_wrapped_section_label_does_not_bleed_into_legal_name():
     assert parsed["address"] == "16443 W ADAMS Street", parsed
     assert (parsed["city"], parsed["state"], parsed["zip"]) == ("Goodyear", "AZ", "85338"), parsed
     assert parsed["tin"] in ("980-45-0987", "34-6775432"), parsed
+
+
+def test_numeral_split_from_label_keeps_section_tracking():
+    """IRS PDFs often put the margin numeral on its own text line ("1" / label).
+    The numberless label must still open its section — the name must parse,
+    and the label itself must never become the value."""
+    text = ("Form W-9 (Rev. March 2024)\n"
+            "1\n"
+            "Name of entity/individual. An entry is required. (For a sole proprietor or disregarded "
+            "entity, enter the owner's name on line 1, and enter the business/disregarded\n"
+            "entity's name on line 2.)\n"
+            "DREP Software solution\n"
+            "2\n"
+            "Business name/disregarded entity name, if different from above.\n"
+            "DREP Software solution\n")
+    parsed = parse_w9_text(text)
+    assert parsed["legal_name"] == "DREP Software solution", parsed
+    assert parsed["dba"] == "DREP Software solution", parsed

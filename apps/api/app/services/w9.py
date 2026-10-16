@@ -59,6 +59,18 @@ _LABEL_START_RE = re.compile(
 _VALUE_SECTIONS = {"1", "2", "5", "6", "7"}
 
 
+# Section labels whose margin numeral split onto its own text line
+# ("1" / "Name of entity/individual ..."): match the label words so section
+# tracking survives — otherwise the value lines that follow are dropped and
+# legal_name comes back null.
+_NUMBERLESS_SECTIONS = (
+    ("1", ("name of entity", "name of individual")),
+    ("2", ("business name/disregarded entity name",)),
+    ("5", ("address (number",)),
+    ("6", ("city, state",)),
+)
+
+
 def _section_remainder(line: str, key: str | None) -> str | None:
     if ":" in line and key in _VALUE_SECTIONS:
         tail = line.split(":", 1)[1].strip()
@@ -81,7 +93,11 @@ def _split_section(line: str) -> tuple[str | None, str | None]:
         # A leading number that isn't a W-9 section ("9 Long Street",
         # "4100 Commerce ...") — a value, not a header.
         return None, None
-    elif _LABEL_START_RE.match(line):
+    low_head = line.lower()
+    for _key, _prefixes in _NUMBERLESS_SECTIONS:
+        if any(low_head.startswith(p) for p in _prefixes):
+            return _key, _section_remainder(line, _key)
+    if _LABEL_START_RE.match(line):
         key = "part" if line.lower().startswith("part") else "label"
         return key, _section_remainder(line, key)
     elif re.fullmatch(r"[.\-_\s]+", line):
