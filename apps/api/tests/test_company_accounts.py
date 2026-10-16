@@ -145,6 +145,38 @@ async def test_owner_transfers_ownership(client, auth, user_ids):
             await conn.execute(text("delete from mytrakin.company_members where user_id = :u"), {"u": user_ids["outsider"]})
 
 
+async def test_draft_visible_and_discardable(client, auth):
+    """Closing the wizard early leaves a draft that shows in My companies and can be
+    discarded (freeing a slot under the cap). Submitted companies can't be discarded."""
+    h = auth("founder")
+    started = await client.post("/onboarding/accounts", headers=h, json={"country": "US"})
+    assert started.status_code == 201, started.text
+    tid = started.json()["tenant_id"]
+    try:
+        mine = (await client.get("/my/businesses", headers=h)).json()
+        draft = next(r for r in mine if r["tenant_id"] == tid)
+        assert draft["kind"] == "draft" and draft["status"] == "draft", draft
+        assert draft["company_id"] is None and draft["session_id"] is not None, draft
+        # Someone else's draft is invisible to the discard endpoint.
+        assert (await client.delete(f"/onboarding/accounts/{tid}", headers=auth("outsider"))).status_code == 404
+        gone = await client.delete(f"/onboarding/accounts/{tid}", headers=h)
+        assert gone.status_code == 200, gone.text
+        assert (await client.delete(f"/onboarding/accounts/{tid}", headers=h)).status_code == 404
+        mine = (await client.get("/my/businesses", headers=h)).json()
+        assert all(r["tenant_id"] != tid for r in mine)
+        # The freed slot works: starting again is allowed.
+        again = await client.post("/onboarding/accounts", headers=h, json={"country": "US"})
+        assert again.status_code == 201, again.text
+        tid = again.json()["tenant_id"]
+    finally:
+        async with get_engine().begin() as conn:
+            await conn.execute(text("delete from mytrakin.tenants where id = :t"), {"t": tid})
+
+    # A submitted company (waiting for activation) is not a draft: no discard.
+    acct = await _founder_company(client, auth, 9, "99-8877665")
+    assert (await client.delete(f"/onboarding/accounts/{acct['tenant_id']}", headers=h)).status_code == 404
+
+
 async def test_daily_job_purges_abandoned_drafts(client):
     async with get_engine().begin() as conn:
         old = (await conn.execute(text("""insert into mytrakin.tenants (name, status, created_at)

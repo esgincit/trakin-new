@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Discardable company drafts (2026-10-16, PLAN P-01):** closing the create-company wizard early left an invisible
+  draft that still counted toward the 3-pending cap. Unfinished setups now show on My companies with Resume
+  (continues inside the same draft account) and Discard (`DELETE /onboarding/accounts/{id}`, owner only, drafts
+  only — submitted companies still wait for the platform decision). Migration `20261016000800`.
 - **W-9 extraction fix (2026-10-16):** a March-2024 W-9 whose section-1 label wraps mid-sentence across two lines
   no longer bleeds the wrap ("entity's name on line 2.)") into `legal_name` — e.g. DREP Software solution parses
   exactly. Regression test in `tests/test_w9_parse.py`.

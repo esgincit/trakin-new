@@ -155,6 +155,18 @@ async def start_account(body: SessionIn, db: TenantDb = Depends(user_db)):
     return {**_public_session(row), "tenant_id": tid}
 
 
+@router.delete("/accounts/{tenant_id}")
+async def discard_account(tenant_id: UUID, db: TenantDb = Depends(user_db)):
+    """Throw away my own unfinished company draft (wizard closed before anything was
+    submitted). Only drafts — no company profile yet — can be discarded; a submitted
+    company waits for the platform decision. Frees a slot under the 3-pending cap."""
+    gone = await db.val("select mytrakin.discard_company_account(:u, :t)",
+                        {"u": db.ctx.user_id, "t": tenant_id})
+    if not gone:
+        raise not_found("Draft company")
+    return {"id": tenant_id, "discarded": True}
+
+
 @router.get("/sessions")
 async def my_sessions(db: TenantDb = Depends(onboarding_db)):
     """My unfinished onboardings, so a closed wizard can resume."""

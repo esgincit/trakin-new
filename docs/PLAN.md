@@ -644,6 +644,10 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · P-01 · Draft companies are visible and discardable: closing the wizard early left an invisible
+  tenant counting toward the 3-pending cap. My companies now lists drafts (Resume inside the same account, Discard
+  via `DELETE /onboarding/accounts/{id}`); submitted companies can't be discarded. Migration `20261016000800`,
+  verified live (draft → visible → 429 at cap → discard → cap freed). Committed to main.
 - 2026-10-16 · W-9 extraction (company onboarding) · March-2024 W-9 with a wrapped section-1 label no longer
   bleeds the wrap into `legal_name` (DREP case); pure-function regression test `tests/test_w9_parse.py`. Committed to main.
 - 2026-10-16 · TS, AR, AP, WF-09, U-ID, ESIGN · Live click-test of every role + full money flow (timesheet → return →
