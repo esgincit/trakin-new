@@ -644,6 +644,9 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · CO-03, AGR-07 · Agreement entry UX: Agreement ID always auto-numbered (field removed);
+  CompanyPicker is a type-ahead with suggestions + real loading/error states; consultant picker shows name + U-ID.
+  Committed to main.
 - 2026-10-16 · CO-01, CO-02 · "What does your company do" is multi-select: companies.kinds holds every role,
   kind stays primary; creation doesn't ask — new companies start with all four roles, narrowed on the profile
   if needed. Wizard, staff form, list/detail/directory/filters show and filter all roles. Migration

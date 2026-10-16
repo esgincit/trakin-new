@@ -77,6 +77,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
   // NDAs are signed with companies (Verify → NDA → MSA) or with consultants.
   const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
   const personal = ["offer_letter", "ica"].includes(kind) || (kind === "nda" && ndaWith === "consultant");
+  const consultantName = (c: any) => (c.user_code ? c.full_name + " · " + c.user_code : c.full_name);
   return (
     <Modal title="Add agreement" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
@@ -93,13 +94,12 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
         <div className="fields">
           <Field label="Type" name="kind_select" as="select" value={kind} onChange={(e: any) => setKind(e.target.value)}
                  options={[["msa", "MSA (client or prime)"], ["subcontract", "Subcontractor agreement (vendor)"], ["ica", "Independent contractor agreement (1099)"], ["nda", "NDA"], ["offer_letter", "Offer letter"]]} />
-          <Field label="Agreement ID" name="code" placeholder="Leave blank to number it automatically" />
           {kind === "nda" && (
             <Field label="NDA with" name="nda_with" as="select" value={ndaWith} onChange={(e: any) => setNdaWith(e.target.value)}
                    options={[["company", "A client or vendor company"], ["consultant", "A consultant"]]} />
           )}
         {personal ? (
-          <Field label="Consultant" name="consultant_id" as="select" required options={[["", "Choose…"], ...(consultants.data ?? []).map((c) => [c.id, c.full_name] as [string, string])]} />
+          <Field label="Consultant" name="consultant_id" as="select" required options={[["", "Choose…"], ...(consultants.data ?? []).map((c) => [c.id, consultantName(c)] as [string, string])]} />
         ) : (
           <CompanyPicker label="Company" name="company_id" required />
         )}
@@ -112,7 +112,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
           <Field label="Insurance required" name="insurance_required" placeholder="GL $1M, E&O $2M" />
           {existing && <Field label="Signed by" name="signed_by" full />}
         </div>
-        <p className="note">{existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, send it for e-signature from the agreement page."}</p>
+        <p className="note">The agreement number is assigned automatically. {existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, send it for e-signature from the agreement page."}</p>
         <button className="btn pri mt" disabled={busy}>Save agreement</button>
       </form>
     </Modal>

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Agreement entry UX (2026-10-16, PLAN CO-03, AGR-07):** the agreement number is always auto-assigned (the
+  Agreement ID box is gone from the Add-agreement form); the company picker is now a type-ahead with suggestions
+  (plus honest loading/error states instead of a blanket "no match"); the consultant picker shows name + U-ID.
 - **Several roles per company (2026-10-16, PLAN CO-01, CO-02):** "What does your company do?" is multi-select —
   a business can be a vendor on one engagement and a client on another. `companies.kinds` holds every role;
   `kind` stays the primary (first ticked) so filters, labels, imports and exports keep working. Creation doesn't
