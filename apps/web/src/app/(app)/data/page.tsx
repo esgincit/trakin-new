@@ -6,6 +6,7 @@ import { Chip, ErrorBox, PageHead, useAction } from "@/components/ui";
 import { api, download } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
+import { iso } from "@/lib/weeks";
 
 const EXPORTS: [string, string][] = [
   ["companies", "Clients & vendors"], ["consultants", "Consultants (incl. former)"], ["projects", "Projects"], ["placements", "Placements & rates"],
@@ -27,7 +28,7 @@ function Data() {
   const [result, setResult] = useState<any>(null);
   const { run, busy } = useAction();
   const template = templates.data?.find((t) => t.key === entity);
-  const day = new Date().toISOString().slice(0, 10);
+  const day = iso(new Date());
 
   const send = async (dryRun: boolean) => {
     if (!file) return;

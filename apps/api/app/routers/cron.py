@@ -136,7 +136,8 @@ async def run_for_tenant(db: TenantDb, today: date) -> dict:
     invoices = await db.all(
         """select i.id, i.number, i.balance, i.due_on, i.days_late, i.live_status, co.name, co.contact_email, co.contact_name
              from invoice_balances i join companies co on co.id = i.company_id
-            where i.direction = 'ar' and i.live_status not in ('paid', 'void') and i.due_on is not null and co.contact_email is not null""")
+            where i.direction = 'ar' and i.status <> 'draft'          -- never remind a customer about an unsent invoice
+              and i.live_status not in ('paid', 'void') and i.due_on is not null and co.contact_email is not null""")
     for inv in invoices:
         days = (inv["due_on"] - today).days
         if -days in courtesy or (days < 0 and -days in overdue):

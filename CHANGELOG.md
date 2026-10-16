@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Fixes from a live click-through of the money flow (2026-10-16):**
+  - A consultant can fix and resubmit a week their approver returned (saving a returned week failed with
+    "You don't have permission to do that" — the RLS update policy didn't allow the row to stay `rejected`).
+  - The daily job no longer sends customer reminders for **draft** AR invoices that were never sent.
+  - Vendors and 1099 payees see pay-when-paid invoices as **held** (they saw "ready to pay": the held check couldn't
+    read the client invoice under the payee's row-level security). AR amounts stay hidden.
+  - A consultant's U-ID now shows after they sign up from an invite (`consultants.user_id` was never linked).
+  - Dates in the browser use the local day, not UTC: "Create invoices from timesheets" defaulted to Aug 31 – Sep 29
+    instead of Sep 1 – 30 east of UTC (India); payment dates and export file names had the same off-by-one.
+  - E-signature completion e-mail: one copy per address when the sender also signed.
+
 - **Company-initiated MSAs** (PLAN CO-03, AGR-07): searchable company directory (`GET /companies/directory`) and
   `POST /companies/{id}/msas` so a company's owner/admin — or its membership-linked vendor/client admin — records an
   already-signed MSA or requests a new one from the company profile (NDA gate and numbering apply; counterparty gets

@@ -644,6 +644,10 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · TS, AR, AP, WF-09, U-ID, ESIGN · Live click-test of every role + full money flow (timesheet → return →
+  resubmit → approve → invoice → pay-when-paid → payment run → vendor confirm; e-sign 2 signers). 6 bugs fixed with
+  regression tests (migrations 20261016 0500–0700, cron, web dates, e-sign recipients); 94 API tests pass. Open: draft AR
+  invoices still show "Open" and count in the dashboard's AR total (product decision). Committed to main.
 - 2026-10-16 · CO-03, AGR-07 · Company-initiated MSAs on main: searchable company directory + `POST /companies/{id}/msas`
   (record signed / request new, NDA gate, numbering, counterparty e-mail) with a `CompanyPicker` on the company profile
   and contracts modal. Fixed vendor 403: migration `0800` lets membership-linked vendor/client admins pass the

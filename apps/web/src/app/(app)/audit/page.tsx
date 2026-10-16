@@ -6,6 +6,7 @@ import { Drawer, ErrorBox, PageHead } from "@/components/ui";
 import { download } from "@/lib/api";
 import { dateTime, label } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
+import { iso } from "@/lib/weeks";
 
 export default function Audit() {
   const [filters, setFilters] = useState<{ entity?: string; since?: string; until?: string; q?: string }>({});
@@ -14,7 +15,7 @@ export default function Audit() {
   return (
     <>
       <PageHead title="Audit log" sub="Every create, change and delete — who, when, from which IP address, and exactly what changed. It can't be edited."
-        actions={<button className="btn" onClick={() => download("/data/export/audit.csv", `mytrakin-audit-${new Date().toISOString().slice(0, 10)}.csv`)}>Export CSV</button>} />
+        actions={<button className="btn" onClick={() => download("/data/export/audit.csv", `mytrakin-audit-${iso(new Date())}.csv`)}>Export CSV</button>} />
       <form className="toolbar" onSubmit={(e) => { e.preventDefault(); const f = new FormData(e.currentTarget); setFilters(Object.fromEntries([...f.entries()].filter(([, v]) => v)) as any); }}>
         <select name="entity" className="ctl" aria-label="Record type" defaultValue="">
           <option value="">All records</option>

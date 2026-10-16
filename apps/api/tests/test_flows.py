@@ -89,6 +89,15 @@ async def test_timesheet_to_invoice_to_payment(client, auth):
     assert vendor_detail["waits_for"] is None
 
 
+async def test_vendor_sees_the_same_ap_status_as_finance(client, auth):
+    """Pay-when-paid: a vendor can't read the client invoice, but must still see "held", never "ready to pay"."""
+    finance = {r["id"]: r["live_status"] for r in (await client.get("/invoices", params={"direction": "ap"}, headers=auth("finance"))).json()}
+    vendor = (await client.get("/invoices", params={"direction": "ap"}, headers=auth("vendor"))).json()
+    assert any(r["live_status"] == "held" for r in vendor), "seed has a held BrightPath invoice"
+    for row in vendor:
+        assert row["live_status"] == finance[row["id"]], (row["number"], row["live_status"], finance[row["id"]])
+
+
 async def test_reject_requires_reason_and_returns_week(client, auth):
     finance = auth("finance")
     week = (await client.get("/timesheets", headers=finance)).json()
@@ -97,6 +106,56 @@ async def test_reject_requires_reason_and_returns_week(client, auth):
     assert (await client.post(f"/timesheets/{anita['id']}/reject", headers=finance, json={})).status_code == 400
     rejected = await client.post(f"/timesheets/{anita['id']}/reject", headers=finance, json={"reason": "Friday is a holiday"})
     assert rejected.json()["status"] == "rejected"
+
+
+async def test_consultant_can_fix_and_resubmit_a_returned_week(client, auth):
+    """A returned (rejected) week must be editable and submittable again by the consultant."""
+    consultant, finance = auth("consultant"), auth("finance")
+    week = THIS_WEEK + timedelta(days=7)
+    mine = (await client.get("/timesheets/mine", params={"week": str(week)}, headers=consultant)).json()
+    rows = [{"placement_id": p["placement_id"], "hours": [0, 14, 8, 8, 8, 8, 0] if i == 0 else [0, 0, 0, 0, 0, 0, 0]}
+            for i, p in enumerate(mine["projects"])]
+    assert (await client.put("/timesheets/mine", headers=consultant, json={"week_start": str(week), "rows": rows})).status_code == 200
+    submitted = await client.post("/timesheets/mine/submit", params={"week": str(week)}, headers=consultant, json={})
+    assert submitted.status_code == 200, submitted.text
+    returned = await client.post(f"/timesheets/{submitted.json()['id']}/reject", headers=finance,
+                                 json={"reason": "Monday shows 14 hours"})
+    assert returned.json()["status"] == "rejected"
+
+    rows[0]["hours"] = [0, 8, 8, 8, 8, 8, 0]
+    fixed = await client.put("/timesheets/mine", headers=consultant, json={"week_start": str(week), "rows": rows})
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["status"] == "rejected" and fixed.json()["reject_reason"] == "Monday shows 14 hours"
+    again = await client.post("/timesheets/mine/submit", params={"week": str(week)}, headers=consultant, json={})
+    assert again.status_code == 200, again.text
+    after = (await client.get("/timesheets/mine", params={"week": str(week)}, headers=consultant)).json()
+    assert after["status"] == "submitted" and after["reject_reason"] is None
+    assert sum(sum(r["hours"]) for r in after["rows"]) == 40
+
+    # Approved and invoiced, the new AR invoices start as drafts: the daily job must not remind the customer
+    # about an invoice nobody has sent them yet — only once it is sent.
+    assert (await client.post(f"/timesheets/{submitted.json()['id']}/approve", headers=finance)).status_code == 200
+    generated = await client.post("/invoices/generate", headers=finance,
+                                  json={"period_start": str(week), "period_end": str(week + timedelta(days=6))})
+    assert generated.status_code == 200, generated.text
+    async with get_engine().begin() as conn:
+        draft_id = (await conn.execute(text(
+            """select id from mytrakin.invoices where direction = 'ar' and status = 'draft' and period_start = :w limit 1"""),
+            {"w": week})).scalar()
+        assert draft_id is not None
+        await conn.execute(text("update mytrakin.invoices set due_on = current_date + 7 where id = :id"), {"id": draft_id})
+
+    async def reminders() -> int:
+        async with get_engine().begin() as conn:
+            return (await conn.execute(text(
+                "select count(*) from mytrakin.notifications where kind = 'ar_reminder' and ref_id = :id"), {"id": draft_id})).scalar()
+
+    cron = {"Authorization": "Bearer cron-test-secret"}
+    assert (await client.get("/cron/daily", headers=cron)).status_code == 200
+    assert await reminders() == 0, "a draft invoice must not trigger a customer reminder"
+    assert (await client.post(f"/invoices/{draft_id}/send", headers=finance)).status_code == 200
+    assert (await client.get("/cron/daily", headers=cron)).status_code == 200
+    assert await reminders() == 1
 
 
 # ---------------------------------------------------------------------------- e-signature with IP capture
@@ -419,3 +478,6 @@ async def test_consultant_uid_is_visible(client, auth):
     first = listed.json()[0]
     detail = await client.get(f"/consultants/{first['id']}", headers=admin)
     assert detail.status_code == 200 and "user_code" in detail.json(), detail.text
+    # Ravi was invited by e-mail and claimed the invite at his first sign-in: his U-ID must show.
+    ravi = next(r for r in listed.json() if r["full_name"] == "Ravi Kumar")
+    assert ravi["user_code"] and ravi["user_code"].startswith("U"), ravi

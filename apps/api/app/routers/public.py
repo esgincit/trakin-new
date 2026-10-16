@@ -267,7 +267,8 @@ async def _complete(db: TenantDb, env: dict) -> None:
 
     link = await storage.signed_url("esign", path, expires_in=7 * 24 * 3600)
     sender = await db.val("select email from profiles where id = :u", {"u": env["sent_by"]}) if env["sent_by"] else None
-    recipients = [s["email"] for s in signers] + ([sender] if sender else [])
+    # The sender is often a signer too: one copy per address.
+    recipients = list({e.lower(): e for e in [*(s["email"] for s in signers), *([sender] if sender else [])]}.values())
     await send_email(db, to=recipients, subject=f"Completed: {env['title']}", kind="esign", tenant_id=env["tenant_id"],
                      ref_type="envelope", ref_id=env["id"],
                      html_body=render("Everyone has signed", [env["title"], f"Signed by {names}.",

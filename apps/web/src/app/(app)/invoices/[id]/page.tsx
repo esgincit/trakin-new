@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { date, dateTime, money, num } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
+import { iso } from "@/lib/weeks";
 
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -91,7 +92,7 @@ export default function InvoiceDetail() {
             }}>
               <div className="fields">
                 <Field label="Amount" name="amount" type="number" step="0.01" min="0.01" defaultValue={inv.balance} required />
-                <Field label="Date" name="paid_on" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
+                <Field label="Date" name="paid_on" type="date" defaultValue={iso(new Date())} required />
                 <Field label="Method" name="method" as="select" options={["ACH", "Wire", "Check", "Card", "Other"]} />
                 <Field label="Reference" name="reference" placeholder="Trace / check number" />
                 <Field label="Status" name="status" as="select" options={[["completed", "Completed (money moved)"], ["processing", "Processing"], ["pending", "Pending"]]} />

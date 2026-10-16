@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { date, label, money, num } from "@/lib/format";
+import { iso } from "@/lib/weeks";
 import { Chip, Empty } from "./ui";
 
 export type Column<T> = {
@@ -125,7 +126,7 @@ export function DataTable<T>({ rows, columns, id, onRowClick, cardTitle, cardAsi
     const blob = new Blob(["﻿" + lines.map((l) => l.join(",")).join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `mytrakin-${id}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `mytrakin-${id}-${iso(new Date())}.csv`;
     a.click();
   };
 

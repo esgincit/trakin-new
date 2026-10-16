@@ -4,6 +4,7 @@ import { Chip, Field, formValues, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label, money } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
+import { iso } from "@/lib/weeks";
 
 /** Consultants submit expenses and ask for time off; approvers decide under Payroll, 1099 & referrals. */
 export default function MyRequests() {
@@ -11,7 +12,7 @@ export default function MyRequests() {
   const timeOff = useApi<any[]>("/me/time-off");
   const overview = useApi("/me/consultant");
   const { run, busy } = useAction();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = iso(new Date());
 
   return (
     <>

@@ -7,6 +7,7 @@ import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/compo
 import { api } from "@/lib/api";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
+import { iso } from "@/lib/weeks";
 
 const columns: Column<any>[] = [
   { key: "number", label: "Invoice" },
@@ -63,8 +64,8 @@ function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
   const [result, setResult] = useState<any[] | null>(null);
   const [blocked, setBlocked] = useState<string[]>([]);
   const today = new Date();
-  const first = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().slice(0, 10);
-  const last = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().slice(0, 10);
+  const first = iso(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+  const last = iso(new Date(today.getFullYear(), today.getMonth(), 0));
   return (
     <Modal title="Create invoices from approved timesheets" onClose={onClose}>
       <form className="form" onSubmit={async (e) => {
@@ -108,7 +109,7 @@ function PaymentRunModal({ rows, onClose, onDone }: { rows?: any[]; onClose: () 
           ))}
           <div className="fields">
             <Field label="Method" name="method" as="select" options={["ACH", "Wire", "Check"]} />
-            <Field label="Paid on" name="paid_on" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+            <Field label="Paid on" name="paid_on" type="date" defaultValue={iso(new Date())} />
           </div>
           <button className="btn pri mt" disabled={busy || !picked.length}>Record {picked.length} payment(s) · ${total.toLocaleString("en-US", { minimumFractionDigits: 2 })}</button>
         </form>

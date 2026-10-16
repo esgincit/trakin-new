@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { date, label, money } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
+import { iso } from "@/lib/weeks";
 
 type Tab = "payroll" | "1099" | "referrals" | "expenses" | "time_off";
 
@@ -124,7 +125,7 @@ function Referrals() {
         { key: "pay", label: "", render: (r) => allows(workspace, "finance") && Number(r.balance) > 0 ? (
             <button className="btn sm pri" disabled={busy} onClick={async () => {
               const amount = prompt(`Amount to pay ${r.referrer_name} (up to $${r.balance}):`, String(r.balance));
-              if (amount && await run(() => api(`/referrals/${r.id}/payments`, { body: { amount: Number(amount), paid_on: new Date().toISOString().slice(0, 10) } }), "Payment recorded")) reload();
+              if (amount && await run(() => api(`/referrals/${r.id}/payments`, { body: { amount: Number(amount), paid_on: iso(new Date()) } }), "Payment recorded")) reload();
             }}>Pay</button>) : null },
       ]} toolbar={<button className="btn sm pri" onClick={() => setAdding(true)}>New referral agreement</button>} />
       <p className="note">Hourly fees count approved timesheet hours from the eligibility date. Individuals paid as 1099 need a W-9 before the first payment.</p>
