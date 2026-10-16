@@ -1,4 +1,4 @@
-"""Who can see what: tenant isolation, roles, the AR/AP-only rule and MFA."""
+"""Who can see what: tenant isolation, roles and the AR/AP-only rule."""
 
 from __future__ import annotations
 
@@ -29,6 +29,12 @@ async def test_outsider_has_no_workspace(client, auth):
     response = await client.get("/dashboard", headers=auth("outsider"))
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "no_access"
+
+
+async def test_money_roles_work_without_mfa(client, auth):
+    # Two-step verification is optional: money roles sign in with password/OTP alone.
+    assert (await client.get("/dashboard", headers=auth("finance", aal="aal1"))).status_code == 200
+    assert (await client.get("/session", headers=auth("consultant", aal="aal1"))).status_code == 200
 
 
 async def test_session_capabilities(client, auth):

@@ -75,8 +75,8 @@ out = [
     "`Authorization: Bearer <Supabase access token>` and, for workspace data, `X-Tenant-Id: <workspace id>`",
     "(optional when the person belongs to one workspace).",
     "",
-    'Errors always look like `{"error": {"code": "...", "message": "..."}}`. Common codes: `unauthorized` (401),',
-    "`mfa_required`, `forbidden`, `no_access` (403), `not_found` (404), `duplicate`, `conflict` (409), `invalid` (400/422).",
+    'Errors always look like `{"error": {"code": "...", "message": "..."}}`. Common codes: `unauthorized` (401), `forbidden`,',
+    '`no_access` (403), `not_found` (404), `duplicate`, `conflict` (409), `invalid` (400/422).',
     "",
     "In development the interactive docs are at `/docs` (Swagger) and `/redoc`. They are switched off in production.",
     "",
@@ -88,5 +88,5 @@ out = [
 for tag, lines in by_tag.items():
     out += [f"## {tag}", "", *lines]
 target = ROOT / "docs" / "api-reference.md"
-target.write_text("\n".join(out) + "\n")
+target.write_text("\n".join(out) + "\n", encoding="utf-8")
 print(f"wrote {target} ({sum(len(m) for m in spec['paths'].values())} operations)")
