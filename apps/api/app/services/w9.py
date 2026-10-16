@@ -412,6 +412,9 @@ def parse_w9_text(text: str) -> dict:
     null instead of the next label down the page."""
     sections: dict[str, list[str]] = {}
     current: str | None = None
+    label_wraps = False   # a section label split mid-sentence across lines ("... enter the
+    # business/disregarded" / "entity's name on line 2.)"): while its parentheses stay
+    # unbalanced, the following lines continue the label — never a value.
     for raw in text.splitlines():
         ln = raw.strip()
         if not ln:
@@ -428,8 +431,13 @@ def parse_w9_text(text: str) -> dict:
             continue
         if key is not None:
             current = key if key in _VALUE_SECTIONS else None
+            label_wraps = (key in _VALUE_SECTIONS and ln.count("(") > ln.count(")"))
             if remainder:
                 sections.setdefault(current or "", []).append(remainder)
+            continue
+        if label_wraps:
+            if ")" in ln:
+                label_wraps = False
             continue
         if current:
             sections.setdefault(current, []).append(ln)

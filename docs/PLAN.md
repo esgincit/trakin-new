@@ -644,6 +644,8 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · W-9 extraction (company onboarding) · March-2024 W-9 with a wrapped section-1 label no longer
+  bleeds the wrap into `legal_name` (DREP case); pure-function regression test `tests/test_w9_parse.py`. Committed to main.
 - 2026-10-16 · TS, AR, AP, WF-09, U-ID, ESIGN · Live click-test of every role + full money flow (timesheet → return →
   resubmit → approve → invoice → pay-when-paid → payment run → vendor confirm; e-sign 2 signers). 6 bugs fixed with
   regression tests (migrations 20261016 0500–0700, cron, web dates, e-sign recipients); 94 API tests pass. Open: draft AR
