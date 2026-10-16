@@ -71,7 +71,7 @@ class AmendmentIn(BaseModel):
 @router.get("/agreements")
 async def list_agreements(db: TenantDb = Depends(tenant_db), kind: str | None = None):
     return await db.all(
-        """select a.*, coalesce(co.name, c.full_name) as counterparty,
+        """select a.*, coalesce(co.name, mytrakin.company_public_name(a.company_id), c.full_name) as counterparty,
                   (a.expires_on - current_date) as days_left,
                   (select count(*) from sows s where s.agreement_id = a.id) as sow_count
              from agreements a left join companies co on co.id = a.company_id left join consultants c on c.id = a.consultant_id
@@ -90,7 +90,7 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
         raise workflow.blocked("nda_required", "Sign an NDA with this company before its MSA "
                                                "(or turn off 'Require NDA' in Settings → Workflow)")
     counterparty = await db.val(
-        """select coalesce((select name from companies where id = cast(:co as uuid)),
+        """select coalesce((select name from mytrakin.company_counterparty(cast(:co as uuid))),
                            (select full_name from consultants where id = cast(:con as uuid)))""",
         {"co": body.company_id, "con": body.consultant_id})
     code = (body.code or "").strip().upper() or await numbering.next_code(db, body.kind, CLIENT=counterparty)
@@ -108,8 +108,8 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
 @router.get("/agreements/{agreement_id}")
 async def get_agreement(agreement_id: UUID, db: TenantDb = Depends(tenant_db)):
     row = await db.one(
-        """select a.*, coalesce(co.name, c.full_name) as counterparty from agreements a
-             left join companies co on co.id = a.company_id left join consultants c on c.id = a.consultant_id where a.id = :id""",
+        """select a.*, coalesce(co.name, mytrakin.company_public_name(a.company_id), c.full_name) as counterparty from agreements a
+              left join companies co on co.id = a.company_id left join consultants c on c.id = a.consultant_id where a.id = :id""",
         {"id": agreement_id})
     if row is None:
         raise not_found("Agreement")
@@ -125,7 +125,7 @@ async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
     show_value = db.ctx.allows("finance", "legal", "account_manager")
     rows = await db.all(
         """select s.id, s.code, s.side, s.title, s.start_date, s.end_date, s.status, s.value_cap,
-                  a.code as agreement, coalesce(co.name, c.full_name) as counterparty,
+                  a.code as agreement, coalesce(co.name, mytrakin.company_public_name(s.company_id), c.full_name) as counterparty,
                   b.invoiced, b.collected_or_paid, b.burn_pct, (s.value_cap - b.invoiced) as remaining,
                   (s.end_date - current_date) as days_left, fs.code as flows_from, s.project_id, pj.code as project,
                   (select string_agg(distinct k.full_name, ', ') from placements p join consultants k on k.id = p.consultant_id

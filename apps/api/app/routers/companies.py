@@ -146,13 +146,10 @@ async def _assign_business_code(db: TenantDb) -> str:
 @router.get("/directory")
 async def company_directory(q: str | None = None, db: TenantDb = Depends(tenant_db)):
     """Searchable company directory (Business ID, name, type) for picking an MSA
-    counterparty. Every signed-in tenant member can search; full profiles stay gated."""
-    return await db.all(
-        """select id, business_code, name, kind, kinds, status from companies
-            where status <> 'inactive'
-              and (cast(:q as text) is null or name ilike '%' || :q || '%' or coalesce(business_code, '') ilike '%' || :q || '%')
-            order by name""",
-        {"q": (q or "").strip() or None})
+    counterparty: every active company in any tenant. Directory columns only —
+    full profiles stay gated behind tenant RLS."""
+    return await db.all("select * from mytrakin.company_directory_all(:q)",
+                        {"q": (q or "").strip() or None})
 
 
 @router.get("")
@@ -675,7 +672,7 @@ async def propose_msa(company_id: UUID, body: CompanyMsaIn, db: TenantDb = Depen
         raise forbidden()
     if body.counterparty_company_id == company_id:
         raise bad_request("Pick a different company as the counterparty")
-    counterparty = await db.one("select id, name, contact_email from companies where id = :id and status <> 'inactive'",
+    counterparty = await db.one("select * from mytrakin.company_counterparty(:id)",
                                 {"id": body.counterparty_company_id})
     if counterparty is None:
         raise not_found("Counterparty company")

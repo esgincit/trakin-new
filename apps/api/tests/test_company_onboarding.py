@@ -509,3 +509,47 @@ async def test_company_can_play_several_roles(client, auth):
     async with get_engine().begin() as conn:
         await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": company["id"]})
         await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": defaulted.json()["id"]})
+
+
+async def test_directory_spans_tenants(client, auth):
+    """The picker directory lists every active company, not just the current
+    tenant's — and a cross-tenant company works as an MSA counterparty."""
+    admin = auth("admin")
+    async with get_engine().begin() as conn:
+        other_tenant = (await conn.execute(text(
+            "insert into mytrakin.tenants (name, status) values ('Other Tenant Inc.', 'active') returning id"))).scalar()
+        other_co = (await conn.execute(text(
+            """insert into mytrakin.companies (tenant_id, name, kind, kinds, status)
+                values (:t, 'Faraway Corp', 'client', array['client'], 'active') returning id"""),
+            {"t": other_tenant})).scalar()
+    created_ids: list[str] = []
+    try:
+        directory = await client.get("/companies/directory", headers=admin)
+        assert directory.status_code == 200, directory.text
+        names = [c["name"] for c in directory.json()]
+        assert "Faraway Corp" in names and "BrightPath Tech LLC" in names, names
+        search = await client.get("/companies/directory", params={"q": "faraway"}, headers=admin)
+        assert [c["name"] for c in search.json()] == ["Faraway Corp"], search.text
+
+        companies = (await client.get("/companies", headers=admin)).json()
+        bright = next(c for c in companies if c["name"] == "BrightPath Tech LLC")
+        nda = await client.post("/agreements", headers=admin, json={
+            "kind": "nda", "company_id": str(other_co), "tenant_side": "buyer",
+            "effective_on": str(date.today()), "status": "active", "source": "manual"})
+        assert nda.status_code == 201, nda.text
+        created_ids.append(nda.json()["id"])
+        msa = await client.post(f"/companies/{bright['id']}/msas", headers=admin, json={
+            "counterparty_company_id": str(other_co), "kind": "msa", "tenant_side": "buyer",
+            "existing": False, "effective_on": str(date.today())})
+        assert msa.status_code == 201, msa.text
+        created_ids.append(msa.json()["id"])
+
+        listed = await client.get("/agreements", headers=admin)
+        row = next(a for a in listed.json() if a["id"] == msa.json()["id"])
+        assert row["counterparty"] == "Faraway Corp", row
+    finally:
+        async with get_engine().begin() as conn:
+            for agreement_id in created_ids:
+                await conn.execute(text("delete from mytrakin.agreements where id = :id"), {"id": agreement_id})
+            await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": other_co})
+            await conn.execute(text("delete from mytrakin.tenants where id = :id"), {"id": other_tenant})

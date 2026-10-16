@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Cross-tenant company directory (2026-10-16, PLAN CO-03, AGR-07):** the company picker lists every active
+  company in the database, not just the current tenant's — an MSA counterparty can be any registered business.
+  Only directory columns (ID, name, roles) are shared; profiles, money and contacts stay behind tenant RLS, and
+  agreements still book to the requester's tenant (RULE-01). Migration `20261016001000`.
 - **Agreement entry UX (2026-10-16, PLAN CO-03, AGR-07):** the agreement number is always auto-assigned (the
   Agreement ID box is gone from the Add-agreement form); the company picker is now a type-ahead with suggestions
   (plus honest loading/error states instead of a blanket "no match"); the consultant picker shows name + U-ID.
