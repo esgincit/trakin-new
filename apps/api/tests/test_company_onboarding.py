@@ -385,7 +385,7 @@ async def test_non_staff_can_upload_session_w9(client, auth):
     uploaded = await client.post(f"/onboarding/sessions/{session['id']}/w9", headers=auth("consultant"),
                                  files={"file": ("w9.pdf", w9_pdf(), "application/pdf")})
     assert uploaded.status_code == 200, uploaded.text
-    assert uploaded.json()["extraction"]["engine"] in ("form-fields", "pdf-text"), uploaded.text
+    assert uploaded.json()["parsed"]["engine"] in ("form-fields", "pdf-text"), uploaded.text
 
 
 async def test_w9_spaced_digit_ein_parses(client, auth):
@@ -395,7 +395,7 @@ async def test_w9_spaced_digit_ein_parses(client, auth):
     uploaded = await client.post(f"/onboarding/sessions/{session['id']}/w9", headers=admin,
                                  files={"file": ("w9.pdf", w9_pdf("22 333 4409"), "application/pdf")})
     assert uploaded.status_code == 200, uploaded.text
-    extraction = uploaded.json()["extraction"]
+    extraction = uploaded.json()["parsed"]
     assert extraction["tin"] == "22-3334409" and extraction["tin_type"] == "ein", extraction
 
 
