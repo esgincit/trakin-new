@@ -502,5 +502,10 @@ async def test_company_can_play_several_roles(client, auth):
                               json={"name": "No Role LLC", "kinds": []})).status_code == 400
     assert (await client.post("/companies", headers=admin,
                               json={"name": "Bogus Role LLC", "kinds": ["vendor", "bank"]})).status_code == 400
+    # Creating without roles defaults to all of them — a new business can play any role.
+    defaulted = await client.post("/companies", headers=admin, json={"name": "Any Role LLC", "domain": "anyrole.example"})
+    assert defaulted.status_code == 201, defaulted.text
+    assert defaulted.json()["kinds"] == ["client", "prime_vendor", "vendor", "end_client"], defaulted.text
     async with get_engine().begin() as conn:
         await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": company["id"]})
+        await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": defaulted.json()["id"]})

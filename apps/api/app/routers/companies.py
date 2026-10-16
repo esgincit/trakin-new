@@ -186,7 +186,10 @@ async def create_company(body: CompanyIn, db: TenantDb = Depends(tenant_db)):
     """Start onboarding: any workspace member can draft a company — it gets its Business ID
     and the creator becomes its owner. Activation stays staff-only through /activate."""
     code = await _assign_business_code(db)
-    primary, roles = _roles(body.kind, body.kinds)
+    # Creating a company doesn't ask for roles: a new business can play any of
+    # them, so it starts with all four (explicit empty is still an error).
+    kinds = body.kinds if body.kinds is not None else list(COMPANY_KINDS)
+    primary, roles = _roles(body.kind, kinds)
     try:
         async with db.conn.begin_nested():
             company = await db.one(

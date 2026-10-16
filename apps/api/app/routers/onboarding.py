@@ -36,7 +36,7 @@ from ..services import storage
 from ..services import w9 as w9svc
 from ..services.email import render, send_email
 from ..utils import client_ip, otp_code, sha256_hex
-from .companies import _assign_business_code, _normalize_domain, _roles
+from .companies import COMPANY_KINDS, _assign_business_code, _normalize_domain, _roles
 
 router = APIRouter(prefix="/onboarding", tags=["company onboarding"])
 
@@ -480,7 +480,10 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
         tax = {"cin": cin}
 
     code = await _assign_business_code(db)
-    primary, roles = _roles(details.get("kind"), details.get("kinds"))
+    # Same default as a direct create: the wizard doesn't ask — a new business
+    # can play any role, so it starts with all four. Narrow later if needed.
+    detail_kinds = details.get("kinds") if details.get("kinds") is not None else list(COMPANY_KINDS)
+    primary, roles = _roles(details.get("kind"), detail_kinds)
     if row["country"] == "US":
         w9 = payload.get("w9") or {}
         name = (w9.get("legal_name") or "").strip()
