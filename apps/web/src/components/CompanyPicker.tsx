@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useApi } from "@/lib/useApi";
+import { roleList } from "@/lib/format";
 
 /** Searchable company picker: type to filter, then choose. Reads from the
  * company directory, which every signed-in tenant member can search. */
@@ -27,7 +28,7 @@ export function CompanyPicker({ name = "company_id", label = "Company", value, d
         <label htmlFor="co-pick">{label}</label>
         <select id="co-pick" name={name} className="ctl" required={required} value={shown} onChange={pick} autoFocus={autoFocus} style={{ width: "100%" }}>
           <option value="">Choose…</option>
-          {rows.map((c) => <option key={c.id} value={c.id}>{c.name}{c.business_code ? ` · ${c.business_code}` : ""} ({c.kind.replace(/_/g, " ")})</option>)}
+          {rows.map((c) => <option key={c.id} value={c.id}>{c.name}{c.business_code ? ` · ${c.business_code}` : ""} ({roleList(c)})</option>)}
         </select>
         {!rows.length && <p className="note">No companies match “{q}”. Clear the search or check the spelling.</p>}
       </div>

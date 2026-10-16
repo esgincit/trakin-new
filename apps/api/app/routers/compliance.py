@@ -226,8 +226,8 @@ async def decide(reg_id: UUID, body: DecisionIn, db: TenantDb = Depends(tenant_d
     if body.decision == "approved":
         if reg["kind"] in ("client", "vendor"):
             created = await db.one(
-                """insert into companies (tenant_id, name, kind, ein, state, contact_name, contact_email, contact_phone, status, onboarding_stage)
-                   values (:t, :n, :k, :ein, :s, :c, :e, :p, 'onboarding', 2) returning id, name""",
+                """insert into companies (tenant_id, name, kind, kinds, ein, state, contact_name, contact_email, contact_phone, status, onboarding_stage)
+                   values (:t, :n, :k, cast(array[:k] as text[]), :ein, :s, :c, :e, :p, 'onboarding', 2) returning id, name""",
                 {"t": db.ctx.tenant_id, "n": reg["name"], "k": reg["kind"], "ein": reg["ein"], "s": reg["state"],
                  "c": reg["contact"], "e": reg["email"], "p": reg["phone"]})
             await db.run("update documents set owner_type = 'company', owner_id = :c where owner_type = 'registration' and owner_id = :r",

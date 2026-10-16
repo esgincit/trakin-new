@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CompanyWizard } from "@/components/CompanyWizard";
 import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
 import { api, currentTenant, setTenant } from "@/lib/api";
+import { roleList } from "@/lib/format";
 import { clearCache, useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
 
@@ -78,7 +79,7 @@ export default function Businesses() {
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <b>{b.company_name}</b><code>{b.business_code}</code>
               </div>
-              <div className="muted" style={{ fontSize: 12.5 }}>{b.tenant_name} · {b.kind.replace(/_/g, " ")}</div>
+              <div className="muted" style={{ fontSize: 12.5 }}>{b.tenant_name} · {roleList(b)}</div>
               <div className="row mt">
                 <Chip status={b.company_role ?? b.tenant_role ?? "member"} />
                 <Chip status={b.status} />

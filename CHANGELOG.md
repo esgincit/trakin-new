@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Several roles per company (2026-10-16, PLAN CO-01, CO-02):** "What does your company do?" is multi-select —
+  a business can be a vendor on one engagement and a client on another. `companies.kinds` holds every role;
+  `kind` stays the primary (first ticked) so filters, labels, imports and exports keep working. Migration
+  `20261016000900` (backfills `kinds` from `kind`).
 - **Discardable company drafts (2026-10-16, PLAN P-01):** closing the create-company wizard early left an invisible
   draft that still counted toward the 3-pending cap. Unfinished setups now show on My companies with Resume
   (continues inside the same draft account) and Discard (`DELETE /onboarding/accounts/{id}`, owner only, drafts

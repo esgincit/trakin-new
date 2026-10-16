@@ -477,3 +477,30 @@ async def test_msa_directory_and_company_initiated_msa(client, auth):
     async with get_engine().begin() as conn:
         for agreement_id in created_ids:
             await conn.execute(text("delete from mytrakin.agreements where id = :id"), {"id": agreement_id})
+
+
+async def test_company_can_play_several_roles(client, auth):
+    """What does your company do is multi-select: a business can be a vendor on
+    one engagement and a client on another. kind stays the primary role."""
+    admin = auth("admin")
+    created = await client.post("/companies", headers=admin, json={
+        "name": "Both Ways Staffing LLC", "kinds": ["vendor", "client"], "domain": "bothways.example"})
+    assert created.status_code == 201, created.text
+    company = created.json()
+    assert company["kind"] == "vendor" and company["kinds"] == ["vendor", "client"], company
+
+    as_client = await client.get("/companies", params={"kind": "client"}, headers=admin)
+    assert any(c["id"] == company["id"] for c in as_client.json()), as_client.text
+    as_vendor = await client.get("/companies", params={"kind": "vendor"}, headers=admin)
+    assert any(c["id"] == company["id"] for c in as_vendor.json()), as_vendor.text
+
+    narrowed = await client.patch(f"/companies/{company['id']}", headers=admin, json={"kinds": ["client"]})
+    assert narrowed.status_code == 200, narrowed.text
+    assert narrowed.json()["kind"] == "client" and narrowed.json()["kinds"] == ["client"], narrowed.text
+
+    assert (await client.post("/companies", headers=admin,
+                              json={"name": "No Role LLC", "kinds": []})).status_code == 400
+    assert (await client.post("/companies", headers=admin,
+                              json={"name": "Bogus Role LLC", "kinds": ["vendor", "bank"]})).status_code == 400
+    async with get_engine().begin() as conn:
+        await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": company["id"]})

@@ -36,7 +36,7 @@ from ..services import storage
 from ..services import w9 as w9svc
 from ..services.email import render, send_email
 from ..utils import client_ip, otp_code, sha256_hex
-from .companies import _assign_business_code, _normalize_domain
+from .companies import _assign_business_code, _normalize_domain, _roles
 
 router = APIRouter(prefix="/onboarding", tags=["company onboarding"])
 
@@ -220,7 +220,8 @@ async def upload_session_w9(session_id: UUID, file: UploadFile = File(), db: Ten
 
 
 class DetailsIn(BaseModel):
-    kind: str = Field(pattern=KINDS)
+    kind: str | None = Field(None, pattern=KINDS)
+    kinds: list[str] | None = None   # every role the business plays; kind is the primary (first)
     step: int | None = Field(None, ge=1, le=4)   # wizard stage; step 1 saves MCA/W-9 data only
     domain: str | None = Field(None, max_length=253)
     company_email: EmailStr | None = None
@@ -264,7 +265,14 @@ async def save_details(session_id: UUID, body: DetailsIn, db: TenantDb = Depends
         # e-mail becomes mandatory from step 2, and verified before creation.
         errors["company_email"] = "Company e-mail is required"
     details.update({k: v for k, v in values.items() if k in
-                    ("kind", "domain", "company_email", "dba", "contact_name", "contact_phone")})
+                    ("kind", "kinds", "domain", "company_email", "dba", "contact_name", "contact_phone")})
+    if "kinds" in details or "kind" in details:
+        try:
+            primary, roles = _roles(details.get("kind"), details.get("kinds"))
+        except ApiError as exc:
+            errors["kinds"] = exc.message
+        else:
+            details["kind"], details["kinds"] = primary, roles
 
     if row["country"] == "US":
         w9 = payload.get("w9")
@@ -472,6 +480,7 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
         tax = {"cin": cin}
 
     code = await _assign_business_code(db)
+    primary, roles = _roles(details.get("kind"), details.get("kinds"))
     if row["country"] == "US":
         w9 = payload.get("w9") or {}
         name = (w9.get("legal_name") or "").strip()
@@ -496,15 +505,15 @@ async def complete_onboarding(session_id: UUID, body: CompleteIn, request: Reque
     try:
         async with db.conn.begin_nested():
             company = await db.one(
-                """insert into companies (tenant_id, business_code, name, kind, country, cin, ein, state, address,
+                """insert into companies (tenant_id, business_code, name, kind, kinds, country, cin, ein, state, address,
                                           contact_name, contact_email, contact_phone, default_terms, domain,
                                           business_type, dba, tin, tax_classification, tax_address, w9_data, w9_status,
                                           w9_document_id, status, onboarding_stage, created_by)
-                   values (:t, :code, :name, :kind, :country, :cin, :ein, :state, :address, :cn, :ce, :cp, 'Net 30',
+                   values (:t, :code, :name, :kind, cast(:kinds as text[]), :country, :cin, :ein, :state, :address, :cn, :ce, :cp, 'Net 30',
                            :domain, :btype, :dba, :tin, :tclass, :taddr, cast(:w9 as jsonb), :w9s, :w9doc,
                            'onboarding', 1, :u)
                    returning id, business_code, status""",
-                {"t": db.ctx.tenant_id, "code": code, "kind": details["kind"], "country": row["country"],
+                {"t": db.ctx.tenant_id, "code": code, "kind": primary, "kinds": roles, "country": row["country"],
                  "cn": details.get("contact_name"), "ce": email, "cp": details.get("contact_phone"),
                  "domain": details.get("domain"), **cols, "address": address, "u": db.ctx.user_id})
     except IntegrityError as exc:

@@ -7,6 +7,23 @@ import { api, ApiError, setTenant } from "@/lib/api";
 type Country = "US" | "IN";
 /** Registering your own company: what it does (stored as the company kind). */
 const OWN_KINDS: [string, string][] = [["vendor", "Staffing company / vendor"], ["prime_vendor", "Prime vendor"], ["client", "Client — hires consultants"], ["end_client", "End client"]];
+const STAFF_KINDS: [string, string][] = [["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]];
+
+/** "What does your company do" is multi-select: a business can be a vendor on
+ *  one engagement and a client on another. The first ticked role is the primary. */
+function KindChecks({ options, value, onChange }: { options: [string, string][]; value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <div className="checkgroup" role="group" aria-label="Business roles">
+      {options.map(([v, label]) => (
+        <label key={v} className="check">
+          <input type="checkbox" checked={value.includes(v)}
+            onChange={() => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])} />
+          <span>{label}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
 
 /** Country-first business creation.
  *  US: W-9 upload (parsed + validated) → domain/e-mail/DBA → OTP → authorize → created.
@@ -19,6 +36,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
   const toast = useToast();
   const [country, setCountry] = useState<Country | null>(null);
   const [session, setSession] = useState<any>(null);
+  const [kinds, setKinds] = useState<string[]>(["vendor"]);
   const [step, setStep] = useState(1);
   const [parsed, setParsed] = useState<any>(null);
   const [manual, setManual] = useState(false);
@@ -32,7 +50,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
     setError(null);
     const s = await run(() => api<any>(account ? "/onboarding/accounts" : "/onboarding/sessions", { body: { country: c } }));
     if (s?.tenant_id) setTenant(s.tenant_id);   // the rest of the wizard runs inside the new company
-    if (s) { setCountry(c); setSession(s); setStep(1); }
+    if (s) { setCountry(c); setSession(s); setKinds(s.details?.kinds ?? (s.details?.kind ? [s.details.kind] : ["vendor"])); setStep(1); }
   };
 
   const fail = (e: unknown) => {
@@ -68,7 +86,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
     e.preventDefault();
     setError(null);
     try {
-      const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...formValues(e.currentTarget), step: 2 } });
+      const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...formValues(e.currentTarget), kinds, kind: kinds[0], step: 2 } });
       setSession(s);
       setStep(3);
     } catch (e) { fail(e); }
@@ -142,7 +160,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
           e.preventDefault();
           setError(null);
           try {
-            const v: any = { ...parsed, ...formValues(e.currentTarget), step: 1 };
+            const v: any = { ...parsed, ...formValues(e.currentTarget), kinds, kind: kinds[0], step: 1 };
             if (manual) v.manual = true;
             delete v.engine; delete v.needs_review; delete v.needs_manual; delete v.note;
             if (manual) v.manual = true;
@@ -151,7 +169,9 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
           } catch (e) { fail(e); }
         }}>
           <p className="muted">{manual ? "Type the W-9 details exactly as they appear on the form." : `Read from the W-9${parsed.engine === "ocr" ? " (scan)" : parsed.engine === "form-fields" ? " (form fields)" : ""} — correct anything misread.`}</p>
-          <div className="fields">
+            <p className="muted">{account ? "What does your company do? Tick all that apply — the first ticked role is the primary one." : "Business role — tick all that apply."}</p>
+            <KindChecks options={account ? OWN_KINDS : STAFF_KINDS} value={kinds} onChange={setKinds} />
+            <div className="fields">
             <Field label="Legal name" name="legal_name" required defaultValue={parsed.legal_name ?? ""} full />
             <Field label="Business type" name="business_type" defaultValue={parsed.tax_classification ?? ""} />
             <Field label="ID type" name="tin_type" as="select" defaultValue={parsed.tin_type ?? "ein"} options={[["ein", "EIN"], ["ssn", "SSN (sole proprietor)"]]} />
@@ -160,7 +180,6 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
             <Field label="City" name="city" defaultValue={parsed.city ?? ""} />
             <Field label="State" name="state" defaultValue={parsed.state ?? ""} maxLength={2} />
             <Field label="ZIP" name="zip" defaultValue={parsed.zip ?? ""} />
-            <Field label={account ? "What does your company do?" : "Business role"} name="kind" as="select" required options={account ? OWN_KINDS : [["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
           </div>
           <div className="row mt">
             <button className="btn" disabled={busy} onClick={() => setParsed(null)}>Re-upload</button>
@@ -175,13 +194,15 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
           setError(null);
           const v: any = { ...formValues(e.currentTarget), step: 1 };
           try {
-            const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...v, kind: v.kind } });
+            const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...v, kinds, kind: kinds[0] } });
             setSession(s);
             if (!s.details?.cin || !s.details?.legal_name) return;
             setStep(2);
           } catch (e) { fail(e); }
         }}>
           <p className="muted">Enter the business details as per the MCA records, and attach the Memorandum of Association (mandatory, stored as-is in Phase 1).</p>
+          <p className="muted">{account ? "What does your company do? Tick all that apply — the first ticked role is the primary one." : "Business role — tick all that apply."}</p>
+          <KindChecks options={account ? OWN_KINDS : STAFF_KINDS} value={kinds} onChange={setKinds} />
           <div className="fields">
             <Field label="Legal name (as per MCA)" name="legal_name" required full />
             <Field label="CIN" name="cin" required placeholder="L12345MH2020PLC123456" full />
@@ -189,7 +210,6 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
             <Field label="City" name="city" required />
             <Field label="State" name="state" required />
             <Field label="PIN code" name="pin" required placeholder="400001" />
-            <Field label={account ? "What does your company do?" : "Business role"} name="kind" as="select" required options={account ? OWN_KINDS : [["vendor", "Vendor — we pay them"], ["client", "Client — we bill them"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue="vendor" full />
           </div>
           <input ref={moafile} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadMoa(e.target.files?.[0])} />
           <div className="row mt">
@@ -204,9 +224,10 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
 
       {step === 2 && (
         <form className="form" onSubmit={saveDetails}>
+          <p className="muted">{account ? "What does your company do? Tick all that apply — the first ticked role is the primary one." : "Business role — tick all that apply."}</p>
+          <KindChecks options={account ? OWN_KINDS : STAFF_KINDS} value={kinds} onChange={setKinds} />
           <div className="fields">
             {country === "IN" && <p className="muted" style={{ gridColumn: "1 / -1" }}>CIN verified{session.details?.cin ? ` (${session.details.cin})` : ""}. Now the online identity.</p>}
-            <Field label={account ? "What does your company do?" : "Business role"} name="kind" as="select" required options={account ? OWN_KINDS : [["vendor", "Vendor"], ["client", "Client"], ["prime_vendor", "Prime vendor"], ["end_client", "End client"]]} defaultValue={session.details?.kind ?? "vendor"} full />
             <Field label="Company domain" name="domain" required placeholder={country === "US" ? "acme.com" : "acme.in"} />
             <Field label="Company e-mail" name="company_email" type="email" required defaultValue={session.company_email ?? ""} />
             <Field label="DBA (if different)" name="dba" defaultValue={session.details?.dba ?? ""} full />

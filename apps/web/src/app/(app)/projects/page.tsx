@@ -6,7 +6,7 @@ import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { label } from "@/lib/format";
+import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -63,7 +63,7 @@ function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: an
   const companies = useApi<any[]>("/companies");
   const nextCode = useApi<{ code: string }>("/projects/next-code");
   const { run, busy } = useAction();
-  const opts = (kinds: string[]) => [["", "–"] as [string, string], ...(companies.data ?? []).filter((c) => kinds.includes(c.kind)).map((c) => [c.id, c.name] as [string, string])];
+  const opts = (kinds: string[]) => [["", "–"] as [string, string], ...(companies.data ?? []).filter((c) => playsRole(c, ...kinds)).map((c) => [c.id, c.name] as [string, string])];
   return (
     <Modal title="New project" onClose={onClose}>
       <form className="form" onSubmit={async (e) => { e.preventDefault(); const r = await run(() => api("/projects", { body: formValues(e.currentTarget) }), "Project created"); if (r) onDone(r); }}>
@@ -112,12 +112,12 @@ function PlacementModal({ onClose, onDone }: { onClose: () => void; onDone: () =
           <Field label="Hours per week" name="hours_per_week" type="number" defaultValue="40" min="1" max="80" />
           <Field label="Start" name="start_date" type="date" required />
           <Field label="End" name="end_date" type="date" />
-          <Field label="End client (name only)" name="end_client_company_id" as="select" options={pick(companies.data, (c) => ["end_client", "client"].includes(c.kind), (c) => c.name)} full />
-          <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(companies.data, (c) => ["client", "prime_vendor"].includes(c.kind), (c) => c.name)} />
+          <Field label="End client (name only)" name="end_client_company_id" as="select" options={pick(companies.data, (c) => playsRole(c, "end_client", "client"), (c) => c.name)} full />
+          <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(companies.data, (c) => playsRole(c, "client", "prime_vendor"), (c) => c.name)} />
           <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}`)} />
           <Field label="Bill rate ($/h)" name="bill_rate" type="number" step="0.01" min="0" />
           <Field label="AR terms" name="ar_terms" placeholder="Net 30" />
-          {["c2c", "e2e"].includes(consultant?.engagement) &&<Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(companies.data, (c) => c.kind === "vendor", (c) => c.name)} />}
+          {["c2c", "e2e"].includes(consultant?.engagement) &&<Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(companies.data, (c) => playsRole(c, "vendor"), (c) => c.name)} />}
           {consultant && !consultant.engagement.startsWith("w2") && <>
             <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}`)} />
             <Field label="Pay rate ($/h)" name="pay_rate" type="number" step="0.01" min="0" />

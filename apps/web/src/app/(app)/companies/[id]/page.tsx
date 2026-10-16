@@ -9,7 +9,7 @@ import { CompanyPicker } from "@/components/CompanyPicker";
 import { CompanyForm } from "@/components/forms";
 import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { date, label, money } from "@/lib/format";
+import { date, label, money, roleList } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -43,7 +43,7 @@ export default function CompanyDetail() {
   return (
     <>
       <PageHead title={c.name}
-        sub={<>{c.logo_url && <img src={c.logo_url} alt="" style={{ height: 26, borderRadius: 6, verticalAlign: "middle", marginRight: 8 }} />}{c.business_code} · {c.country} · {label(c.kind)} · <Chip status={c.status} />{c.inactive_since && ` since ${date(c.inactive_since)} — ${c.inactive_reason ?? ""}`}</>}
+        sub={<>{c.logo_url && <img src={c.logo_url} alt="" style={{ height: 26, borderRadius: 6, verticalAlign: "middle", marginRight: 8 }} />}{c.business_code} · {c.country} · {roleList(c)} · <Chip status={c.status} />{c.inactive_since && ` since ${date(c.inactive_since)} — ${c.inactive_reason ?? ""}`}</>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}

@@ -231,7 +231,7 @@ async def missing_items(db: TenantDb = Depends(tenant_db)):
         """select * from (
              select 'agreement' as category, 'bad' as tone, c.name as who, 'No MSA on file' as what, 'company' as ref_type, c.id::text as ref_id
                from companies c
-              where c.status <> 'inactive' and c.kind in ('client', 'prime_vendor', 'vendor')
+               where c.status <> 'inactive' and c.kinds && array['client', 'prime_vendor', 'vendor']
                 and not exists (select 1 from agreements a where a.company_id = c.id and a.status in ('active', 'out_for_signature'))
              union all
              select 'agreement', 'bad', k.full_name,

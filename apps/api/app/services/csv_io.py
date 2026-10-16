@@ -164,14 +164,14 @@ async def import_company(db: Db, tenant: Any, r: dict[str, str]) -> str:
               "terms": r.get("Default payment terms") or "Net 30", "status": "inactive" if inactive else "active",
               "since": _date(r.get("Inactive since")), "why": r.get("Inactive reason") or None, "id": existing}
     if existing:
-        await db.run("""update companies set kind=:kind, ein=coalesce(:ein, ein), state=coalesce(:state, state),
+        await db.run("""update companies set kind=:kind, kinds=cast(array[:kind] as text[]), ein=coalesce(:ein, ein), state=coalesce(:state, state),
                         contact_name=coalesce(:cn, contact_name), contact_email=coalesce(:ce, contact_email),
                         default_terms=:terms, status=:status, inactive_since=:since, inactive_reason=:why where id=:id""", params)
         company_id, result = existing, "updated"
     else:
-        company_id = await db.val("""insert into companies (tenant_id, name, kind, ein, state, contact_name, contact_email,
+        company_id = await db.val("""insert into companies (tenant_id, name, kind, kinds, ein, state, contact_name, contact_email,
                                      default_terms, status, onboarding_stage, inactive_since, inactive_reason)
-                                     values (:t, :name, :kind, :ein, :state, :cn, :ce, :terms, :status, 3, :since, :why)
+                                     values (:t, :name, :kind, cast(array[:kind] as text[]), :ein, :state, :cn, :ce, :terms, :status, 3, :since, :why)
                                      returning id""", params)
         result = "created"
     if r.get("Existing MSA ID"):

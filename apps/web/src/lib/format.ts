@@ -35,6 +35,18 @@ export function label(v: string | null | undefined): string {
   return special[v] ?? v.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/** Every role a company plays, oldest API responses only carry the primary `kind`. */
+export function roleList(company: { kind?: string | null; kinds?: string[] | null } | null | undefined): string {
+  const roles = company?.kinds?.length ? company.kinds : company?.kind ? [company.kind] : [];
+  return roles.map((r) => label(r)).join(" · ") || "–";
+}
+
+/** True when the company plays any of the given roles. */
+export function playsRole(company: { kind?: string | null; kinds?: string[] | null } | null | undefined, ...wanted: string[]): boolean {
+  const roles = company?.kinds?.length ? company.kinds : company?.kind ? [company.kind] : [];
+  return wanted.some((w) => roles.includes(w));
+}
+
 const TONES: Record<string, string> = {
   paid: "good", approved: "good", active: "good", signed: "good", completed: "good", valid: "good", accepted: "good", ok: "good",
   open: "brand", sent: "brand", submitted: "brand", scheduled: "brand", ready_to_pay: "brand", viewed: "brand", onboarding: "brand",

@@ -25,6 +25,7 @@ from ..services.email import render, send_email
 router = APIRouter(prefix="/companies", tags=["companies"])
 
 KINDS = "^(client|prime_vendor|vendor|end_client)$"
+COMPANY_KINDS = ("client", "prime_vendor", "vendor", "end_client")
 COMPANY_ROLES = "^(super_admin|owner|admin|member)$"
 # Company managers: whoever may drive onboarding for their own business.
 OWNER_ROLES = ("super_admin", "owner", "admin")
@@ -36,7 +37,8 @@ TAX_PRIVILEGED_FINANCE = ("finance", "legal")   # ctx.allows() adds tenant_admin
 
 class CompanyIn(BaseModel):
     name: str = Field(min_length=2, max_length=200)
-    kind: str = Field(pattern=KINDS)
+    kind: str | None = Field(None, pattern=KINDS)
+    kinds: list[str] | None = None   # every role the business plays; kind is the primary (first)
     ein: str | None = Field(None, max_length=20)
     state: str | None = Field(None, max_length=2)
     address: str | None = None
@@ -55,6 +57,7 @@ class CompanyIn(BaseModel):
 class CompanyPatch(BaseModel):
     name: str | None = Field(None, min_length=2, max_length=200)
     kind: str | None = None
+    kinds: list[str] | None = None
     ein: str | None = None
     state: str | None = None
     address: str | None = None
@@ -85,6 +88,21 @@ def _normalize_domain(raw: str | None) -> str | None:
         raise bad_request(f"'{raw.strip()}' doesn't look like a company domain (example: acme.com)")
     return domain
 
+
+def _roles(kind: str | None, kinds: list[str] | None) -> tuple[str, list[str]]:
+    """Every role a business plays. kind stays the primary role (first selected)
+    so filters, labels and imports keep working."""
+    if kinds is None:
+        kinds = [kind] if kind else []
+    unknown = [k for k in dict.fromkeys(kinds) if k not in COMPANY_KINDS]
+    if unknown:
+        raise bad_request(f"Unknown role {unknown[0]!r} — pick from client, prime vendor, vendor or end client")
+    seen = [k for k in dict.fromkeys(kinds) if k in COMPANY_KINDS]
+    if not seen:
+        raise bad_request("Pick at least one role: client, prime vendor, vendor or end client")
+    primary = kind if kind in seen else seen[0]
+    ordered = [primary, *(k for k in seen if k != primary)]
+    return primary, ordered
 
 def _mask_tin(tin: str | None) -> str | None:
     """Show only the last 4 digits; separators stay so the shape is recognizable."""
@@ -130,7 +148,7 @@ async def company_directory(q: str | None = None, db: TenantDb = Depends(tenant_
     """Searchable company directory (Business ID, name, type) for picking an MSA
     counterparty. Every signed-in tenant member can search; full profiles stay gated."""
     return await db.all(
-        """select id, business_code, name, kind, status from companies
+        """select id, business_code, name, kind, kinds, status from companies
             where status <> 'inactive'
               and (cast(:q as text) is null or name ilike '%' || :q || '%' or coalesce(business_code, '') ilike '%' || :q || '%')
             order by name""",
@@ -141,18 +159,18 @@ async def company_directory(q: str | None = None, db: TenantDb = Depends(tenant_
 async def list_companies(db: TenantDb = Depends(tenant_db), kind: str | None = None, status: str | None = None):
     show_money = db.ctx.allows("finance")
     rows = await db.all(
-        """select c.id, c.business_code, c.name, c.kind, c.state, c.status, c.domain, c.w9_status,
-                  c.contact_name, c.contact_email, c.default_terms,
-                  c.onboarding_stage, c.inactive_since, c.inactive_reason, c.ein,
-                  (select string_agg(a.code, ', ' order by a.code) from agreements a where a.company_id = c.id and a.status = 'active') as agreements,
-                  (select min(a.expires_on) from agreements a where a.company_id = c.id and a.status = 'active') as next_expiry,
-                  (select coalesce(sum(balance), 0) from invoice_balances b where b.company_id = c.id and b.direction = 'ar' and b.balance > 0) as open_ar,
-                  (select coalesce(sum(balance), 0) from invoice_balances b where b.company_id = c.id and b.direction = 'ap' and b.balance > 0) as open_ap,
-                  (select count(*) from consultants k where k.employer_company_id = c.id and k.status = 'active') as consultants
-             from companies c
-            where (cast(:kind as text) is null or c.kind = :kind)
-              and (cast(:status as text) is null or c.status = :status)
-            order by c.status = 'inactive', c.name""",
+    """select c.id, c.business_code, c.name, c.kind, c.kinds, c.state, c.status, c.domain, c.w9_status,
+                   c.contact_name, c.contact_email, c.default_terms,
+                   c.onboarding_stage, c.inactive_since, c.inactive_reason, c.ein,
+                   (select string_agg(a.code, ', ' order by a.code) from agreements a where a.company_id = c.id and a.status = 'active') as agreements,
+                   (select min(a.expires_on) from agreements a where a.company_id = c.id and a.status = 'active') as next_expiry,
+                   (select coalesce(sum(balance), 0) from invoice_balances b where b.company_id = c.id and b.direction = 'ar' and b.balance > 0) as open_ar,
+                   (select coalesce(sum(balance), 0) from invoice_balances b where b.company_id = c.id and b.direction = 'ap' and b.balance > 0) as open_ap,
+                   (select count(*) from consultants k where k.employer_company_id = c.id and k.status = 'active') as consultants
+              from companies c
+             where (cast(:kind as text) is null or cast(:kind as text) = any (c.kinds))
+               and (cast(:status as text) is null or c.status = :status)
+             order by c.status = 'inactive', c.name""",
         {"kind": kind, "status": status},
     )
     if not show_money:
@@ -168,16 +186,17 @@ async def create_company(body: CompanyIn, db: TenantDb = Depends(tenant_db)):
     """Start onboarding: any workspace member can draft a company — it gets its Business ID
     and the creator becomes its owner. Activation stays staff-only through /activate."""
     code = await _assign_business_code(db)
+    primary, roles = _roles(body.kind, body.kinds)
     try:
         async with db.conn.begin_nested():
             company = await db.one(
-                """insert into companies (tenant_id, business_code, name, kind, ein, state, address, contact_name, contact_email,
+                """insert into companies (tenant_id, business_code, name, kind, kinds, ein, state, address, contact_name, contact_email,
                                           contact_phone, default_terms, notes, domain, business_type, dba, country, cin,
                                           status, onboarding_stage, created_by)
-                   values (:t, :code, :name, :kind, :ein, upper(:state), :address, :cn, :ce, :cp, :terms, :notes,
+                   values (:t, :code, :name, :kind, cast(:kinds as text[]), :ein, upper(:state), :address, :cn, :ce, :cp, :terms, :notes,
                            :domain, :btype, :dba, :country, :cin, 'onboarding', 1, :u)
                    returning *""",
-                {"t": db.ctx.tenant_id, "code": code, "name": body.name.strip(), "kind": body.kind, "ein": body.ein,
+                {"t": db.ctx.tenant_id, "code": code, "name": body.name.strip(), "kind": primary, "kinds": roles, "ein": body.ein,
                  "state": body.state, "address": body.address, "cn": body.contact_name, "ce": body.contact_email,
                  "cp": body.contact_phone, "terms": body.default_terms, "notes": body.notes,
                  "domain": _normalize_domain(body.domain), "btype": body.business_type, "dba": body.dba,
@@ -234,9 +253,12 @@ async def update_company(company_id: UUID, body: CompanyPatch, db: TenantDb = De
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         return await get_company(company_id, db)
+    if "kinds" in fields or "kind" in fields:
+        primary, roles = _roles(fields.get("kind"), fields.get("kinds"))
+        fields["kind"], fields["kinds"] = primary, roles
     if "domain" in fields:
         fields["domain"] = _normalize_domain(fields["domain"])
-    sets = ", ".join(f"{k} = :{k}" for k in fields)
+    sets = ", ".join("kinds = cast(:kinds as text[])" if k == "kinds" else f"{k} = :{k}" for k in fields)
     try:
         async with db.conn.begin_nested():
             row = await db.one(f"update companies set {sets} where id = :id returning *", {**fields, "id": company_id})

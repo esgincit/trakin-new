@@ -36,16 +36,16 @@ begin
     (t, v_finance_email, 'finance', 'Finance manager');
 
   -- Companies ------------------------------------------------------------------
-  insert into mytrakin.companies (tenant_id, name, kind, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage)
-  values (t, 'Atlas Foods Corp.', 'client', 'XX-XXX9046', 'TX', 'J. Brooks', 'j.brooks@atlasfoods.example', 'Net 30', 'active', 8) returning id into atlas;
-  insert into mytrakin.companies (tenant_id, name, kind, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage)
-  values (t, 'Northwind Consulting', 'prime_vendor', 'XX-XXX1190', 'NY', 'D. Shah', 'd.shah@northwind.example', 'Net 45', 'active', 8) returning id into northwind;
-  insert into mytrakin.companies (tenant_id, name, kind, state, status, onboarding_stage)
-  values (t, 'Meridian Pharma Inc.', 'end_client', 'NJ', 'active', 8) returning id into meridian;
-  insert into mytrakin.companies (tenant_id, name, kind, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage, bank_verified)
-  values (t, 'BrightPath Tech LLC', 'vendor', 'XX-XXX5502', 'NJ', 'S. Rao', v_vendor_email, 'Pay-when-paid', 'active', 8, true) returning id into bright;
-  insert into mytrakin.companies (tenant_id, name, kind, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage, bank_verified)
-  values (t, 'Orion Data Partners', 'vendor', 'XX-XXX3317', 'IL', 'M. Lee', 'm.lee@oriondata.example', 'Net 30', 'active', 8, true) returning id into orion;
+  insert into mytrakin.companies (tenant_id, name, kind, kinds, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage)
+  values (t, 'Atlas Foods Corp.', 'client', array['client'], 'XX-XXX9046', 'TX', 'J. Brooks', 'j.brooks@atlasfoods.example', 'Net 30', 'active', 8) returning id into atlas;
+  insert into mytrakin.companies (tenant_id, name, kind, kinds, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage)
+  values (t, 'Northwind Consulting', 'prime_vendor', array['prime_vendor'], 'XX-XXX1190', 'NY', 'D. Shah', 'd.shah@northwind.example', 'Net 45', 'active', 8) returning id into northwind;
+  insert into mytrakin.companies (tenant_id, name, kind, kinds, state, status, onboarding_stage)
+  values (t, 'Meridian Pharma Inc.', 'end_client', array['end_client'], 'NJ', 'active', 8) returning id into meridian;
+  insert into mytrakin.companies (tenant_id, name, kind, kinds, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage, bank_verified)
+  values (t, 'BrightPath Tech LLC', 'vendor', array['vendor'], 'XX-XXX5502', 'NJ', 'S. Rao', v_vendor_email, 'Pay-when-paid', 'active', 8, true) returning id into bright;
+  insert into mytrakin.companies (tenant_id, name, kind, kinds, ein, state, contact_name, contact_email, default_terms, status, onboarding_stage, bank_verified)
+  values (t, 'Orion Data Partners', 'vendor', array['vendor'], 'XX-XXX3317', 'IL', 'M. Lee', 'm.lee@oriondata.example', 'Net 30', 'active', 8, true) returning id into orion;
 
   insert into mytrakin.memberships (tenant_id, invited_email, role, company_id, title)
   values (t, v_vendor_email, 'vendor_admin', bright, 'Account Director');
