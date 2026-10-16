@@ -4,8 +4,12 @@ TIN shielding, company members, and the associated-businesses list."""
 from __future__ import annotations
 
 import itertools
+from datetime import date
 
 from fpdf import FPDF
+from sqlalchemy import text
+
+from app.db import get_engine
 
 
 def w9_pdf(ein: str = "12-3456789", name: str = "Acme Staffing LLC") -> bytes:
@@ -420,3 +424,56 @@ async def test_us_manual_entry_completes_without_upload(client, auth):
     assert created.json()["company_role"] == "super_admin"
     detail = (await client.get(f"/companies/{created.json()['id']}", headers=admin)).json()
     assert detail["tin"] == "22-3334411" and detail["w9_status"] == "submitted", detail
+
+
+async def test_msa_directory_and_company_initiated_msa(client, auth):
+    """Any signed-in tenant member can search the company directory; a company
+    admin can start an MSA with another company from their own profile."""
+    admin, vendor = auth("admin"), auth("vendor")
+    companies = (await client.get("/companies", headers=admin)).json()
+    bright = next(c for c in companies if c["name"] == "BrightPath Tech LLC")
+    north = next(c for c in companies if c["name"] == "Northwind Consulting")
+
+    directory = await client.get("/companies/directory", headers=vendor)
+    assert directory.status_code == 200, directory.text
+    names = [c["name"] for c in directory.json()]
+    assert "BrightPath Tech LLC" in names and "Northwind Consulting" in names, names
+    search = await client.get("/companies/directory", params={"q": "Northwind"}, headers=vendor)
+    assert [c["name"] for c in search.json()] == ["Northwind Consulting"], search.text
+
+    # Not your company → no MSA from it.
+    denied = await client.post(f"/companies/{north['id']}/msas", headers=vendor, json={
+        "counterparty_company_id": bright["id"], "kind": "msa", "tenant_side": "buyer",
+        "existing": False, "effective_on": str(date.today())})
+    assert denied.status_code == 403, denied.text
+
+    # NDA gate applies before the MSA (Verify → NDA → MSA), then creation works.
+    created_ids: list[str] = []
+    blocked = await client.post(f"/companies/{bright['id']}/msas", headers=vendor, json={
+        "counterparty_company_id": north["id"], "kind": "msa", "tenant_side": "buyer",
+        "existing": False, "effective_on": str(date.today())})
+    assert blocked.status_code in (201, 409), blocked.text
+    if blocked.status_code == 409:
+        nda = await client.post("/agreements", headers=admin, json={
+            "kind": "nda", "company_id": north["id"], "tenant_side": "buyer",
+            "effective_on": str(date.today()), "status": "active", "source": "manual"})
+        assert nda.status_code == 201, nda.text
+        created_ids.append(nda.json()["id"])
+        created = await client.post(f"/companies/{bright['id']}/msas", headers=vendor, json={
+            "counterparty_company_id": north["id"], "kind": "msa", "tenant_side": "buyer",
+            "existing": False, "effective_on": str(date.today())})
+        assert created.status_code == 201, created.text
+    else:
+        created = blocked
+    msa = created.json()
+    assert msa["company_id"] == north["id"], msa
+    assert msa["initiator_company_id"] == bright["id"], msa
+    assert msa["status"] == "draft", msa
+    created_ids.append(msa["id"])
+
+    # The initiating company sees its own MSA through the member/company link.
+    mine = await client.get("/agreements", headers=vendor)
+    assert any(a["id"] == msa["id"] for a in mine.json()), mine.text
+    async with get_engine().begin() as conn:
+        for agreement_id in created_ids:
+            await conn.execute(text("delete from mytrakin.agreements where id = :id"), {"id": agreement_id})

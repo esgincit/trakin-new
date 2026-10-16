@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
 import { Bar, Chip, ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
+import { CompanyPicker } from "@/components/CompanyPicker";
 import { api } from "@/lib/api";
 import { daysLeft, label } from "@/lib/format";
 import { linkFor } from "@/lib/links";
@@ -69,7 +70,6 @@ function Contracts() {
 }
 
 function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: any) => void }) {
-  const companies = useApi<any[]>("/companies");
   const consultants = useApi<any[]>("/consultants");
   const [kind, setKind] = useState("msa");
   const [existing, setExisting] = useState(true);
@@ -98,11 +98,11 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
             <Field label="NDA with" name="nda_with" as="select" value={ndaWith} onChange={(e: any) => setNdaWith(e.target.value)}
                    options={[["company", "A client or vendor company"], ["consultant", "A consultant"]]} />
           )}
-          {personal ? (
-            <Field label="Consultant" name="consultant_id" as="select" required options={[["", "Choose…"], ...(consultants.data ?? []).map((c) => [c.id, c.full_name] as [string, string])]} />
-          ) : (
-            <Field label="Company" name="company_id" as="select" required options={[["", "Choose…"], ...(companies.data ?? []).map((c) => [c.id, `${c.name} (${label(c.kind)})`] as [string, string])]} />
-          )}
+        {personal ? (
+          <Field label="Consultant" name="consultant_id" as="select" required options={[["", "Choose…"], ...(consultants.data ?? []).map((c) => [c.id, c.full_name] as [string, string])]} />
+        ) : (
+          <CompanyPicker label="Company" name="company_id" required />
+        )}
           <Field label="You are the" name="tenant_side" as="select" options={personal ? [["employer", "Employer / buyer"], ["buyer", "Buyer"]] : [["supplier", "Supplier (you bill them)"], ["buyer", "Buyer (you pay them)"]]} />
           <Field label="Effective" name="effective_on" type="date" required />
           <Field label="Expires" name="expires_on" type="date" />

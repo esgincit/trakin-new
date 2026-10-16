@@ -35,7 +35,9 @@ _ZIP_RE = re.compile(r"(?<!\d)(\d{5})(?:-?\d{4})?(?!\d)")
 _STATE_RE = re.compile(r"\b([A-Z]{2})\s+\d{5}")
 
 # Lines that are form labels/instructions — never treated as values.
-_SEC_NUM_RE = re.compile(r"^(\d{1,2}[a-z]?[.)]?)\s+(?=[A-Za-z(])")
+_SEC_NUM_RE = re.compile(r"^(\d{1,2}[a-z]?)([.)]?)\s+(?=[A-Za-z(])")
+# Numbered W-9 sections only: a house number ("9 Long Street") is a value, not a header.
+_SEC_NUMBERS = {"1", "2", "3a", "3b", "4", "5", "6", "7"}
 _SEC_WORDS = ("name", "business", "check", "exemptions", "address", "city", "list",
               "requester", "social", "employer", "part", "signature", "date", "form",
               "see", "enter", "give", "under", "step", "account", "exempt", "fatca",
@@ -57,31 +59,37 @@ _LABEL_START_RE = re.compile(
 _VALUE_SECTIONS = {"1", "2", "5", "6", "7"}
 
 
+def _section_remainder(line: str, key: str | None) -> str | None:
+    if ":" in line and key in _VALUE_SECTIONS:
+        tail = line.split(":", 1)[1].strip()
+        if len(tail) >= 2 and not _LABEL_START_RE.match(tail) and not re.fullmatch(r"[\d\s\-–—/.]+", tail):
+            return tail
+    return None
+
+
 def _split_section(line: str) -> tuple[str | None, str | None]:
     """(section_key, same_line_remainder) for a label line; (None, None) otherwise."""
     m = _SEC_NUM_RE.match(line)
     if m:
         word = re.sub(r"[^a-z]", "", line[m.end():].split(" ", 1)[0].lower())
-        if word in _SEC_WORDS:
-            key = re.sub(r"[.)]$", "", m.group(1))
-        else:
-            # Numbered but not a value section ("1. The number shown ...",
-            # certification steps): a break, never a value.
+        key = m.group(1).rstrip(".)")
+        if key in _SEC_NUMBERS and word in _SEC_WORDS:
+            return key, _section_remainder(line, key)
+        if m.group(2):
+            # Enumerated item ("1. The number shown ...") — a break, never a value.
             return "label", None
+        # A leading number that isn't a W-9 section ("9 Long Street",
+        # "4100 Commerce ...") — a value, not a header.
+        return None, None
     elif _LABEL_START_RE.match(line):
         key = "part" if line.lower().startswith("part") else "label"
+        return key, _section_remainder(line, key)
     elif re.fullmatch(r"[.\-_\s]+", line):
         return "skip", None
     elif re.fullmatch(r"[\d\s\-–—/.]+", line):
         return "skip", None   # stray digit-box renderings, page numbers
     else:
         return None, None
-    remainder = None
-    if ":" in line and key in _VALUE_SECTIONS:
-        tail = line.split(":", 1)[1].strip()
-        if len(tail) >= 2 and not _LABEL_START_RE.match(tail):
-            remainder = tail
-    return key, remainder
 
 
 def ocr_available() -> bool:
@@ -333,6 +341,20 @@ def _classify_from_markers(text: str) -> str | None:
     return None
 
 
+def _looks_like_name(value: str | None) -> bool:
+    """A legal name or street address always contains letters. Bare numbers
+    (page fragments, digit-box strays, checkbox glyphs) are never names —
+    returning them as legal_name is how "98" ends up in the response."""
+    return bool(value) and bool(re.search(r"[A-Za-z]", value))
+
+
+def _sanitize_names(parsed: dict) -> dict:
+    for key in ("legal_name", "address"):
+        if parsed.get(key) and not _looks_like_name(parsed[key]):
+            parsed[key] = None
+    return parsed
+
+
 def _sections_of(text: str) -> list[tuple[str | None, str]]:
     """Split text into (section_key, line) with section tracking (None = preamble)."""
     out: list[tuple[str | None, str]] = []
@@ -463,13 +485,15 @@ def parse_w9_text(text: str) -> dict:
             best_typ = "ein" if near_ein <= near_ssn else "ssn"
         tin, tin_type = _format_tin(best_digits, best_typ), best_typ
 
-    review = [k for k, v in {"legal_name": legal_name, "tax_classification": classification,
-                             "address": address, "tin": tin}.items() if not v]
-    if address and not city:
+    parsed = _sanitize_names({"legal_name": legal_name, "dba": dba, "tax_classification": classification,
+                              "tin": tin, "tin_type": tin_type, "address": address, "city": city,
+                              "state": state, "zip": zip_code})
+    review = [k for k, v in {"legal_name": parsed["legal_name"], "tax_classification": parsed["tax_classification"],
+                             "address": parsed["address"], "tin": parsed["tin"]}.items() if not v]
+    if parsed["address"] and not parsed["city"]:
         review.append("city_state_zip")
-    return {"legal_name": legal_name, "dba": dba, "tax_classification": classification,
-            "tin": tin, "tin_type": tin_type, "address": address, "city": city,
-            "state": state, "zip": zip_code, "needs_review": review}
+    parsed["needs_review"] = review
+    return parsed
 
 
 def _review_of(parsed: dict) -> list[str]:
@@ -513,9 +537,13 @@ async def extract_w9(data: bytes, content_type: str) -> dict:
         slots = fields["slots"]
         # Values geometry couldn't place: map them by position in the text.
         # They are still exact keystrokes — this only decides which field each is.
+        # Values without letters can never be names/addresses (digit-box strays,
+        # checkbox glyphs) — the TIN path handles numbers separately.
         if fields["unmapped"]:
             pdf_text = await asyncio.to_thread(_pdf_text, data)
             for section, value in _map_values_by_text_order(fields["unmapped"], pdf_text).items():
+                if not re.search(r"[A-Za-z]", value):
+                    continue
                 if section == "1" and slots.get("legal_name") is None:
                     slots["legal_name"] = value
                 elif section == "2" and slots.get("dba") is None:
@@ -537,8 +565,9 @@ async def extract_w9(data: bytes, content_type: str) -> dict:
             backup = await asyncio.to_thread(parse_w9_text, pdf_text)
             if parsed.get("tin") is None and backup.get("tin"):
                 parsed["tin"], parsed["tin_type"] = backup["tin"], backup["tin_type"]
-            if parsed.get("tax_classification") is None and backup.get("tax_classification"):
-                parsed["tax_classification"] = backup["tax_classification"]
+        if parsed.get("tax_classification") is None and backup.get("tax_classification"):
+            parsed["tax_classification"] = backup["tax_classification"]
+        parsed = _sanitize_names(parsed)
         parsed["needs_review"] = _review_of(parsed)
         parsed["engine"] = engine
         parsed["needs_manual"] = False

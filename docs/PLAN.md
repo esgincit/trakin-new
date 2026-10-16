@@ -644,6 +644,11 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · CO-03, AGR-07 · Company-initiated MSAs on main: searchable company directory + `POST /companies/{id}/msas`
+  (record signed / request new, NDA gate, numbering, counterparty e-mail) with a `CompanyPicker` on the company profile
+  and contracts modal. Fixed vendor 403: migration `0800` lets membership-linked vendor/client admins pass the
+  agreements INSERT policy (verified live 201 as vendor_admin, visible on company page). Left: CI run of the API suite
+  (no local Postgres), click-test per role.
 - 2026-10-16 · P-01…P-12, RULE-05 · Phase P built on local branch `feat/p-platform-owner` (from main ca8aa71): company =
   account with platform activation, owner + transfer, owner-only roles & permissions, MFA as the user's choice,
   platform dashboard, "workspace" wording removed. 86 API tests pass (3 pre-existing failures: 2 team W-9 tests +

@@ -18,8 +18,9 @@ from sqlalchemy.exc import IntegrityError
 
 from ..deps import TenantDb, tenant_db
 from ..errors import ApiError, bad_request, conflict, forbidden, not_found
-from ..services import storage
+from ..services import numbering, storage, workflow
 from ..services import w9 as w9svc
+from ..services.email import render, send_email
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -124,6 +125,18 @@ async def _assign_business_code(db: TenantDb) -> str:
     raise bad_request("Couldn't assign a Business ID — try again")
 
 
+@router.get("/directory")
+async def company_directory(q: str | None = None, db: TenantDb = Depends(tenant_db)):
+    """Searchable company directory (Business ID, name, type) for picking an MSA
+    counterparty. Every signed-in tenant member can search; full profiles stay gated."""
+    return await db.all(
+        """select id, business_code, name, kind, status from companies
+            where status <> 'inactive'
+              and (cast(:q as text) is null or name ilike '%' || :q || '%' or coalesce(business_code, '') ilike '%' || :q || '%')
+            order by name""",
+        {"q": (q or "").strip() or None})
+
+
 @router.get("")
 async def list_companies(db: TenantDb = Depends(tenant_db), kind: str | None = None, status: str | None = None):
     show_money = db.ctx.allows("finance")
@@ -196,7 +209,7 @@ async def get_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
         {"id": company_id}) if (privileged or company["my_company_role"]) else []
     _shield(company, privileged)
     company["agreements"] = await db.all(
-        "select id, code, kind, effective_on, expires_on, payment_terms, status, source from agreements where company_id = :id order by expires_on",
+        "select id, code, kind, effective_on, expires_on, payment_terms, status, source from agreements where company_id = :id or initiator_company_id = :id order by expires_on",
         {"id": company_id})
     company["sows"] = await db.all(
         "select s.id, s.code, s.title, s.side, s.start_date, s.end_date, b.burn_pct from sows s left join sow_burn b on b.sow_id = s.id "
@@ -264,7 +277,11 @@ async def _company_or_404(db: TenantDb, company_id: UUID) -> dict:
 
 
 def _can_manage_company(db: TenantDb, company_id: UUID, role: str | None) -> bool:
-    return db.ctx.allows("tenant_admin") or role in ("super_admin", "owner", "admin")
+    """Who may act for a company: tenant admins, its owner/admin/super_admin members,
+    or its membership-linked vendor/client admin (their login is tied to the company)."""
+    return (db.ctx.allows("tenant_admin") or role in OWNER_ROLES
+            or (db.ctx.company_id is not None and db.ctx.company_id == company_id
+                and db.ctx.role in ("vendor_admin", "client_user")))
 
 
 def _privileged_granter(db: TenantDb, role: str | None) -> bool:
@@ -277,7 +294,7 @@ async def upload_logo(company_id: UUID, file: UploadFile = File(), db: TenantDb 
     """Company logo (JPEG, PNG or WebP, up to 2 MB). Shown on the company profile."""
     await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.allows("account_manager", "finance", "legal") or role in OWNER_ROLES):
+    if not (db.ctx.allows("account_manager", "finance", "legal") or _can_manage_company(db, company_id, role)):
         raise forbidden()
     ext = LOGO_TYPES.get(file.content_type or "")
     if ext is None:
@@ -298,7 +315,7 @@ async def upload_w9(company_id: UUID, file: UploadFile = File(), db: TenantDb = 
     staff verify it — the company stays non-active meanwhile."""
     company = await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.allows("account_manager", "finance", "legal", "hr") or role in OWNER_ROLES):
+    if not (db.ctx.allows("account_manager", "finance", "legal", "hr") or _can_manage_company(db, company_id, role)):
         raise forbidden()
     if (file.content_type or "") not in {"application/pdf", "image/jpeg", "image/png", "image/webp"}:
         raise bad_request("Upload the W-9 as a PDF, JPEG, PNG or WebP file")
@@ -352,7 +369,7 @@ async def update_tax(company_id: UUID, body: TaxIn, db: TenantDb = Depends(tenan
     digits-and-dashes only; only privileged roles ever read it back."""
     await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.allows("finance", "legal") or role in OWNER_ROLES):
+    if not (db.ctx.allows("finance", "legal") or _can_manage_company(db, company_id, role)):
         raise forbidden()
     fields = body.model_dump(exclude_unset=True)
     if not fields:
@@ -477,7 +494,7 @@ async def verify_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
     """Re-run the verification checks without activating. Shows what still blocks."""
     company = await _company_or_404(db, company_id)
     role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
-    if not (db.ctx.internal or role in OWNER_ROLES):
+    if not (db.ctx.internal or _can_manage_company(db, company_id, role)):
         raise forbidden()
     return await _run_verification(db, company)
 
@@ -609,3 +626,58 @@ async def remove_member(company_id: UUID, member_id: UUID, db: TenantDb = Depend
         raise bad_request("A company needs at least one active owner — assign another first")
     await db.run("update company_members set status = 'removed' where id = :m", {"m": member_id})
     return {"id": member_id, "removed": True}
+
+
+class CompanyMsaIn(BaseModel):
+    counterparty_company_id: UUID
+    kind: str = Field("msa", pattern="^(msa|subcontract)$")
+    tenant_side: str = Field("supplier", pattern="^(supplier|buyer)$")
+    existing: bool = True            # already signed (active) vs a new request (draft)
+    effective_on: date | None = None
+    expires_on: date | None = None
+    payment_terms: str | None = None
+    signed_by: str | None = None
+    note: str | None = Field(None, max_length=1000)   # message to the counterparty for requests
+
+
+@router.post("/{company_id}/msas", status_code=201)
+async def propose_msa(company_id: UUID, body: CompanyMsaIn, db: TenantDb = Depends(tenant_db)):
+    """A company's owner/admin starts an MSA with another registered company —
+    recording one already signed, or requesting a new one. Staff can do the same."""
+    company = await _company_or_404(db, company_id)
+    role = await db.val("select mytrakin.company_role(:c)", {"c": company_id})
+    if not (db.ctx.allows("account_manager", "legal", "finance", "hr") or _can_manage_company(db, company_id, role)):
+        raise forbidden()
+    if body.counterparty_company_id == company_id:
+        raise bad_request("Pick a different company as the counterparty")
+    counterparty = await db.one("select id, name, contact_email from companies where id = :id and status <> 'inactive'",
+                                {"id": body.counterparty_company_id})
+    if counterparty is None:
+        raise not_found("Counterparty company")
+    if body.kind in ("msa", "subcontract") and (await workflow.rules(db))["requireNDA"]:
+        has_nda = await db.val("select mytrakin.has_company_agreement(:t, array['nda'], :c, current_date)",
+                               {"t": db.ctx.tenant_id, "c": counterparty["id"]})
+        if not has_nda:
+            raise workflow.blocked("nda_required", "Sign an NDA with this company before its MSA "
+                                    "(or turn off 'Require NDA' in Settings → Workflow)")
+    code = await numbering.next_code(db, body.kind, CLIENT=counterparty["name"])
+    row = await db.one(
+        """insert into agreements (tenant_id, code, kind, company_id, initiator_company_id, tenant_side,
+                                   effective_on, expires_on, payment_terms, status, signed_by, source)
+           values (:t, :code, :kind, :co, :init, :side, :eff, :exp, :terms, :status, :by, :src) returning *""",
+        {"t": db.ctx.tenant_id, "code": code, "kind": body.kind, "co": counterparty["id"], "init": company["id"],
+         "side": body.tenant_side, "eff": body.effective_on, "exp": body.expires_on, "terms": body.payment_terms,
+         "status": "active" if body.existing else "draft", "by": body.signed_by,
+         "src": "manual" if body.existing else "myTrakIn"})
+    recipients = [e for e in {company.get("contact_email"), counterparty.get("contact_email")} if e]
+    if recipients:
+        action = "recorded a signed MSA" if body.existing else "requested a new MSA"
+        paragraphs = [f"{company['name']} ({company['business_code']}) {action}."]
+        if body.note:
+            paragraphs.append(f"Note: {body.note}")
+        paragraphs.append("Open the agreement to review it and respond.")
+        await send_email(db, to=recipients,
+                         subject=f"MSA {'recorded' if body.existing else 'requested'} with {counterparty['name']}",
+                         kind="msa", tenant_id=db.ctx.tenant_id, ref_type="agreement", ref_id=row["id"],
+                         html_body=render(f"MSA with {counterparty['name']}", paragraphs))
+    return row

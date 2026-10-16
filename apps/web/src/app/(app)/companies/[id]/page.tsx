@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Attachments } from "@/components/Attachments";
 import { CheckList } from "@/components/CompanyWizard";
+import { CompanyPicker } from "@/components/CompanyPicker";
 import { CompanyForm } from "@/components/forms";
 import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -20,6 +21,7 @@ export default function CompanyDetail() {
   const { workspace } = useSession();
   const { data: c, error, loading, reload } = useApi(`/companies/${id}`);
   const [editing, setEditing] = useState(false);
+  const [msaOpen, setMsaOpen] = useState(false);
   const [memberRole, setMemberRole] = useState("member");
   const logo = useRef<HTMLInputElement>(null);
   const w9file = useRef<HTMLInputElement>(null);
@@ -45,7 +47,8 @@ export default function CompanyDetail() {
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
-          {canEdit && (c.status === "inactive" ? (
+          {canManage && <button className="btn" onClick={() => setMsaOpen(true)}>New MSA</button>}
+        {canEdit && (c.status === "inactive" ? (
             <button className="btn" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/status`, { body: { status: "active" } }), "Reactivated")) reload(); }}>Reactivate</button>
           ) : (
             <button className="btn" disabled={busy} onClick={async () => {
@@ -134,6 +137,12 @@ export default function CompanyDetail() {
 
       <div className="card mt">
         <h3>Tax & W-9 <Chip status={c.w9_status} /></h3>
+        {c.w9_status === "rejected" && (
+          <p className="err" role="alert" style={{ fontSize: 14, marginTop: 0 }}>
+            This W-9 was rejected{c.w9_note ? <>: “{c.w9_note}”</> : " — ask finance or legal what was wrong"}.
+            Upload a corrected copy below{taxFull ? ", fix the tax details, and have it verified again" : ", then ask finance or legal to review it again"}.
+          </p>
+        )}
         {taxFull ? (
           <dl className="dl">
             <dt>Legal name</dt><dd>{c.w9_data?.legal_name ?? "–"}</dd>
@@ -209,7 +218,42 @@ export default function CompanyDetail() {
       )}
       <Attachments ownerType="company" ownerId={id} canEdit={canEdit} />
       {editing && <Modal title={`Edit ${c.name}`} onClose={() => setEditing(false)}><CompanyForm initial={c} onSaved={() => { setEditing(false); reload(); }} /></Modal>}
+      {msaOpen && <CompanyMsaModal company={c} onClose={() => setMsaOpen(false)} onDone={() => { setMsaOpen(false); reload(); }} />}
     </>
+  );
+}
+
+function CompanyMsaModal({ company, onClose, onDone }: { company: any; onClose: () => void; onDone: () => void }) {
+  const [existing, setExisting] = useState(true);
+  const [counterparty, setCounterparty] = useState("");
+  const { run, busy } = useAction();
+  return (
+    <Modal title={`New MSA — ${company.name}`} onClose={onClose}>
+      <div className="seg" style={{ marginBottom: 8 }}>
+        <button type="button" className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
+        <button type="button" className={!existing ? "on" : ""} onClick={() => setExisting(false)}>Request new MSA</button>
+      </div>
+      <form className="form" onSubmit={async (e) => {
+        e.preventDefault();
+        const v: any = formValues(e.currentTarget);
+        const body = { ...v, existing, counterparty_company_id: counterparty || undefined };
+        const r = await run(() => api(`/companies/${company.id}/msas`, { body }), existing ? "Signed MSA recorded" : "MSA request sent");
+        if (r) onDone();
+      }}>
+        <div className="fields">
+          <CompanyPicker label="Other company" name="counterparty_company_id" required value={counterparty} excludeId={company.id} onChange={(e: any) => setCounterparty(e.target.value)} />
+          <Field label="Type" name="kind" as="select" defaultValue="msa" options={[["msa", "MSA"], ["subcontract", "Subcontract"]]} />
+          <Field label="We are the" name="tenant_side" as="select" defaultValue="supplier" options={[["supplier", "Supplier"], ["buyer", "Buyer"]]} />
+          <Field label="Effective" name="effective_on" type="date" />
+          <Field label="Expires" name="expires_on" type="date" />
+          <Field label="Payment terms" name="payment_terms" placeholder="Net 30" />
+          {existing
+            ? <Field label="Signed by" name="signed_by" full />
+            : <Field label="Message to the other company" name="note" as="textarea" full />}
+        </div>
+        <button className="btn pri mt" disabled={busy || !counterparty}>Send</button>
+      </form>
+    </Modal>
   );
 }
 

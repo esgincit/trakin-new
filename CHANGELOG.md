@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Company-initiated MSAs** (PLAN CO-03, AGR-07): searchable company directory (`GET /companies/directory`) and
+  `POST /companies/{id}/msas` so a company's owner/admin — or its membership-linked vendor/client admin — records an
+  already-signed MSA or requests a new one from the company profile (NDA gate and numbering apply; counterparty gets
+  an e-mail). Migration `0800` lets those membership-linked admins pass the agreements INSERT policy (was 403).
 - **Companies, platform admin, ownership, roles & permissions, MFA** (PLAN §5.31):
   - No workspaces: anyone creates a company (My companies → Create your company); it waits for the platform admin.
   - Platform admin: dashboard (users, companies, onboarding pipeline, MRR/ARR, money moving, 12-month trend),
