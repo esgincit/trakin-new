@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **SOWs run both ways under one MSA, sent to the other company for approval (2026-10-17, PLAN AGR-05):**
+  - **Either company can raise work under an MSA, whichever workspace recorded it.** `POST /sows` read the
+    agreement with a plain `SELECT`, and the restrictive tenant-isolation policy hides another workspace's
+    agreement rows — so the company an MSA was *sent to* got a 404 for an MSA they could plainly see in
+    `GET /agreements`. Work under one MSA now runs from whichever side you are on.
+  - **A SOW points at the right company.** It used to copy `company_id` off the agreement, which seen from the
+    counterparty's side is *their own* company, so a reverse-direction SOW would have pointed back at the sender
+    of the MSA. `mytrakin.agreement_peer_company()` resolves the other party from wherever you stand.
+  - **Sent for approval, like an MSA.** `draft` → `pending` (sent) → `active` (approved) or `rejected` with a
+    reason kept on the row. `POST /sows/{id}/submit`, `POST /sows/{id}/respond`. Turning one down needs a reason;
+    the company that raised it cannot answer its own SOW; an unrelated workspace neither sees nor can answer it.
+  - **A draft stays private.** An unsent SOW is the other company's work in progress and does not appear at all.
+    Once sent it is shared read-only and **without money** — reference, title, term and status only. Value
+    ceiling, invoiced, paid, burn and amendments never leave the workspace that created them.
+  - Migration `20261016001700`.
 - **Find anybody on the platform when onboarding a consultant, and show your U-ID on your profile (2026-10-17, PLAN
   CON-02, U-ID):**
   - **The picker searches every registered myTrakIn user, not only your own workspace.** It previously listed just

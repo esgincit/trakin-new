@@ -37,7 +37,8 @@ function Contracts() {
     { key: "status", label: "Status", type: "status", filter: true },
   ];
   const sowCols: Column<any>[] = [
-    { key: "code", label: "SOW" }, { key: "side", label: "Side", type: "label", filter: true },
+    { key: "code", label: "SOW", render: (r) => <>{r.code}{r.shared && <Chip status="pending">Sent to you</Chip>}</> },
+    { key: "side", label: "Side", type: "label", filter: true },
     { key: "counterparty", label: "With", filter: true }, { key: "consultants", label: "Consultants", hideSm: true },
     { key: "end_date", label: "Ends", type: "date" },
     { key: "value_cap", label: "Value", type: "money", hideSm: true }, { key: "remaining", label: "Remaining", type: "money" },
@@ -125,35 +126,60 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const sows = useApi<any[]>("/sows", { side: "we_bill" });
   const projects = useApi<any[]>("/projects");
   const [existing, setExisting] = useState(false);
+  const [sendNow, setSendNow] = useState(true);
+  const [saving, setSaving] = useState(false);
   const { run, busy } = useAction();
+  // An MSA either side recorded with one of our companies: work under it runs from here too.
+  const pickable = (agreements.data ?? []).filter((a: any) =>
+    ["msa", "subcontract", "ica"].includes(a.kind) && a.status !== "rejected" && a.status !== "expired"
+      && a.status !== "terminated");
   return (
     <Modal title="Add SOW / work order" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
-        <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (needs acceptance)</button>
+        <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (needs approval)</button>
         <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
       </div>
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();
+        setSaving(true);
         const v: any = formValues(e.currentTarget);
         v.status = existing ? "active" : "draft";
         for (const k of ["value_cap", "prior_invoiced", "prior_paid"]) if (v[k]) v[k] = Number(v[k]);
-        const r = await run(() => api("/sows", { body: v }), "SOW saved");
-        if (r) onDone(r);
+        const r = await run(() => api("/sows", { body: v }), existing ? "SOW saved" : "SOW drafted");
+        if (r) {
+          // An MSA the other workspace recorded: offer to put it in front of them at once.
+          if (!existing && sendNow) {
+            await run(() => api(`/sows/${r.id}/submit`, { method: "POST" }),
+              "Sent to the other company for approval");
+          }
+          onDone(r);
+        }
+        setSaving(false);
       }}>
         <div className="fields">
           <Field label="SOW / work order ID" name="code" placeholder="Leave blank to number it automatically" />
           <Field label="Project" name="project_id" as="select" options={[["", "–"], ...(projects.data ?? []).map((p) => [p.id, `${p.code} · ${p.name}`] as [string, string])]} />
-          <Field label="Under agreement" name="agreement_id" as="select" required options={[["", "Choose…"], ...(agreements.data ?? []).filter((a) => ["msa", "subcontract", "ica"].includes(a.kind)).map((a) => [a.id, `${a.code} · ${a.counterparty}`] as [string, string])]} />
+          <Field label="Under agreement" name="agreement_id" as="select" required
+            options={[["", "Choose…"], ...pickable.map((a: any) => [a.id, `${a.code} · ${a.counterparty}${a.shared ? " (their MSA)" : ""}`] as [string, string])]} />
           <Field label="Side" name="side" as="select" options={[["we_bill", "We bill (client SOW)"], ["we_pay", "We pay (vendor / 1099 work order)"]]} />
           <Field label="Title" name="title" required />
           <Field label="Start" name="start_date" type="date" required />
           <Field label="End" name="end_date" type="date" required />
           <Field label="Value ceiling ($)" name="value_cap" type="number" step="0.01" min="0" />
-          <Field label="Supports client SOW (vendor SOWs)" name="flows_from_sow_id" as="select" options={[["", "–"], ...(sows.data ?? []).map((s) => [s.id, s.code] as [string, string])]} />
+          <Field label="Supports client SOW (vendor SOWs)" name="flows_from_sow_id" as="select" options={[["", "–"], ...(sows.data ?? []).map((s: any) => [s.id, s.code] as [string, string])]} />
           <Field label="Invoiced before myTrakIn ($)" name="prior_invoiced" type="number" step="0.01" min="0" />
           <Field label="Collected / paid before myTrakIn ($)" name="prior_paid" type="number" step="0.01" min="0" />
         </div>
-        <button className="btn pri mt" disabled={busy}>Save SOW</button>
+        {!existing && (
+          <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} style={{ marginTop: 4 }} />
+            <span>Send it to the other company for approval straight away
+              <span className="muted"> — until you do, it is a draft and they cannot see it</span></span>
+          </label>
+        )}
+        <button className="btn pri mt" disabled={busy || saving}>
+          {existing ? "Save SOW" : sendNow ? "Save & send for approval" : "Save draft"}
+        </button>
       </form>
     </Modal>
   );

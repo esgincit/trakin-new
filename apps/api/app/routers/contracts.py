@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -205,9 +206,20 @@ async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
              left join sow_burn b on b.sow_id = s.id
              left join sows fs on fs.id = s.flows_from_sow_id
              left join projects pj on pj.id = s.project_id
-            where (cast(:side as text) is null or s.side = :side)
-            order by s.end_date""",
+where (cast(:side as text) is null or s.side = :side)
+             order by s.end_date""",
         {"side": side})
+    # SOWs another workspace created under an MSA we are a party to, and has sent for
+    # approval. Shown from our side (we bill / we pay swapped), and without any money.
+    incoming = await db.all(
+        """select * from mytrakin.shared_sows() where (cast(:side as text) is null or side = :side)
+            order by end_date""",
+        {"side": side})
+    for r in incoming:
+        r["shared"] = True
+        for k in ("value_cap", "invoiced", "collected_or_paid", "remaining", "burn_pct"):
+            r[k] = None
+    rows += incoming
     if not show_value:
         for r in rows:
             for k in ("value_cap", "invoiced", "collected_or_paid", "remaining"):
@@ -215,17 +227,46 @@ async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
     return rows
 
 
+async def _agreement_for_sow(db: TenantDb, agreement_id: Any) -> tuple[dict, bool]:
+    """The agreement a SOW is raised under, from this workspace's side.
+
+    Returns (agreement, shared). A shared one is an MSA another workspace recorded with
+    one of our companies -- work under it runs from here just the same, whichever side
+    sent it. Also returns the company the SOW is *with*, which is not simply the
+    agreement's company_id when we are the counterparty: seen from here that would be
+    our own company.
+    """
+    row = await db.one("select * from agreements where id = :id", {"id": agreement_id})
+    if row is not None:
+        return row, False
+    shared = await db.one(
+        "select *, (expires_on - current_date) as days_left from mytrakin.shared_agreements() where id = :id",
+        {"id": agreement_id})
+    if shared is None:
+        raise not_found("Agreement")
+    return shared, True
+
+
 @router.post("/sows", status_code=201)
 async def add_sow(body: SowIn, db: TenantDb = Depends(tenant_db)):
-    """Add a SOW / work order — new, or already signed outside myTrakIn with what was invoiced before."""
+    """Add a SOW / work order — new, or already signed outside myTrakIn with what was invoiced before.
+
+    The agreement may be one this workspace recorded or one another workspace recorded
+    with one of our companies: work under an MSA runs both ways.
+    """
     db.ctx.require("legal", "account_manager")
-    agreement = await db.one("select company_id, consultant_id, expires_on, status from agreements where id = :id",
-                             {"id": body.agreement_id})
-    if agreement is None:
-        raise not_found("Agreement")
+    agreement, shared = await _agreement_for_sow(db, body.agreement_id)
     # AGR-09: no new SOWs under an agreement that has ended.
     if agreement["status"] in ("expired", "terminated") or (agreement["expires_on"] and agreement["expires_on"] < date.today()):
         raise conflict("This agreement has expired — renew it before adding SOWs under it")
+    if agreement["status"] == "rejected":
+        raise conflict("This MSA was turned down — agree it again before adding SOWs under it")
+    if agreement["status"] not in ("accepted", "active", "draft", "out_for_signature", "pending"):
+        raise conflict("This agreement is not in force yet — get it accepted before adding SOWs under it")
+    # The company this SOW is with: the other party, whichever workspace recorded the MSA.
+    company = await db.val("select mytrakin.agreement_peer_company(:a)", {"a": body.agreement_id})
+    if company is None:
+        raise bad_request("This agreement has no other company on it — a SOW needs a company on both sides")
     project_code = None
     if body.project_id:
         project_code = await db.val("select code from projects where id = :id", {"id": body.project_id})
@@ -243,9 +284,9 @@ async def add_sow(body: SowIn, db: TenantDb = Depends(tenant_db)):
                              end_date, value_cap, prior_invoiced, prior_paid, flows_from_sow_id, status)
            values (:t, :code, :ag, :pr, :side, :co, :con, :title, :start, :end, :cap, :pi, :pp, :from, :status) returning *""",
         {"t": db.ctx.tenant_id, "code": code, "ag": body.agreement_id, "pr": body.project_id, "side": body.side,
-         "co": agreement["company_id"], "con": agreement["consultant_id"], "title": body.title, "start": body.start_date,
-         "end": body.end_date, "cap": body.value_cap, "pi": body.prior_invoiced, "pp": body.prior_paid,
-         "from": body.flows_from_sow_id, "status": body.status})
+         "co": company, "con": None if shared else agreement["consultant_id"], "title": body.title,
+         "start": body.start_date, "end": body.end_date, "cap": body.value_cap, "pi": body.prior_invoiced,
+         "pp": body.prior_paid, "from": body.flows_from_sow_id, "status": body.status})
 
 
 @router.post("/projects/{project_id}/sows", status_code=201)
@@ -261,6 +302,13 @@ async def get_sow(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
     if not rows:
         raise not_found("SOW")
     sow = rows[0]
+    if sow.get("shared"):
+        # Another workspace's SOW: terms to approve, nothing of ours to change, no money.
+        sow["amendments"] = []
+        sow["flows_to"] = []
+        sow["envelopes"] = []
+        sow["invoices"] = []
+        return sow
     sow["amendments"] = await db.all("select * from sow_amendments where sow_id = :id order by created_at desc", {"id": sow_id})
     sow["flows_to"] = await db.all("select id, code, end_date from sows where flows_from_sow_id = :id", {"id": sow_id})
     sow["envelopes"] = await db.all(
@@ -272,6 +320,29 @@ async def get_sow(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
             "select id, number, direction, period_start, amount, balance, live_status from invoice_balances where sow_id = :id "
             "order by period_start desc", {"id": sow_id})
     return sow
+
+
+class SowDecisionIn(BaseModel):
+    decision: str = Field(pattern="^(approve|reject)$")
+    note: str | None = Field(None, max_length=1000)
+
+
+@router.post("/sows/{sow_id}/submit")
+async def submit_sow(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """Send a draft SOW to the other company for approval. Until this is done it is a
+    draft and the other company cannot see it."""
+    db.ctx.require("legal", "account_manager")
+    await db.run("select mytrakin.submit_sow_for_approval(:s)", {"s": sow_id})
+    return await get_sow(sow_id, db)
+
+
+@router.post("/sows/{sow_id}/respond")
+async def respond_to_sow(sow_id: UUID, body: SowDecisionIn, db: TenantDb = Depends(tenant_db)):
+    """The company a SOW was sent to approves it (it comes into force) or turns it down
+    with a reason."""
+    await db.run("select mytrakin.respond_to_sow(:s, :d, :n)",
+                 {"s": sow_id, "d": body.decision, "n": body.note})
+    return await get_sow(sow_id, db)
 
 
 @router.post("/sows/{sow_id}/amendments", status_code=201)

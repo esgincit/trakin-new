@@ -17,18 +17,63 @@ export default function SowDetail() {
   const { workspace } = useSession();
   const { data: s, error, loading, reload } = useApi(`/sows/${id}`);
   const [amending, setAmending] = useState(false);
+  const [answering, setAnswering] = useState<"approve" | "reject" | null>(null);
   const { run, busy } = useAction();
   if (loading) return <Loading rows={6} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const canEdit = allows(workspace, "legal", "account_manager");
+  const shared = !!s.shared;                       // created by another workspace, sent to us
+  const awaitingUs = shared && s.status === "pending";
   return (
     <>
       <PageHead title={`${s.code} · ${s.title}`} sub={<>{label(s.side)} · {s.counterparty} · <Chip status={s.status} /> · {date(s.start_date)} – {date(s.end_date)}</>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
-          {canEdit && <button className="btn" onClick={() => setAmending(true)}>Amend / extend</button>}
-          {canEdit && <Link className="btn pri" href={`/esign/new?sow_id=${id}&title=${encodeURIComponent(`SOW ${s.code}`)}`}>Send for signature</Link>}
+          {!shared && canEdit && s.status === "draft" && (
+            <button className="btn pri" disabled={busy}
+              onClick={async () => { if (await run(() => api(`/sows/${id}/submit`, { method: "POST" }), "Sent to the other company for approval")) reload(); }}>
+              Send for approval
+            </button>
+          )}
+          {!shared && canEdit && s.status === "rejected" && (
+            <button className="btn" disabled={busy}
+              onClick={async () => { if (await run(() => api(`/sows/${id}/submit`, { method: "POST" }), "Sent again for approval")) reload(); }}>
+              Send again
+            </button>
+          )}
+          {awaitingUs && (
+            <>
+              <button className="btn pri" onClick={() => setAnswering("approve")}>Approve</button>
+              <button className="btn" onClick={() => setAnswering("reject")}>Turn down</button>
+            </>
+          )}
+          {!shared && canEdit && s.status !== "rejected" && <button className="btn" onClick={() => setAmending(true)}>Amend / extend</button>}
+          {!shared && canEdit && <Link className="btn pri" href={`/esign/new?sow_id=${id}&title=${encodeURIComponent(`SOW ${s.code}`)}`}>Send for signature</Link>}
         </>} />
+      {awaitingUs && (
+        <div className="alert mt">
+          <div><b>{s.sent_by} sent you this SOW for approval.</b>
+            <div className="muted" style={{ fontSize: 12.5 }}>Under {s.agreement}. Approving puts it into force; turning it down needs a reason.</div></div>
+        </div>
+      )}
+      {s.status === "rejected" && s.decision_note && (
+        <div className="alert mt"><div><b>Turned down{s.decision_note && ` — ${s.decision_note}`}</b></div></div>
+      )}
+      {shared ? (
+        <div className="card mt">
+          <h3>What {s.sent_by} sent you</h3>
+          <dl className="dl">
+            <dt>Reference</dt><dd>{s.code}</dd>
+            <dt>Title</dt><dd>{s.title}</dd>
+            <dt>Under agreement</dt><dd>{s.agreement}</dd>
+            <dt>Term</dt><dd>{date(s.start_date)} – {date(s.end_date)}</dd>
+            <dt>Status</dt><dd><Chip status={s.status} /></dd>
+            <dt>Sent</dt><dd>{s.sent_on ? date(s.sent_on) : "–"}</dd>
+          </dl>
+          <p className="note">Their value, invoicing and amendments stay in their workspace. This SOW only needs your answer.</p>
+        </div>
+      ) : (
+        <>
       <div className="grid k4">
         <div className="card kpi"><div className="l">Value</div><div className="v">{money(s.value_cap, true)}</div></div>
         <div className="card kpi"><div className="l">Invoiced</div><div className="v">{money(s.invoiced, true)}</div></div>
@@ -65,6 +110,25 @@ export default function SowDetail() {
       </div>
       <Acceptance entityType="sow" entityId={id} canRecord={canEdit && s.status !== "active"} onRecorded={reload} active={s.status === "active"} />
       <Attachments ownerType="sow" ownerId={id} canEdit={canEdit} />
+        </>
+      )}
+      {answering && (
+        <Modal title={answering === "approve" ? `Approve ${s.code}?` : `Turn down ${s.code}`} onClose={() => setAnswering(null)}>
+          <form className="form" onSubmit={async (e) => {
+            e.preventDefault();
+            const v: any = formValues(e.currentTarget);
+            const r = await run(() => api(`/sows/${id}/respond`, { body: { decision: answering, note: v.note } }),
+              answering === "approve" ? "Approved — the SOW is in force" : "Turned down — they will see your reason");
+            if (r) { setAnswering(null); reload(); }
+          }}>
+            {answering === "approve"
+              ? <p className="muted">{s.sent_by} can now bill or be billed under this SOW.</p>
+              : <Field label="Why are you turning it down?" name="note" as="textarea" required
+                        placeholder="Budget not agreed for this period" />}
+            <button className="btn pri mt" disabled={busy}>{answering === "approve" ? "Approve SOW" : "Turn down"}</button>
+          </form>
+        </Modal>
+      )}
       {amending && (
         <Modal title={`Amend ${s.code}`} onClose={() => setAmending(false)}>
           <form className="form" onSubmit={async (e) => {

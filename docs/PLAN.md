@@ -272,7 +272,7 @@ own invoices and projects.
 | AGR-02 | SOW table: we bill / we pay filter, value, invoiced, collected/paid, remaining, burn bar (≥75 % warn, ≥90 % bad), status; values masked by role. | ✅ |
 | AGR-03 | MSA table: kind, counterparty, we are supplier/buyer, effective, expiry (days), terms, renewal, notice, insurance, SOW count/value. | ✅ |
 | AGR-04 | SOW detail: flows-down-from / flows-down-to, warnings (runs past upstream; downstream ends first), amendment, invoices under SOW, signed copy, e-signature section. | ✅ verify warnings |
-| AGR-05 | MSA detail: SOWs under it, expiry warning ("new SOWs and payments blocked after expiry"), Start renewal. | 🟡 renewal action + blocking rule verify |
+| AGR-05 | MSA detail: SOWs under it, expiry warning ("new SOWs and payments blocked after expiry"), Start renewal. | 🟡 renewal action + blocking rule verify; two-way SOWs under one MSA with send-for-approval and approve/turn-down shipped 2026-10-17 |
 | AGR-06 | Tabs: offer letters & NDAs per consultant; policy acceptance matrix (consultant × policy); missing checklist with Remind. | ✅ verify tabs |
 | AGR-07 | Add existing MSA/SOW (already signed) with PDF; import MSAs/SOWs; templates. | ✅ |
 | AGR-08 | Amendments: draft → send for signature → applied automatically when signed. | ✅ |
@@ -643,6 +643,22 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-17 · AGR-05 · **SOWs run both ways under one MSA, with approval.** An MSA between two companies is one
+  agreement whichever workspace recorded it, so work under it has to be possible from either side. It was not:
+  `POST /sows` read the agreement with a plain SELECT and the restrictive tenant-isolation policy hides another
+  workspace's rows, so the company an MSA was *sent to* got a 404 for an MSA it could see in `GET /agreements`;
+  and a SOW copied `company_id` off the agreement, which from the counterparty's side is its *own* company, so a
+  reverse SOW would have pointed back at the sender. Now the agreement is resolved from either side and
+  `mytrakin.agreement_peer_company()` names the other party from wherever you stand. On top of that, SOWs get the
+  same approval shape as MSAs: `draft` (invisible to the other company) → sent → approved (`active`) or turned
+  down with a reason; `POST /sows/{id}/submit` and `POST /sows/{id}/respond`, migration `20261016001700`. A sent
+  SOW is shared read-only **without money** — reference, title, term, status — while value, invoiced, paid, burn
+  and amendments stay in the workspace that created them, so the AR/AP amounts that RULE-01 protects never cross a
+  workspace boundary. Verified end to end against the live ESG ↔ Velocity MSA: reverse SOW created, invisible
+  while a draft, visible once sent, the creator refused (MT403), rejection without a reason refused (MT422),
+  approval → active, rejection reason kept, third workspace sees nothing. Tests in `tests/test_sow_two_way.py`;
+  ruff, tsc and build green. **Left:** the DB-backed pytest suite still needs a machine with Postgres.
 
 - 2026-10-17 · CON-02, U-ID · **Anybody on the platform is findable; U-IDs are on profiles.** The consultant picker
   only listed people already linked to your workspace, so a colleague with an account who had never worked with you

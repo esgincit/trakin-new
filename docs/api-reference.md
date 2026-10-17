@@ -484,6 +484,9 @@ List Sows
 
 Add a SOW / work order — new, or already signed outside myTrakIn with what was invoiced before.
 
+The agreement may be one this workspace recorded or one another workspace recorded
+with one of our companies: work under an MSA runs both ways.
+
 Body (`application/json`):
 
 | Field | Type | Required |
@@ -533,6 +536,31 @@ Get Sow
 | Parameter | In | Type | Required |
 |---|---|---|---|
 | `sow_id` | path | uuid | yes |
+
+### `POST /v1/sows/{sow_id}/submit`
+
+Send a draft SOW to the other company for approval. Until this is done it is a
+draft and the other company cannot see it.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `sow_id` | path | uuid | yes |
+
+### `POST /v1/sows/{sow_id}/respond`
+
+The company a SOW was sent to approves it (it comes into force) or turns it down
+with a reason.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `sow_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `decision` | one of approve, reject | yes |
+| `note` | string (optional) |  |
 
 ### `POST /v1/sows/{sow_id}/amendments`
 
