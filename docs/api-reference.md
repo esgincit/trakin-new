@@ -32,6 +32,8 @@ In development the interactive docs are at `/docs` (Swagger) and `/redoc`. They 
 - [scheduled jobs](#scheduled-jobs)
 - [files](#files)
 - [company onboarding](#company-onboarding)
+- [acceptances](#acceptances)
+- [roles & permissions](#roles-permissions)
 - [consultants](#consultants)
 - [health](#health)
 
@@ -130,6 +132,18 @@ Dashboard
 
 ## companies
 
+### `GET /v1/companies/directory`
+
+Searchable company directory (Business ID, name, type) for picking an agreement
+counterparty: every active company in any tenant. Directory columns only — full
+profiles stay gated behind tenant RLS. `exclude` drops the company the agreement
+is being made from: an agreement can't be between a company and itself.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `q` | query | string (optional) |  |
+| `exclude` | query | uuid (optional) |  |
+
 ### `GET /v1/companies`
 
 List Companies
@@ -149,7 +163,8 @@ Body (`application/json`):
 | Field | Type | Required |
 |---|---|---|
 | `name` | string | yes |
-| `kind` | one of client, prime_vendor, vendor, end_client | yes |
+| `kind` | one of client, prime_vendor, vendor, end_client (optional) |  |
+| `kinds` | list of string (optional) |  |
 | `ein` | string (optional) |  |
 | `state` | string (optional) |  |
 | `address` | string (optional) |  |
@@ -186,6 +201,7 @@ Body (`application/json`):
 |---|---|---|
 | `name` | string (optional) |  |
 | `kind` | string (optional) |  |
+| `kinds` | list of string (optional) |  |
 | `ein` | string (optional) |  |
 | `state` | string (optional) |  |
 | `address` | string (optional) |  |
@@ -347,6 +363,29 @@ Remove someone from the company (history is kept). The last owner can't be remov
 | `company_id` | path | uuid | yes |
 | `member_id` | path | uuid | yes |
 
+### `POST /v1/companies/{company_id}/msas`
+
+A company's owner/admin starts an MSA with another registered company —
+recording one already signed, or requesting a new one. Staff can do the same.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `company_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `counterparty_company_id` | uuid | yes |
+| `kind` | one of msa, subcontract |  |
+| `tenant_side` | one of supplier, buyer |  |
+| `existing` | boolean |  |
+| `effective_on` | date (optional) |  |
+| `expires_on` | date (optional) |  |
+| `payment_terms` | string (optional) |  |
+| `signed_by` | string (optional) |  |
+| `note` | string (optional) |  |
+
 ## contracts
 
 ### `GET /v1/agreements`
@@ -365,7 +404,7 @@ Body (`application/json`):
 
 | Field | Type | Required |
 |---|---|---|
-| `code` | string | yes |
+| `code` | string (optional) |  |
 | `kind` | one of msa, subcontract, ica, nda, offer_letter | yes |
 | `company_id` | uuid (optional) |  |
 | `consultant_id` | uuid (optional) |  |
@@ -379,6 +418,51 @@ Body (`application/json`):
 | `status` | one of draft, active |  |
 | `signed_by` | string (optional) |  |
 | `source` | one of myTrakIn, manual, imported |  |
+
+### `POST /v1/agreements/{agreement_id}/respond`
+
+The company an MSA was sent to accepts it (it comes into force) or rejects it with a note.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `agreement_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `decision` | one of accept, reject | yes |
+| `note` | string (optional) |  |
+
+### `POST /v1/agreements/{agreement_id}/renewals`
+
+Either company asks to renew an MSA until a new end date. The other company accepts or declines.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `agreement_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `expires_on` | date | yes |
+| `note` | string (optional) |  |
+
+### `POST /v1/agreements/renewals/{renewal_id}/respond`
+
+Accept a renewal (the end date moves to the one proposed) or decline it with a note.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `renewal_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `decision` | one of accept, decline | yes |
+| `note` | string (optional) |  |
 
 ### `GET /v1/agreements/{agreement_id}`
 
@@ -404,8 +488,34 @@ Body (`application/json`):
 
 | Field | Type | Required |
 |---|---|---|
-| `code` | string | yes |
+| `code` | string (optional) |  |
 | `agreement_id` | uuid | yes |
+| `project_id` | uuid (optional) |  |
+| `side` | one of we_bill, we_pay | yes |
+| `title` | string | yes |
+| `start_date` | date | yes |
+| `end_date` | date | yes |
+| `value_cap` | number or string (optional) |  |
+| `prior_invoiced` | number or string (optional) |  |
+| `prior_paid` | number or string (optional) |  |
+| `flows_from_sow_id` | uuid (optional) |  |
+| `status` | one of draft, active |  |
+
+### `POST /v1/projects/{project_id}/sows`
+
+Add a SOW (or a vendor / contractor work order) under a project (WF-04).
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `project_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `code` | string (optional) |  |
+| `agreement_id` | uuid | yes |
+| `project_id` | uuid (optional) |  |
 | `side` | one of we_bill, we_pay | yes |
 | `title` | string | yes |
 | `start_date` | date | yes |
@@ -448,7 +558,11 @@ What is missing or expiring: agreements, NDAs, offers, policies, documents.
 
 ### `GET /v1/projects/next-code`
 
-Suggested code for the New project form (the field stays editable).
+Suggested code for the New project form, from the tenant's numbering template (the field stays editable).
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `client_company_id` | query | uuid (optional) |  |
 
 ### `GET /v1/projects`
 
@@ -509,6 +623,7 @@ List Placements
 | Parameter | In | Type | Required |
 |---|---|---|---|
 | `status` | query | string (optional) |  |
+| `project_id` | query | uuid (optional) |  |
 
 ### `POST /v1/placements`
 
@@ -520,6 +635,44 @@ Body (`application/json`):
 |---|---|---|
 | `consultant_id` | uuid | yes |
 | `project_id` | uuid | yes |
+| `role_title` | string (optional) |  |
+| `start_date` | date | yes |
+| `end_date` | date (optional) |  |
+| `hours_per_week` | number or string (optional) |  |
+| `end_client_company_id` | uuid (optional) |  |
+| `ar_company_id` | uuid (optional) |  |
+| `ar_sow_id` | uuid (optional) |  |
+| `bill_rate` | number or string (optional) |  |
+| `ar_terms` | string (optional) |  |
+| `ap_company_id` | uuid (optional) |  |
+| `ap_consultant_id` | uuid (optional) |  |
+| `ap_sow_id` | uuid (optional) |  |
+| `pay_rate` | number or string (optional) |  |
+| `ap_terms` | string (optional) |  |
+| `pay_when_paid` | boolean |  |
+
+### `GET /v1/sows/{sow_id}/resources`
+
+Everyone working under this SOW or work order — each with their own contract, timesheets, invoices and payments.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `sow_id` | path | uuid | yes |
+
+### `POST /v1/sows/{sow_id}/resources`
+
+Put a consultant on a SOW: one SOW can carry one or many resources (WF-04).
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `sow_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `consultant_id` | uuid | yes |
+| `project_id` | uuid (optional) |  |
 | `role_title` | string (optional) |  |
 | `start_date` | date | yes |
 | `end_date` | date (optional) |  |
@@ -736,6 +889,30 @@ Body (`application/json`):
 | `paid_on` | date | yes |
 | `method` | one of ACH, Wire, Check, Card, Other | yes |
 | `reference` | string (optional) |  |
+| `status` | one of pending, processing, completed |  |
+
+### `POST /v1/payments/{payment_id}/status`
+
+Move a payment in flight forward: pending → processing → completed. Completed counts against the invoice.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `payment_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `status` | one of processing, completed | yes |
+
+### `POST /v1/payments/{payment_id}/confirm`
+
+Payment confirmation closes the financial lifecycle: finance confirms money received from a customer;
+the vendor (or 1099 contractor) — or finance on their behalf — confirms money paid to them.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `payment_id` | path | uuid | yes |
 
 ### `POST /v1/invoices/{invoice_id}/notes`
 
@@ -943,6 +1120,19 @@ Body (`application/json`):
 
 ## e-signatures
 
+### `GET /v1/envelopes/signing-parties`
+
+Who is expected to sign: us (the person sending, from their own company) and the
+people who may sign for the other company. The counterparty's admins are offered as a
+pick list rather than typed in — a document can only ask the company's own admins to
+sign for it. Their company record itself stays unreadable (RULE-01).
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `agreement_id` | query | uuid (optional) |  |
+| `sow_id` | query | uuid (optional) |  |
+| `amendment_id` | query | uuid (optional) |  |
+
 ### `GET /v1/envelopes`
 
 List Envelopes
@@ -968,6 +1158,8 @@ Body (`multipart/form-data`):
 | `consultant_id` | uuid (optional) |  |
 | `sequential` | boolean |  |
 | `remind_every_days` | integer |  |
+| `files` | list of string (optional) |  |
+| `document_paths` | string (optional) |  |
 | `file` | string (optional) |  |
 | `document_path` | string (optional) |  |
 
@@ -978,6 +1170,39 @@ Get Envelope
 | Parameter | In | Type | Required |
 |---|---|---|---|
 | `envelope_id` | path | uuid | yes |
+
+### `GET /v1/envelopes/{envelope_id}/documents/{document_id}/download`
+
+A link to one document of the envelope, so it can be read without signing anything.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `envelope_id` | path | uuid | yes |
+| `document_id` | path | uuid | yes |
+
+### `POST /v1/envelopes/{envelope_id}/documents`
+
+Add one more PDF to a draft envelope (an exhibit, a SOW under the MSA).
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `envelope_id` | path | uuid | yes |
+
+Body (`multipart/form-data`):
+
+| Field | Type | Required |
+|---|---|---|
+| `file` | string (optional) |  |
+| `document_path` | string (optional) |  |
+
+### `DELETE /v1/envelopes/{envelope_id}/documents/{document_id}`
+
+Take a document out of a draft envelope and renumber what is left.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `envelope_id` | path | uuid | yes |
+| `document_id` | path | uuid | yes |
 
 ### `POST /v1/envelopes/{envelope_id}/send`
 
@@ -1301,10 +1526,19 @@ Body (`application/json`):
 | `manager_id` | uuid (optional) |  |
 | `signing_limit` | number or string (optional) |  |
 | `status` | one of active, locked, deactivated (optional) |  |
+| `mfa_allowed` | boolean (optional) |  |
 
 ### `DELETE /v1/users/{membership_id}`
 
 Withdraw an invitation that hasn't been accepted. Active users are deactivated instead (history is kept).
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `membership_id` | path | uuid | yes |
+
+### `POST /v1/users/{membership_id}/transfer-ownership`
+
+Hand the company to another staff user. They become admin + owner; you stay an admin.
 
 | Parameter | In | Type | Required |
 |---|---|---|---|
@@ -1343,6 +1577,14 @@ Body (`application/json`):
 | `ein` | string (optional) |  |
 | `state` | string (optional) |  |
 | `settings` | object (optional) |  |
+
+### `GET /v1/workspace/workflow`
+
+The workflow switches every gate reads (NDA, MSA, acceptance, resource contract).
+
+### `GET /v1/workspace/numbering`
+
+Numbering template per entity (saved or default) with the next number each would produce (WF-08).
 
 ### `POST /v1/workspace/onboarding-step`
 
@@ -1535,32 +1777,16 @@ Body (`application/json`):
 
 ### `GET /v1/platform/metrics`
 
-Metrics
+Everything on the platform dashboard: people, companies, the onboarding pipeline, our SaaS revenue
+and the money moving through myTrakIn (totals only).
 
 ### `GET /v1/platform/tenants`
 
 Tenants
 
-### `POST /v1/platform/tenants`
-
-Create a workspace and invite its first admin.
-
-Body (`application/json`):
-
-| Field | Type | Required |
-|---|---|---|
-| `name` | string | yes |
-| `legal_name` | string (optional) |  |
-| `ein` | string (optional) |  |
-| `state` | string (optional) |  |
-| `plan` | one of starter, growth, enterprise |  |
-| `admin_email` | email | yes |
-| `admin_name` | string (optional) |  |
-| `trial` | boolean |  |
-
 ### `PATCH /v1/platform/tenants/{tenant_id}`
 
-Change plan, extend a trial, suspend (users can't sign in) or close a workspace.
+Change plan, extend a trial, suspend (users can't sign in) or close a company.
 
 | Parameter | In | Type | Required |
 |---|---|---|---|
@@ -1574,29 +1800,72 @@ Body (`application/json`):
 | `status` | one of onboarding, active, suspended, closed (optional) |  |
 | `trial_ends_on` | date (optional) |  |
 
-### `GET /v1/platform/signups`
+### `GET /v1/platform/companies`
 
-Signups
+Every company on myTrakIn. status=pending -> registered and waiting for activation.
 
 | Parameter | In | Type | Required |
 |---|---|---|---|
 | `status` | query | string (optional) |  |
 
-### `POST /v1/platform/signups/{signup_id}/decision`
+### `GET /v1/platform/companies/{tenant_id}`
 
-Decide Signup
+What the platform needs to decide: the company's onboarding record, W-9 and verification checks.
 
 | Parameter | In | Type | Required |
 |---|---|---|---|
-| `signup_id` | path | uuid | yes |
+| `tenant_id` | path | uuid | yes |
+
+### `POST /v1/platform/companies/{tenant_id}/decision`
+
+Activate a new company, ask its owner for more, or reject it (closed). The owner is e-mailed.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `tenant_id` | path | uuid | yes |
 
 Body (`application/json`):
 
 | Field | Type | Required |
 |---|---|---|
-| `decision` | one of approved, rejected, needs_info | yes |
+| `decision` | one of activate, needs_info, reject | yes |
 | `note` | string (optional) |  |
-| `plan` | one of starter, growth, enterprise (optional) |  |
+
+### `POST /v1/platform/companies/{tenant_id}/owner`
+
+Support action when an owner has left: make an existing active staff user the owner (audited).
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `tenant_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | email | yes |
+
+### `GET /v1/platform/admins`
+
+Admins
+
+### `POST /v1/platform/admins`
+
+Add Admin
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | email | yes |
+
+### `DELETE /v1/platform/admins/{user_id}`
+
+Remove Admin
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `user_id` | path | uuid | yes |
 
 ## public
 
@@ -1705,23 +1974,6 @@ Body (`multipart/form-data`):
 | `ein` | string (optional) |  |
 | `files` | list of string (optional) |  |
 
-### `POST /v1/public/signups`
-
-A staffing company asks for a workspace. The platform owner approves it.
-
-Body (`application/json`):
-
-| Field | Type | Required |
-|---|---|---|
-| `company` | string | yes |
-| `contact_name` | string | yes |
-| `email` | email | yes |
-| `phone` | string (optional) |  |
-| `state` | string (optional) |  |
-| `ein` | string (optional) |  |
-| `plan` | one of starter, growth, enterprise |  |
-| `seats` | integer |  |
-
 ## scheduled jobs
 
 ### `GET /v1/cron/daily`
@@ -1761,6 +2013,27 @@ Body (`application/json`):
 |---|---|---|
 | `country` | one of US, IN | yes |
 
+### `POST /v1/onboarding/accounts`
+
+Create my company: opens a new company (pending platform activation) with me as its
+owner and starts the wizard inside it. The web app then sends X-Tenant-Id = tenant_id.
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `country` | one of US, IN | yes |
+
+### `DELETE /v1/onboarding/accounts/{tenant_id}`
+
+Throw away my own unfinished company draft (wizard closed before anything was
+submitted). Only drafts — no company profile yet — can be discarded; a submitted
+company waits for the platform decision. Frees a slot under the 3-pending cap.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `tenant_id` | path | uuid | yes |
+
 ### `POST /v1/onboarding/sessions/{session_id}/w9`
 
 US step 1: upload the W-9. Format, parsing and EIN uniqueness are validated
@@ -1789,7 +2062,8 @@ Body (`application/json`):
 
 | Field | Type | Required |
 |---|---|---|
-| `kind` | one of client, prime_vendor, vendor, end_client | yes |
+| `kind` | one of client, prime_vendor, vendor, end_client (optional) |  |
+| `kinds` | list of string (optional) |  |
 | `step` | integer (optional) |  |
 | `domain` | string (optional) |  |
 | `company_email` | email (optional) |  |
@@ -1861,7 +2135,109 @@ Body (`application/json`):
 |---|---|---|
 | `authorized` | boolean |  |
 
+## acceptances
+
+### `GET /v1/acceptances`
+
+Acceptance History
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `entity_type` | query | string | yes |
+| `entity_id` | query | uuid | yes |
+
+### `POST /v1/acceptances`
+
+Record acceptance given outside myTrakIn. The agreement / SOW becomes active; an amendment is applied.
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `entity_type` | string | yes |
+| `entity_id` | uuid | yes |
+| `accepted_by` | string | yes |
+| `note` | string (optional) |  |
+
+## roles & permissions
+
+### `GET /v1/roles`
+
+List Roles
+
+### `POST /v1/roles`
+
+Create Role
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | string | yes |
+| `base_role` | one of tenant_admin, finance, account_manager, legal, hr, approver, viewer, vendor_admin, client_user, consultant | yes |
+| `permissions` | object |  |
+
+### `PATCH /v1/roles/{role_id}`
+
+Update Role
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `role_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | string (optional) |  |
+| `permissions` | object (optional) |  |
+
+### `DELETE /v1/roles/{role_id}`
+
+Members of a deleted role fall back to their base role's access.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `role_id` | path | uuid | yes |
+
+### `PATCH /v1/users/{membership_id}/access`
+
+Give someone a custom role and/or per-module exceptions. A custom role also sets their base role.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `membership_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `custom_role_id` | uuid (optional) |  |
+| `permission_overrides` | object (optional) |  |
+
 ## consultants
+
+### `GET /v1/consultants/engagement-types`
+
+C2C, E2E (employer-to-employer), 1099, W-2 … — from the engagement_types table.
+
+### `GET /v1/consultants/candidates`
+
+Any registered myTrakIn user, to pick from when onboarding a consultant.
+Search by name, U-ID or e-mail; every result shows its U-ID.
+
+A consultant must be someone who already has an account somewhere on the platform:
+their name, e-mail and mobile come from their profile rather than being typed again,
+and the U-ID is what ties them across workspaces. Onboarding adds them to this
+workspace. `already_consultant` flags the ones on the books here already,
+`in_workspace` the ones who already have access here in some other role.
+
+A term is required (2 characters or more) so this cannot be used to page through
+everybody on the platform.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `q` | query | string | yes |
 
 ### `GET /v1/consultants`
 
@@ -1873,16 +2249,17 @@ List Consultants
 
 ### `POST /v1/consultants`
 
-Start onboarding. The checklist depends on the engagement type.
+Start onboarding for someone who already has a myTrakIn account. Their name,
+e-mail and mobile come from their profile, so a consultant can't be created as a
+near-duplicate of a person who is already here under another name. They may be new
+to this workspace: onboarding is what gives them access here.
 
 Body (`application/json`):
 
 | Field | Type | Required |
 |---|---|---|
-| `full_name` | string | yes |
-| `email` | email | yes |
-| `phone` | string (optional) |  |
-| `engagement` | one of w2_fulltime, w2_contract, c2c, 1099 | yes |
+| `user_id` | uuid | yes |
+| `engagement` | string | yes |
 | `employer_company_id` | uuid (optional) |  |
 | `title` | string (optional) |  |
 | `location` | string (optional) |  |

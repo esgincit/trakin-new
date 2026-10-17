@@ -309,6 +309,11 @@ async def test_profile_photo_post_and_message(client, auth, user_ids):
         "headline": "SAP GRC Consultant", "skills": ["SAP GRC", "S/4 Security"],
         "experience": [{"title": "GRC Consultant", "company": "BrightPath", "start": "2024"}]})
     assert updated.status_code == 200, updated.text
+    # A profile carries the person's system-wide U-ID, and it survives an edit.
+    assert updated.json()["user_code"], updated.text
+    assert (await client.get("/network/me", headers=consultant)).json()["user_code"] == updated.json()["user_code"]
+    assert (await client.get(f"/network/people/{user_ids['consultant']}",
+                             headers=auth("admin"))).json()["user_code"] == updated.json()["user_code"]
     png = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
     photo = await client.post("/network/me/photo", headers=consultant, files={"file": ("me.png", png, "image/png")})
     assert photo.status_code == 200 and photo.json()["url"]

@@ -65,8 +65,9 @@ function Consultants() {
 function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: string) => void }) {
   const [engagement, setEngagement] = useState("w2_contract");
   const vendors = useApi<any[]>("/companies", { kind: "vendor" });
-  // The consultant is someone who already has an account: search for them by name,
-  // U-ID or e-mail, and their details come from their profile.
+  // The consultant is someone who already has an account somewhere on myTrakIn:
+  // search every registered user by name, U-ID or e-mail, and their details come
+  // from their profile. They may be new to this workspace.
   const [term, setTerm] = useState("");
   const [found, setFound] = useState<any[]>([]);
   const [looking, setLooking] = useState(false);
@@ -128,7 +129,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
                 {looking && <p className="note" style={{ marginTop: -6 }}>Searching…</p>}
                 {!looking && term.trim().length >= 2 && !found.length && (
                   <p className="note" style={{ marginTop: -6 }}>
-                    Nobody matches “{term.trim()}”. The person needs a myTrakIn account before they can be onboarded.
+                    Nobody matches “{term.trim()}”. The person needs a myTrakIn account somewhere on the platform before they can be onboarded.
                   </p>
                 )}
                 {found.length > 0 && (
@@ -140,6 +141,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
                           <b>{p.full_name ?? p.email}</b>{" "}
                           <code>{p.user_code ?? "no U-ID"}</code>
                           {p.already_consultant > 0 && <span className="muted"> · already a consultant here</span>}
+                          {!p.in_workspace && <span className="muted"> · new to this workspace</span>}
                           <div className="muted" style={{ fontSize: 12.5 }}>{p.email}{p.phone ? ` · ${p.phone}` : ""}</div>
                         </div>
                       </button>
@@ -149,7 +151,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
               </>
             )}
             <p className="note" style={{ marginTop: -6 }}>
-              Pick someone who already has a myTrakIn account — their name, e-mail and mobile come from their profile.
+              Pick anyone registered on myTrakIn — their name, e-mail and mobile come from their profile, and onboarding gives them access here.
             </p>
           </div>
           <Field label="E-mail" name="email" type="email" readOnly value={person?.email ?? ""} placeholder="Filled in when you pick someone" />

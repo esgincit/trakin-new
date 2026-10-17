@@ -74,12 +74,19 @@ class ProfileIn(BaseModel):
 JSON_FIELDS = {"skills", "experience", "certifications", "education", "preferences", "notifications"}
 
 
-@router.get("/me")
-async def my_profile(db: TenantDb = Depends(member_db)):
-    row = await db.one("select * from profiles where id = :u", {"u": db.ctx.user_id})
+async def _me(db: TenantDb) -> dict:
+    """My own profile, with the system-wide U-ID that ties me across workspaces."""
+    row = await db.one(
+        "select p.*, uc.code as user_code from profiles p "
+        "left join user_codes uc on uc.user_id = p.id where p.id = :u", {"u": db.ctx.user_id})
     if row is None:
         raise not_found("Profile")
     return _card(row)
+
+
+@router.get("/me")
+async def my_profile(db: TenantDb = Depends(member_db)):
+    return await _me(db)
 
 
 @router.patch("/me")
@@ -95,7 +102,8 @@ async def update_profile(body: ProfileIn, db: TenantDb = Depends(member_db)):
         else:
             sets.append(f"{key} = :{key}")
             params[key] = value
-    return _card(await db.one(f"update profiles set {', '.join(sets)} where id = :u returning *", params))
+    await db.run(f"update profiles set {', '.join(sets)} where id = :u", params)
+    return await _me(db)
 
 
 @router.post("/me/photo")
@@ -152,9 +160,9 @@ async def person(person_id: UUID, db: TenantDb = Depends(member_db)):
     if not await db.val("select mytrakin.visible_profile(:p)", {"p": person_id}):
         raise not_found("Profile")
     row = await db.one(
-        """select id, full_name, headline, location, about, avatar_path, cover_path, open_to_work, skills, experience,
-                  certifications, education, website, show_contact, email, phone
-             from profiles where id = :p""", {"p": person_id})
+        """select p.id, p.full_name, p.headline, p.location, p.about, p.avatar_path, p.cover_path, p.open_to_work, p.skills,
+                  p.experience, p.certifications, p.education, p.website, p.show_contact, p.email, p.phone, uc.code as user_code
+             from profiles p left join user_codes uc on uc.user_id = p.id where p.id = :p""", {"p": person_id})
     connection = await db.one(
         """select status, requester_id = :u as i_asked from connections
             where (requester_id = :u and addressee_id = :p) or (requester_id = :p and addressee_id = :u)""",

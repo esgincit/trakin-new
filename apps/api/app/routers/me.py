@@ -23,7 +23,9 @@ router = APIRouter(tags=["me"])
 async def me(db: TenantDb = Depends(user_db)):
     """Profile, the workspaces this person can open, and whether they own the platform."""
     uid = db.ctx.user_id
-    profile = await db.one("select id, email, full_name, headline, avatar_path, preferences from profiles where id = :u", {"u": uid})
+    profile = await db.one(
+        """select p.id, p.email, p.full_name, p.headline, p.avatar_path, p.preferences, uc.code as user_code
+             from profiles p left join user_codes uc on uc.user_id = p.id where p.id = :u""", {"u": uid})
     if profile is not None and profile.get("avatar_path"):
         profile["avatar_url"] = storage.public_url("avatars", profile["avatar_path"])
     elif profile is not None:

@@ -12,6 +12,7 @@ export function ProfileView({ p, actions }: { p: any; actions?: ReactNode }) {
           <div style={{ padding: "0 20px 20px" }}>
             {p.avatar_url ? <img className="bigav" src={p.avatar_url} alt="" /> : <div className="bigav">{(p.full_name ?? "?").split(" ").map((x: string) => x[0]).slice(0, 2).join("")}</div>}
             <h1 style={{ marginTop: 8 }}>{p.full_name}</h1>
+            {p.user_code && <div className="muted" style={{ fontSize: 12.5 }}>ID <code>{p.user_code}</code></div>}
             <div>{p.headline}</div>
             <div className="muted">{p.location}{p.connections != null && ` · ${p.connections} connections`}</div>
             {p.open_to_work && <Chip status="ok">Open to work</Chip>}

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Find anybody on the platform when onboarding a consultant, and show your U-ID on your profile (2026-10-17, PLAN
+  CON-02, U-ID):**
+  - **The picker searches every registered myTrakIn user, not only your own workspace.** It previously listed just
+    the people already linked to your workspace (members, plus people added to your companies), so searching for a
+    colleague who has an account but has never worked with you returned "Nobody matches". `GET /consultants/candidates`
+    now matches on name, U-ID or e-mail across the platform and marks each result `new to this workspace` where
+    they have no access here yet. Only id, U-ID, name, e-mail and mobile are returned — never anything else from a
+    profile that is not yours — and a search term of two characters or more is required, so it cannot be used to
+    page through the whole user list.
+  - **Onboarding somebody who is new to your workspace now actually works.** Giving them access meant inserting a
+    membership, and `memberships` is tenant-admin-only under row-level security, so HR, account managers and legal
+    could never do it — only an owner could, by hand. `mytrakin.grant_consultant_access()` (migration
+    `20261016001600`) is the narrow way in: it may create a *consultant* membership, or attach the consultant link
+    to somebody who is already a member here, keeping the role they have. It cannot change anybody's role or status.
+  - **A person's U-ID is shown on their profile.** `/network/me` and `/network/people/{id}` return `user_code`, and
+    both the "My profile" page and any colleague's profile now show it under the name. It was in the users list, the
+    consultant list and the consultant record, but missing from the profile itself.
 - **Onboarding a consultant: pick the person, don't type them (2026-10-17, PLAN CON-02):** the free-text "Full name"
   box is gone. Search the people registered with your workspace by name, U-ID or e-mail; each result shows the U-ID,
   and anyone already on the books here is marked as such. Choosing someone fills in the e-mail and mobile, and the
