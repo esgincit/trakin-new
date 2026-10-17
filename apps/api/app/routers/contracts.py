@@ -104,6 +104,8 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
                            (select full_name from consultants where id = cast(:con as uuid)))""",
         {"co": body.company_id, "con": body.consultant_id})
     code = (body.code or "").strip().upper() or await numbering.next_code(db, body.kind, CLIENT=counterparty)
+    # An MSA with a company is pending until that company accepts it (or rejects it).
+    status = "pending" if body.kind in ("msa", "subcontract") and body.company_id else body.status
     return await db.one(
         """insert into agreements (tenant_id, code, kind, company_id, consultant_id, tenant_side, effective_on, expires_on,
                                    payment_terms, renewal, notice_period, insurance_required, status, signed_by, source)
@@ -111,8 +113,47 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
            returning *""",
         {"t": db.ctx.tenant_id, "code": code, "kind": body.kind, "co": body.company_id, "con": body.consultant_id,
          "side": body.tenant_side, "eff": body.effective_on, "exp": body.expires_on, "terms": body.payment_terms,
-         "renew": body.renewal, "notice": body.notice_period, "ins": body.insurance_required, "status": body.status,
+         "renew": body.renewal, "notice": body.notice_period, "ins": body.insurance_required, "status": status,
          "by": body.signed_by, "src": body.source})
+
+
+class RespondIn(BaseModel):
+    decision: str = Field(pattern="^(accept|reject)$")
+    note: str | None = Field(None, max_length=1000)
+
+
+class RenewalIn(BaseModel):
+    expires_on: date
+    note: str | None = Field(None, max_length=1000)
+
+
+class RenewalDecisionIn(BaseModel):
+    decision: str = Field(pattern="^(accept|decline)$")
+    note: str | None = Field(None, max_length=1000)
+
+
+@router.post("/agreements/{agreement_id}/respond")
+async def respond_to_agreement(agreement_id: UUID, body: RespondIn, db: TenantDb = Depends(tenant_db)):
+    """The company an MSA was sent to accepts it (it comes into force) or rejects it with a note."""
+    await db.run("select mytrakin.respond_to_agreement(:a, :d, :n)",
+                 {"a": agreement_id, "d": "accept" if body.decision == "accept" else "reject", "n": body.note})
+    return await get_agreement(agreement_id, db)
+
+
+@router.post("/agreements/{agreement_id}/renewals", status_code=201)
+async def request_renewal(agreement_id: UUID, body: RenewalIn, db: TenantDb = Depends(tenant_db)):
+    """Either company asks to renew an MSA until a new end date. The other company accepts or declines."""
+    rid = await db.val("select mytrakin.request_renewal(:a, :e, :n)",
+                       {"a": agreement_id, "e": body.expires_on, "n": body.note})
+    return {"id": rid, "status": "pending"}
+
+
+@router.post("/agreements/renewals/{renewal_id}/respond")
+async def respond_to_renewal(renewal_id: UUID, body: RenewalDecisionIn, db: TenantDb = Depends(tenant_db)):
+    """Accept a renewal (the end date moves to the one proposed) or decline it with a note."""
+    await db.run("select mytrakin.respond_to_renewal(:r, :d, :n)",
+                 {"r": renewal_id, "d": "accept" if body.decision == "accept" else "decline", "n": body.note})
+    return {"id": renewal_id, "decision": body.decision}
 
 
 @router.get("/agreements/{agreement_id}")
@@ -130,6 +171,7 @@ async def get_agreement(agreement_id: UUID, db: TenantDb = Depends(tenant_db)):
             raise not_found("Agreement")
         row["sows"] = []
         row["envelopes"] = []
+        row["renewals"] = await db.all("select * from mytrakin.agreement_renewals_for(:a)", {"a": agreement_id})
         return row
     row["sows"] = await db.all("select s.id, s.code, s.title, s.end_date, b.burn_pct from sows s left join sow_burn b on b.sow_id = s.id "
                                "where s.agreement_id = :id order by s.end_date", {"id": agreement_id})
@@ -140,6 +182,7 @@ async def get_agreement(agreement_id: UUID, db: TenantDb = Depends(tenant_db)):
                      from mytrakin.envelope_documents d where d.envelope_id = e.id) as documents
              from envelopes e where e.agreement_id = :id order by e.created_at desc""",
         {"id": agreement_id})
+    row["renewals"] = await db.all("select * from mytrakin.agreement_renewals_for(:a)", {"a": agreement_id})
     return row
 
 
@@ -255,7 +298,7 @@ async def missing_items(db: TenantDb = Depends(tenant_db)):
              select 'agreement' as category, 'bad' as tone, c.name as who, 'No MSA on file' as what, 'company' as ref_type, c.id::text as ref_id
                from companies c
                where c.status <> 'inactive' and c.kinds && array['client', 'prime_vendor', 'vendor']
-                and not exists (select 1 from agreements a where a.company_id = c.id and a.status in ('active', 'out_for_signature'))
+                and not exists (select 1 from agreements a where a.company_id = c.id and a.status in ('active', 'accepted', 'out_for_signature'))
              union all
              select 'agreement', 'bad', k.full_name,
                     case k.engagement when '1099' then 'Independent contractor agreement missing' else 'Offer letter not signed' end,

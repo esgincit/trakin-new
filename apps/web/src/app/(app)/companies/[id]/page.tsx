@@ -237,7 +237,7 @@ function CompanyMsaModal({ company, onClose, onDone }: { company: any; onClose: 
         e.preventDefault();
         const v: any = formValues(e.currentTarget);
         const body = { ...v, existing, counterparty_company_id: counterparty || undefined };
-        const r = await run(() => api(`/companies/${company.id}/msas`, { body }), existing ? "Signed MSA recorded" : "MSA request sent");
+        const r = await run(() => api(`/companies/${company.id}/msas`, { body }), "MSA sent — pending their acceptance");
         if (r) onDone();
       }}>
         <div className="fields">

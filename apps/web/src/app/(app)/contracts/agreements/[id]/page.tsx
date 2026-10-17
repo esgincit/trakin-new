@@ -2,13 +2,94 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
 import { Acceptance } from "@/components/Acceptance";
 import { Attachments } from "@/components/Attachments";
-import { Bar, Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
+
+const MASTER = ["msa", "subcontract"];
+
+/** The company an MSA was sent to accepts it (it comes into force) or rejects it with a note. */
+function RespondPanel({ id, onDone }: { id: string; onDone: () => void }) {
+  const { run, busy } = useAction();
+  const [note, setNote] = useState("");
+  return (
+    <div className="card mt">
+      <h3>Accept this MSA?</h3>
+      <p className="muted">The sending company wants this MSA in place with you. Accepting brings it into force; rejecting sends it back with your reason.</p>
+      <Field label="Note (required to reject)" name="note" as="textarea" value={note} onChange={(e: any) => setNote(e.target.value)} full />
+      <div className="row mt">
+        <button className="btn pri" disabled={busy} onClick={async () => {
+          if (await run(() => api(`/agreements/${id}/respond`, { body: { decision: "accept", note: note.trim() || undefined } }), "MSA accepted")) onDone();
+        }}>Accept MSA</button>
+        <button className="btn" disabled={busy || !note.trim()} onClick={async () => {
+          if (await run(() => api(`/agreements/${id}/respond`, { body: { decision: "reject", note: note.trim() } }), "MSA rejected")) onDone();
+        }}>Reject with note</button>
+      </div>
+    </div>
+  );
+}
+
+/** Renewal requests: either company asks; the other accepts (end date moves) or declines with a note. */
+function Renewals({ id, a, mySide, onDone }: { id: string; a: any; mySide: string; onDone: () => void }) {
+  const { run, busy } = useAction();
+  const [expires, setExpires] = useState("");
+  const [note, setNote] = useState("");
+  const canRequest = MASTER.includes(a.kind) && ["accepted", "active", "expired"].includes(a.status);
+  return (
+    <div className="card mt">
+      <h3>Renewal</h3>
+      {a.status === "expired" && <p className="err" style={{ marginTop: 0 }}>This MSA expired on {date(a.expires_on)}. Request a renewal to put a new end date on it.</p>}
+      {(a.renewals ?? []).map((r: any) => (
+        <div key={r.id} className="alert">
+          <Chip status={r.status} />
+          <div style={{ flex: 1 }}>
+            <b>Renew until {date(r.proposed_expires_on)}</b> · requested by {r.requested_by_name ?? "the other company"} on {date(r.requested_on)}
+            {r.note && <div className="muted" style={{ fontSize: 12.5 }}>Note: {r.note}</div>}
+            {r.decision_note && <div className="muted" style={{ fontSize: 12.5 }}>Answer: {r.decision_note}</div>}
+            {r.status === "pending" && r.requested_side !== mySide && <RenewalAnswer renewalId={r.id} disabledBusy={busy} onDone={onDone} />}
+          </div>
+        </div>
+      ))}
+      {!(a.renewals ?? []).length && <p className="muted">No renewal requests yet.</p>}
+      {canRequest && !(a.renewals ?? []).some((r: any) => r.status === "pending") && (
+        <div className="form mt">
+          <div className="fields">
+            <Field label="New end date" name="expires_on" type="date" value={expires} onChange={(e: any) => setExpires(e.target.value)} />
+            <Field label="Note for the other company" name="note" as="textarea" value={note} onChange={(e: any) => setNote(e.target.value)} full />
+          </div>
+          <button className="btn pri" disabled={busy || !expires} onClick={async () => {
+            if (await run(() => api(`/agreements/${id}/renewals`, { body: { expires_on: expires, note: note.trim() || undefined } }), "Renewal requested")) {
+              setExpires(""); setNote(""); onDone();
+            }
+          }}>Request renewal</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RenewalAnswer({ renewalId, disabledBusy, onDone }: { renewalId: string; disabledBusy: boolean; onDone: () => void }) {
+  const { run, busy } = useAction();
+  const [note, setNote] = useState("");
+  return (
+    <div className="mt">
+      <Field label="Note (required to decline)" name={`answer-${renewalId}`} as="textarea" value={note} onChange={(e: any) => setNote(e.target.value)} full />
+      <div className="row mt">
+        <button className="btn pri sm" disabled={busy || disabledBusy} onClick={async () => {
+          if (await run(() => api(`/agreements/renewals/${renewalId}/respond`, { body: { decision: "accept", note: note.trim() || undefined } }), "Renewal accepted")) onDone();
+        }}>Accept renewal</button>
+        <button className="btn sm" disabled={busy || disabledBusy || !note.trim()} onClick={async () => {
+          if (await run(() => api(`/agreements/renewals/${renewalId}/respond`, { body: { decision: "decline", note: note.trim() } }), "Renewal declined")) onDone();
+        }}>Decline with note</button>
+      </div>
+    </div>
+  );
+}
 
 export default function AgreementDetail() {
   const { id } = useParams<{ id: string }>();
@@ -80,7 +161,15 @@ export default function AgreementDetail() {
           {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
         </div>
       </div>
-      <Acceptance entityType="agreement" entityId={id} canRecord={allows(workspace, "legal", "account_manager") && a.status !== "active" && !shared} onRecorded={reload} active={a.status === "active"} />
+      {MASTER.includes(a.kind) && a.status === "rejected" && (
+        <p className="err" role="alert">Rejected{a.decision_note ? <>: “{a.decision_note}”</> : ""}. Send a corrected MSA to reopen it.</p>
+      )}
+      {!shared && MASTER.includes(a.kind) && a.status === "pending" && (
+        <p className="note">Waiting for {a.counterparty} to accept or reject this MSA. It isn&apos;t in force until they accept.</p>
+      )}
+      {shared && a.status === "pending" && <RespondPanel id={id} onDone={reload} />}
+      {MASTER.includes(a.kind) && <Renewals id={id} a={a} mySide={shared ? "counterparty" : "sender"} onDone={reload} />}
+      <Acceptance entityType="agreement" entityId={id} canRecord={allows(workspace, "legal", "account_manager") && !["active", "accepted"].includes(a.status) && !shared} onRecorded={reload} active={["active", "accepted"].includes(a.status)} />
       <Attachments ownerType="agreement" ownerId={id} canEdit={canEdit} />
     </>
   );

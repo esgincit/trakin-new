@@ -47,6 +47,8 @@ async def daily(request: Request):
     async with get_engine().begin() as conn:
         # company drafts nobody finished within 7 days (the wizard was abandoned before a profile existed)
         purged = (await conn.execute(text("select mytrakin.purge_abandoned_accounts()"))).scalar()
+        # MSAs past their end date move to expired (they stop counting for billing and project gates).
+        expired = (await conn.execute(text("select mytrakin.expire_master_agreements()"))).scalar()
     async with get_engine().connect() as conn:
         tenant_ids = [row[0] for row in (await conn.execute(text("select * from mytrakin.active_tenant_ids()"))).all()]
     summary = {}
@@ -57,7 +59,8 @@ async def daily(request: Request):
         except Exception:   # noqa: BLE001 — log and continue with the next tenant
             log.exception("daily job failed for tenant %s", tenant_id)
             summary[str(tenant_id)] = {"error": True}
-    return {"ran_at": datetime.now(UTC), "tenants": len(tenant_ids), "purged_drafts": purged, "summary": summary}
+    return {"ran_at": datetime.now(UTC), "tenants": len(tenant_ids), "purged_drafts": purged,
+            "expired_msas": expired, "summary": summary}
 
 
 async def run_for_tenant(db: TenantDb, today: date) -> dict:

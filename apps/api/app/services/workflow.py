@@ -50,10 +50,11 @@ def blocked(code: str, message: str) -> ApiError:
 
 async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = None, consultant_id: Any = None,
                                on: date | None = None) -> bool:
-    """An active agreement of one of these kinds with the party covers the date."""
+    """An agreement in force (accepted, or active) of one of these kinds with the party covers the date.
+    Pending and rejected MSAs don't count: the other company hasn't accepted them."""
     return bool(await db.val(
         """select exists (select 1 from agreements
-                           where status = 'active' and kind = any(:kinds)
+                           where status in ('active', 'accepted') and kind = any(:kinds)
                              and (company_id = cast(:co as uuid) or consultant_id = cast(:con as uuid))
                              and coalesce(effective_on, cast(:d as date)) <= :d
                              and coalesce(expires_on, cast(:d as date)) >= :d)""",

@@ -178,9 +178,10 @@ async def test_no_active_msa_blocks_invoices_and_new_sows(client, auth):
     finally:
         await _sql("update mytrakin.agreements set status = 'active' where code = 'MSA-NW-ESG'")
 
-    northwind = await _company(client, auth, "Northwind Consulting")
+    # Northwind already has a live MSA with this workspace (one live MSA per pair): use another company.
+    meridian = await _company(client, auth, "Meridian Pharma Inc.")
     old = await client.post("/agreements", headers=admin, json={
-        "code": "MSA-NW-OLD", "kind": "msa", "company_id": northwind, "tenant_side": "supplier",
+        "code": "MSA-NW-OLD", "kind": "msa", "company_id": meridian, "tenant_side": "supplier",
         "effective_on": "2024-01-01", "expires_on": "2025-12-31"})
     assert old.status_code == 201, old.text
     sow = await client.post("/sows", headers=admin, json={

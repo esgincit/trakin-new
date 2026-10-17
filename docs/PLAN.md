@@ -679,6 +679,10 @@ Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted
   `test_directory_spans_tenants`. All 104 API tests pass; ruff, tsc and `next build` green. **Left:** SEC-13 is only
   partly done — a two-tenant test per router is still outstanding (Phase 0.5). Uncommitted.
 
+- 2026-10-16 · AGR-07 · MSA lifecycle: pending → accepted | rejected (with note) → expired; one live MSA per pair
+  (trigger, both directions); renewals requested by either company, accepted or declined with a note. Migrations
+  `20261016001300` + `001301`. Gates count accepted/active only. Verified live with two temp workspaces (19/19).
+  Written test `tests/test_msa_lifecycle.py` runs in CI. Open: the counterparty's answer is in-app only (no e-mail yet).
 - 2026-10-16 · AGR-07 · Agreements shared with the counterparty: an agreement recorded by one workspace is visible,
   read-only and from the counterparty's side, in the workspace of the company it is with, with its files
   (`shared_agreements()`, `shared_agreement_files()`, migration `20261016001200`). Verified live with a temp workspace

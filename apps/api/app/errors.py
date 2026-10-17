@@ -49,6 +49,15 @@ _PG_ERRORS = {
 }
 
 
+# Business rules raised by the database (own SQLSTATE codes): the message is written for the user.
+_RULE_ERRORS = {
+    "MT403": (403, "forbidden"),
+    "MT404": (404, "not_found"),
+    "MT409": (409, "conflict"),
+    "MT422": (422, "invalid"),
+}
+
+
 def _sqlstate(exc: DBAPIError) -> str | None:
     orig = exc.orig
     for candidate in (orig, getattr(orig, "__cause__", None)):
@@ -76,6 +85,12 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DBAPIError)
     async def _db_error(_: Request, exc: DBAPIError):
         state = _sqlstate(exc)
+        if state in _RULE_ERRORS:
+            status, code = _RULE_ERRORS[state]
+            message = getattr(exc.orig, "message", None) or str(exc.orig).splitlines()[0]
+            if message.startswith("<class"):   # asyncpg wraps custom SQLSTATEs as "<class '…'>: text"
+                message = message.split(": ", 1)[-1]
+            return AppJSONResponse(_body(code, message), status_code=status)
         if state in _PG_ERRORS:
             status, code, message = _PG_ERRORS[state]
             return AppJSONResponse(_body(code, message), status_code=status)

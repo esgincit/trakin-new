@@ -83,7 +83,7 @@ async def dashboard(db: TenantDb = Depends(tenant_db)):
                from sows s join sow_burn b on b.sow_id = s.id where s.status = 'active' and b.burn_pct >= 90
              union all
              select 'agreement_expiry', 'warn', code, 'Expires ' || to_char(expires_on, 'Mon DD, YYYY'), 'agreement', id::text, 5
-               from agreements where status = 'active' and expires_on between current_date and current_date + 90
+                from agreements where status in ('active', 'accepted') and expires_on between current_date and current_date + 90
              union all
              select 'document_expiry', case when expires_on - current_date <= 30 then 'bad' else 'warn' end, label,
                     coalesce((select full_name from consultants where id = d.consultant_id), (select name from companies where id = d.company_id))

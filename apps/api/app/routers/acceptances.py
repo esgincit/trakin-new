@@ -50,6 +50,12 @@ async def record_acceptance(body: AcceptanceIn, db: TenantDb = Depends(tenant_db
             """update sows s set end_date = coalesce(a.new_end_date, s.end_date),
                       value_cap = case when a.value_change is null then s.value_cap else coalesce(s.value_cap, 0) + a.value_change end
                  from sow_amendments a where a.id = :id and s.id = a.sow_id""", {"id": body.entity_id})
+    elif body.entity_type == "agreement":
+        # Paper acceptance of a company MSA is the counterparty accepting it; other agreements become active.
+        await db.run("""update agreements
+                           set status = case when kind in ('msa', 'subcontract') and company_id is not null
+                                             then 'accepted' else 'active' end
+                         where id = :id and status not in ('active', 'accepted')""", {"id": body.entity_id})
     else:
         await db.run(f"update {table} set status = 'active' where id = :id and status <> 'active'", {"id": body.entity_id})
     return await db.one(

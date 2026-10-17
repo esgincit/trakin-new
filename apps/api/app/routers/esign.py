@@ -446,7 +446,8 @@ async def download(envelope_id: UUID, db: TenantDb = Depends(tenant_db)):
 async def _mark_parent(db: TenantDb, env: dict, status: str) -> None:
     """Keep the agreement / SOW / amendment status in step with its envelope."""
     if env.get("agreement_id"):
-        await db.run("update agreements set status = :s where id = :id and status in ('draft', 'out_for_signature')",
+        # A pending MSA sent for signature shows as out for signature; completion accepts it (see public.py).
+        await db.run("update agreements set status = :s where id = :id and status in ('draft', 'pending', 'out_for_signature')",
                       {"s": status, "id": env["agreement_id"]})
     if env.get("sow_id"):
         await db.run("update sows set status = :s where id = :id and status in ('draft', 'out_for_signature')",

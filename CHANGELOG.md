@@ -41,6 +41,15 @@
     you can't see must be indistinguishable from one that doesn't exist.
   - `test_non_staff_can_upload_session_w9` uses its own EIN; it had been reusing the shared fixture EIN that another
     test in the same workspace already registered.
+- **MSA lifecycle between two companies (2026-10-16, PLAN AGR-07):**
+  - An MSA sent from company A to company B is `pending` until B answers. B accepts → `accepted` (in force); B rejects
+    with a note → `rejected` (the note is shown to A). Recording a paper or e-signed acceptance also accepts it.
+  - Only one live MSA (pending, accepted or legacy active) can exist between two companies, whichever way round it was sent.
+  - MSAs past their end date move to `expired` in the daily job. Billing and project gates count only accepted (or legacy
+    active) MSAs, so a pending or expired one doesn't unlock them.
+  - Renewals: either company requests a renewal with a new end date and a note. The other accepts (the end date moves;
+    an expired MSA becomes accepted again) or declines with a note.
+  - Migrations `20261016001500` (lifecycle) and `20261016001501` (fix to the answer functions).
 - **Agreements are visible to the company they are with (2026-10-16, PLAN AGR-07):** an MSA recorded in one workspace
   now appears, read-only, in the counterparty company's workspace — terms from its own side ("Received from …"),
   plus the files attached to it. The counterparty can download but can't edit, add files, sign for the sender, or see

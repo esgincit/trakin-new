@@ -155,8 +155,8 @@ async def list_companies(db: TenantDb = Depends(tenant_db), kind: str | None = N
     """select c.id, c.business_code, c.name, c.kind, c.kinds, c.state, c.status, c.domain, c.w9_status,
                    c.contact_name, c.contact_email, c.default_terms,
                    c.onboarding_stage, c.inactive_since, c.inactive_reason, c.ein,
-                   (select string_agg(a.code, ', ' order by a.code) from agreements a where a.company_id = c.id and a.status = 'active') as agreements,
-                   (select min(a.expires_on) from agreements a where a.company_id = c.id and a.status = 'active') as next_expiry,
+                   (select string_agg(a.code, ', ' order by a.code) from agreements a where a.company_id = c.id and a.status in ('active', 'accepted')) as agreements,
+                   (select min(a.expires_on) from agreements a where a.company_id = c.id and a.status in ('active', 'accepted')) as next_expiry,
                    (select coalesce(sum(balance), 0) from invoice_balances b where b.company_id = c.id and b.direction = 'ar' and b.balance > 0) as open_ar,
                    (select coalesce(sum(balance), 0) from invoice_balances b where b.company_id = c.id and b.direction = 'ap' and b.balance > 0) as open_ap,
                    (select count(*) from consultants k where k.employer_company_id = c.id and k.status = 'active') as consultants
@@ -685,7 +685,7 @@ async def propose_msa(company_id: UUID, body: CompanyMsaIn, db: TenantDb = Depen
            values (:t, :code, :kind, :co, :init, :side, :eff, :exp, :terms, :status, :by, :src) returning *""",
         {"t": db.ctx.tenant_id, "code": code, "kind": body.kind, "co": counterparty["id"], "init": company["id"],
          "side": body.tenant_side, "eff": body.effective_on, "exp": body.expires_on, "terms": body.payment_terms,
-         "status": "active" if body.existing else "draft", "by": body.signed_by,
+          "status": "pending", "by": body.signed_by,   # pending until the other company accepts it
          "src": "manual" if body.existing else "myTrakIn"})
     recipients = [e for e in {company.get("contact_email"), counterparty.get("contact_email")} if e]
     if recipients:

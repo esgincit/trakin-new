@@ -246,7 +246,12 @@ async def _complete(db: TenantDb, env: dict) -> None:
     # Contract records follow their envelope.
     names = ", ".join(s["name"] for s in signers)
     if env["agreement_id"]:
-        await db.run("update agreements set status = 'active', signed_by = :n, signed_file_path = :p where id = :id",
+        # A signed company MSA is accepted by its counterparty; other agreements simply become active.
+        await db.run("""update agreements
+                           set status = case when kind in ('msa', 'subcontract') and company_id is not null
+                                             then 'accepted' else 'active' end,
+                               signed_by = :n, signed_file_path = :p
+                         where id = :id""",
                      {"n": names, "p": path, "id": env["agreement_id"]})
     if env["sow_id"]:
         await db.run("update sows set status = 'active', signed_file_path = :p where id = :id", {"p": path, "id": env["sow_id"]})

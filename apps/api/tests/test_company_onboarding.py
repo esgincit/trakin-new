@@ -471,7 +471,7 @@ async def test_msa_directory_and_company_initiated_msa(client, auth):
     msa = created.json()
     assert msa["company_id"] == north["id"], msa
     assert msa["initiator_company_id"] == bright["id"], msa
-    assert msa["status"] == "draft", msa
+    assert msa["status"] == "pending", msa   # waits for the company it is with to accept it
     created_ids.append(msa["id"])
 
     # The initiating company sees its own MSA through the member/company link.

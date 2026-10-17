@@ -229,7 +229,8 @@ async def test_esignature_end_to_end(client, auth):
     assert envelope["status"] == "completed" and envelope["signed_sha256"]
     assert all(s["signed_ip"] == "198.51.100.23" and s["signed_location"] == "Dallas, TX, US" for s in envelope["signers"])
     assert {"created", "sent", "viewed", "verified", "consented", "signed", "completed"} <= {e["event"] for e in envelope["events"]}
-    assert (await client.get(f"/agreements/{agreement['id']}", headers=admin)).json()["status"] == "active"
+    # A company MSA signed through e-signature is accepted by its counterparty.
+    assert (await client.get(f"/agreements/{agreement['id']}", headers=admin)).json()["status"] == "accepted"
     # The used link no longer works.
     assert (await client.get(f"/public/sign/{second}", headers=browser)).status_code == 404
 
