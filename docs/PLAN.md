@@ -644,6 +644,9 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · CO-03, AGR-07 · Business IDs unique platform-wide (`C-` + sequence, migration `20261016001100`;
+  duplicates renumbered); agreement with the company itself refused by the API and excluded from the picker.
+  Verified live. Committed to main.
 - 2026-10-16 · CO-03, AGR-07 · Company directory spans tenants: picker lists every active company;
   cross-tenant MSA counterparty works end to end (directory + propose + name display). Directory columns only;
   money/profiles stay tenant-scoped. Migration `20261016001000`, verified live. Committed to main.

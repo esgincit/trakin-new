@@ -511,6 +511,38 @@ async def test_company_can_play_several_roles(client, auth):
         await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": defaulted.json()["id"]})
 
 
+async def test_business_ids_are_unique_and_start_with_c(client, auth):
+    """Every company's Business ID starts with C and is unique across the platform."""
+    import re
+    rows = (await client.get("/companies/directory", headers=auth("admin"))).json()
+    codes = [r["business_code"] for r in rows]
+    assert codes and all(re.fullmatch(r"C-\d{4,}", c) for c in codes), codes
+    assert len(codes) == len(set(codes)), codes
+
+
+async def test_agreement_cannot_be_with_the_companys_own_company(client, auth):
+    """An agreement is between two different companies: the workspace's own company
+    is refused by the API and never offered in the counterparty search."""
+    admin = auth("admin")
+    own = next(c for c in (await client.get("/companies", headers=admin)).json() if c["name"] == "Northwind Consulting")
+    async with get_engine().begin() as conn:
+        previous = (await conn.execute(text("select company_id from mytrakin.tenants where id = (select tenant_id from mytrakin.companies where id = :c)"),
+                                        {"c": own["id"]})).scalar()
+        await conn.execute(text("update mytrakin.tenants set company_id = :c where id = (select tenant_id from mytrakin.companies where id = :c)"),
+                           {"c": own["id"]})
+    try:
+        refused = await client.post("/agreements", headers=admin, json={
+            "kind": "nda", "company_id": own["id"], "tenant_side": "buyer",
+            "effective_on": str(date.today()), "status": "active", "source": "manual"})
+        assert refused.status_code == 400 and "itself" in refused.text, refused.text
+        search = await client.get("/companies/directory", params={"exclude": own["id"]}, headers=admin)
+        assert all(c["id"] != own["id"] for c in search.json()), search.text
+    finally:
+        async with get_engine().begin() as conn:
+            await conn.execute(text("update mytrakin.tenants set company_id = :p where id = (select tenant_id from mytrakin.companies where id = :c)"),
+                               {"p": previous, "c": own["id"]})
+
+
 async def test_directory_spans_tenants(client, auth):
     """The picker directory lists every active company, not just the current
     tenant's — and a cross-tenant company works as an MSA counterparty."""

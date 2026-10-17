@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Company IDs are unique platform-wide; no agreement with the company itself (2026-10-16, PLAN CO-03, AGR-07):**
+  - Business IDs (`C-0001` …) come from one platform sequence and are unique across all companies. Previously each
+    workspace numbered its own, so several companies shared `C-0001`; the earliest keeps its ID and the others were
+    renumbered (migration `20261016001100`).
+  - An agreement can't be between a company and itself: the API refuses it, and the counterparty picker never offers
+    the workspace's own company (or the company the MSA is opened from).
 - **Cross-tenant company directory (2026-10-16, PLAN CO-03, AGR-07):** the company picker lists every active
   company in the database, not just the current tenant's — an MSA counterparty can be any registered business.
   Only directory columns (ID, name, roles) are shared; profiles, money and contacts stay behind tenant RLS, and

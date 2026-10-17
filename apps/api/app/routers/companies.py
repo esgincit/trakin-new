@@ -134,22 +134,18 @@ def _shield(company: dict, privileged: bool) -> dict:
 
 
 async def _assign_business_code(db: TenantDb) -> str:
-    for _ in range(5):
-        n = await db.val("select mytrakin.next_number(:t, 'company')", {"t": db.ctx.tenant_id})
-        code = f"C-{n:04d}"
-        if await db.val("select 1 from companies where tenant_id = :t and business_code = :c",
-                        {"t": db.ctx.tenant_id, "c": code}) is None:
-            return code
-    raise bad_request("Couldn't assign a Business ID — try again")
+    """A Business ID (C-0001 …) unique across the whole platform, issued by one sequence."""
+    return await db.val("select mytrakin.next_business_code()")
 
 
 @router.get("/directory")
-async def company_directory(q: str | None = None, db: TenantDb = Depends(tenant_db)):
-    """Searchable company directory (Business ID, name, type) for picking an MSA
-    counterparty: every active company in any tenant. Directory columns only —
-    full profiles stay gated behind tenant RLS."""
-    return await db.all("select * from mytrakin.company_directory_all(:q)",
-                        {"q": (q or "").strip() or None})
+async def company_directory(q: str | None = None, exclude: UUID | None = None, db: TenantDb = Depends(tenant_db)):
+    """Searchable company directory (Business ID, name, type) for picking an agreement
+    counterparty: every active company in any tenant. Directory columns only — full
+    profiles stay gated behind tenant RLS. `exclude` drops the company the agreement
+    is being made from: an agreement can't be between a company and itself."""
+    rows = await db.all("select * from mytrakin.company_directory_all(:q)", {"q": (q or "").strip() or None})
+    return [r for r in rows if exclude is None or r["id"] != exclude]
 
 
 @router.get("")

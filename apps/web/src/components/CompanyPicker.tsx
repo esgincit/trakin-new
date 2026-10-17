@@ -2,22 +2,28 @@
 
 import { useState } from "react";
 import { useApi } from "@/lib/useApi";
+import { useSession } from "@/lib/session";
 import { roleList } from "@/lib/format";
 
 /** Company autocomplete: type a few letters to get suggestions from the company
- * directory (every signed-in tenant member can search it), then pick one. */
+ * directory (every active company in the database), then pick one.
+ * An agreement can't be between a company and itself, so the company the
+ * agreement is made from (`excludeId`, or the workspace's own company) is never offered. */
 export function CompanyPicker({ name = "company_id", label = "Company", value, defaultValue, onChange, excludeId, required, autoFocus }: {
   name?: string; label?: string; value?: string; defaultValue?: string; onChange?: (e: any) => void; excludeId?: string; required?: boolean; autoFocus?: boolean;
 }) {
   const { data, error, loading } = useApi<any[]>("/companies/directory");
+  const { workspace } = useSession();
+  const ownCompany = workspace?.tenant?.company_id ?? undefined;
+  const barred = (id: string) => id === excludeId || id === ownCompany;
   const [q, setQ] = useState("");
   const [internal, setInternal] = useState(defaultValue ?? "");
   const [open, setOpen] = useState(false);
   const shown = value !== undefined ? value : internal;
-  const selected = (data ?? []).find((c) => c.id === shown);
+  const selected = barred(shown) ? undefined : (data ?? []).find((c) => c.id === shown);
   const needle = q.trim().toLowerCase();
   const suggestions = (data ?? [])
-    .filter((c) => (!excludeId || c.id !== excludeId) &&
+    .filter((c) => !barred(c.id) &&
       (!needle || `${c.name} ${c.business_code ?? ""}`.toLowerCase().includes(needle)))
     .slice(0, 8);
   const pick = (id: string) => {
@@ -35,8 +41,7 @@ export function CompanyPicker({ name = "company_id", label = "Company", value, d
   const blur = () => {
     setOpen(false);
     if (!shown && needle) {
-      const exact = (data ?? []).find((c) =>
-        (!excludeId || c.id !== excludeId) && c.name.toLowerCase() === needle);
+      const exact = (data ?? []).find((c) => !barred(c.id) && c.name.toLowerCase() === needle);
       if (exact) pick(exact.id);
     }
   };

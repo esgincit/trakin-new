@@ -84,6 +84,10 @@ async def list_agreements(db: TenantDb = Depends(tenant_db), kind: str | None = 
 async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
     """Add an agreement — a new draft, or one already signed outside myTrakIn (attach the PDF afterwards)."""
     db.ctx.require("legal", "account_manager", "finance", "hr")
+    # An agreement is between two different parties: never the company itself.
+    own_company = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    if body.company_id and own_company and body.company_id == own_company:
+        raise bad_request("An agreement can't be with the company itself — pick the other party")
     # Verify → NDA → MSA (WF-02): a company's MSA / subcontract needs its NDA first, unless the tenant switched that off.
     if body.kind in ("msa", "subcontract") and body.company_id and (await workflow.rules(db))["requireNDA"] \
             and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=body.company_id):
