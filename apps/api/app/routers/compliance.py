@@ -265,11 +265,18 @@ OWNER_TYPES = "^(company|consultant|project|agreement|sow|invoice|policy|expense
 
 @router.get("/files")
 async def list_files(owner_type: str, owner_id: UUID, db: TenantDb = Depends(tenant_db)):
-    return await db.all(
+    rows = await db.all(
         """select d.id, d.name, d.mime_type, d.size_bytes, d.created_at, p.full_name as uploaded_by
              from documents d left join profiles p on p.id = d.uploaded_by
             where d.owner_type = :t and d.owner_id = :o and d.deleted_at is null order by d.created_at desc""",
         {"t": owner_type, "o": owner_id})
+    if owner_type == "agreement":
+        # Files on an agreement another workspace shares with one of our companies (read-only).
+        seen = {r["id"] for r in rows}
+        rows += [r for r in await db.all(
+                    """select id, name, mime_type, size_bytes, created_at, null::text as uploaded_by
+                         from mytrakin.shared_agreement_files(:o)""", {"o": owner_id}) if r["id"] not in seen]
+    return rows
 
 
 @router.post("/files", status_code=201)
@@ -281,6 +288,7 @@ async def upload_file(
 ):
     """Attach a file up to 4 MB to a company, consultant, project, contract or invoice.
     Larger files (up to 25 MB): POST /uploads, PUT the file, then POST /files/confirm."""
+    await _refuse_shared_agreement(db, owner_type, owner_id)
     data = await file.read()
     if not data:
         raise bad_request("The file is empty")
@@ -309,6 +317,7 @@ async def confirm_upload(body: ConfirmIn, db: TenantDb = Depends(tenant_db)):
     """Record a file the browser uploaded straight to storage (see /uploads)."""
     if not body.path.startswith(f"{db.ctx.tenant_id}/{body.owner_type}/{body.owner_id}/") or ".." in body.path:
         raise forbidden("That upload doesn't belong to this record")
+    await _refuse_shared_agreement(db, body.owner_type, body.owner_id)
     data = await storage.download("documents", body.path)
     if len(data) > storage.MAX_UPLOAD:
         raise bad_request("The file is larger than 25 MB")
@@ -319,9 +328,18 @@ async def confirm_upload(body: ConfirmIn, db: TenantDb = Depends(tenant_db)):
          "m": body.content_type, "s": len(data), "h": sha256_hex(data), "u": db.ctx.user_id})
 
 
+async def _refuse_shared_agreement(db: TenantDb, owner_type: str, owner_id: UUID) -> None:
+    """A counterparty can read a shared agreement's files but never add to them."""
+    if owner_type == "agreement" and await db.val(
+            "select 1 from mytrakin.shared_agreements() where id = :o", {"o": owner_id}):
+        raise forbidden("This agreement belongs to the other company — they add the files")
+
+
 @router.get("/files/{file_id}/link")
 async def file_link(file_id: UUID, db: TenantDb = Depends(tenant_db)):
     doc = await db.one("select storage_path, name from documents where id = :id and deleted_at is null", {"id": file_id})
+    if doc is None:
+        doc = await db.one("select storage_path, name from mytrakin.shared_document(:id)", {"id": file_id})
     if doc is None:
         raise not_found("File")
     return {"url": await storage.signed_url("documents", doc["storage_path"]), "name": doc["name"]}

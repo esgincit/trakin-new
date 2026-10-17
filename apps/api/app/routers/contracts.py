@@ -70,14 +70,20 @@ class AmendmentIn(BaseModel):
 
 @router.get("/agreements")
 async def list_agreements(db: TenantDb = Depends(tenant_db), kind: str | None = None):
-    return await db.all(
-        """select a.*, coalesce(co.name, mytrakin.company_public_name(a.company_id), c.full_name) as counterparty,
+    rows = await db.all(
+        """select a.*, coalesce(co.name, c.full_name) as counterparty,
                   (a.expires_on - current_date) as days_left,
-                  (select count(*) from sows s where s.agreement_id = a.id) as sow_count
+                  (select count(*) from sows s where s.agreement_id = a.id) as sow_count, false as shared
              from agreements a left join companies co on co.id = a.company_id left join consultants c on c.id = a.consultant_id
-            where (cast(:k as text) is null or a.kind = :k)
-            order by a.expires_on nulls last""",
+            where (cast(:k as text) is null or a.kind = :k)""",
         {"k": kind})
+    # Agreements other workspaces recorded with one of our companies (read-only, counterparty's side).
+    shared = await db.all(
+        """select *, (expires_on - current_date) as days_left, 0 as sow_count
+             from mytrakin.shared_agreements() where (cast(:k as text) is null or kind = :k)""",
+        {"k": kind})
+    rows += shared
+    return sorted(rows, key=lambda r: (r["expires_on"] is None, r["expires_on"] or date.max))
 
 
 @router.post("/agreements", status_code=201)
@@ -112,11 +118,19 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
 @router.get("/agreements/{agreement_id}")
 async def get_agreement(agreement_id: UUID, db: TenantDb = Depends(tenant_db)):
     row = await db.one(
-        """select a.*, coalesce(co.name, mytrakin.company_public_name(a.company_id), c.full_name) as counterparty from agreements a
+        """select a.*, coalesce(co.name, mytrakin.company_public_name(a.company_id), c.full_name) as counterparty, false as shared
+             from agreements a
               left join companies co on co.id = a.company_id left join consultants c on c.id = a.consultant_id where a.id = :id""",
         {"id": agreement_id})
     if row is None:
-        raise not_found("Agreement")
+        # Shared with one of our companies: the counterparty sees the terms, not the sender's SOWs or signatures.
+        row = await db.one("select *, (expires_on - current_date) as days_left from mytrakin.shared_agreements() where id = :id",
+                           {"id": agreement_id})
+        if row is None:
+            raise not_found("Agreement")
+        row["sows"] = []
+        row["envelopes"] = []
+        return row
     row["sows"] = await db.all("select s.id, s.code, s.title, s.end_date, b.burn_pct from sows s left join sow_burn b on b.sow_id = s.id "
                                "where s.agreement_id = :id order by s.end_date", {"id": agreement_id})
     row["envelopes"] = await db.all("select id, number, title, status, completed_at from envelopes where agreement_id = :id "

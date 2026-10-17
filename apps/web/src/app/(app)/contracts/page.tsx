@@ -32,7 +32,8 @@ function Contracts() {
     { key: "counterparty", label: "With" }, { key: "tenant_side", label: "You are", type: "label", filter: true, hideSm: true },
     { key: "effective_on", label: "Effective", type: "date", hideSm: true }, { key: "expires_on", label: "Expires", type: "date" },
     { key: "days_left", label: "Left", value: (r) => r.days_left, render: (r) => daysLeft(r.days_left) },
-    { key: "sow_count", label: "SOWs", type: "number", hideSm: true }, { key: "source", label: "Source", filter: true, hideSm: true },
+    { key: "sow_count", label: "SOWs", type: "number", hideSm: true },
+    { key: "source", label: "Source", filter: true, hideSm: true, value: (r) => (r.shared ? "Received" : r.source) },
     { key: "status", label: "Status", type: "status", filter: true },
   ];
   const sowCols: Column<any>[] = [

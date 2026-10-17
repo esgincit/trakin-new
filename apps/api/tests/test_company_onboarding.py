@@ -543,6 +543,62 @@ async def test_agreement_cannot_be_with_the_companys_own_company(client, auth):
                                {"p": previous, "c": own["id"]})
 
 
+async def test_counterparty_sees_the_agreement_and_its_files_read_only(client, auth, user_ids):
+    """An agreement recorded in one workspace is visible to the company it is with, from
+    that company's workspace: the terms and the attached files, from the counterparty's
+    side, read-only. The counterparty can't add files to it."""
+    admin = auth("admin")
+    async with get_engine().begin() as conn:
+        other = (await conn.execute(text(
+            "insert into mytrakin.tenants (name, status) values ('Counterparty Workspace', 'active') returning id"))).scalar()
+        cp_company = (await conn.execute(text(
+            """insert into mytrakin.companies (tenant_id, name, kind, kinds, status)
+                values (:t, 'Shared Counterparty LLC', 'client', array['client'], 'active') returning id"""),
+            {"t": other})).scalar()
+        cp_member = (await conn.execute(text(
+            """insert into mytrakin.memberships (tenant_id, user_id, role, status)
+                values (:t, :u, 'tenant_admin', 'active') returning id"""),
+            {"t": other, "u": user_ids["finance2"]})).scalar()
+        await conn.execute(text("update mytrakin.tenants set company_id = :c, owner_membership_id = :m where id = :t"),
+                           {"c": cp_company, "m": cp_member, "t": other})
+    cp = {**auth("finance2"), "X-Tenant-Id": str(other)}
+    agreement_id = file_id = None
+    try:
+        made = await client.post("/agreements", headers=admin, json={
+            "kind": "nda", "company_id": str(cp_company), "tenant_side": "buyer",
+            "effective_on": str(date.today()), "status": "active", "source": "manual"})
+        assert made.status_code == 201, made.text
+        agreement_id = made.json()["id"]
+        up = await client.post("/files", headers=admin, data={"owner_type": "agreement", "owner_id": agreement_id},
+                               files={"file": ("signed-nda.pdf", b"%PDF-1.4 counterparty copy", "application/pdf")})
+        assert up.status_code == 201, up.text
+        file_id = up.json()["id"]
+
+        listed = (await client.get("/agreements", headers=cp)).json()
+        row = next((a for a in listed if a["id"] == agreement_id), None)
+        assert row is not None and row["shared"] is True, listed
+        assert row["tenant_side"] == "supplier", row            # flipped from the sender's buyer side
+        detail = await client.get(f"/agreements/{agreement_id}", headers=cp)
+        assert detail.status_code == 200 and detail.json()["sows"] == [], detail.text
+        files = await client.get("/files", params={"owner_type": "agreement", "owner_id": agreement_id}, headers=cp)
+        assert any(f["id"] == file_id for f in files.json()), files.text
+        link = await client.get(f"/files/{file_id}/link", headers=cp)
+        assert link.status_code == 200 and link.json()["url"], link.text
+        added = await client.post("/files", headers=cp, data={"owner_type": "agreement", "owner_id": agreement_id},
+                                  files={"file": ("mine.pdf", b"%PDF-1.4 nope", "application/pdf")})
+        assert added.status_code == 403, added.text
+        # The sender's own workspace still sees its agreement once, as its own (not "shared").
+        own = next(a for a in (await client.get("/agreements", headers=admin)).json() if a["id"] == agreement_id)
+        assert own["shared"] is False
+    finally:
+        async with get_engine().begin() as conn:
+            if file_id:
+                await conn.execute(text("delete from mytrakin.documents where id = :id"), {"id": file_id})
+            if agreement_id:
+                await conn.execute(text("delete from mytrakin.agreements where id = :id"), {"id": agreement_id})
+            await conn.execute(text("delete from mytrakin.tenants where id = :id"), {"id": other})
+
+
 async def test_directory_spans_tenants(client, auth):
     """The picker directory lists every active company, not just the current
     tenant's — and a cross-tenant company works as an MSA counterparty."""

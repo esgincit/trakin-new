@@ -644,6 +644,12 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-16 · AGR-07 · Agreements shared with the counterparty: an agreement recorded by one workspace is visible,
+  read-only and from the counterparty's side, in the workspace of the company it is with, with its files
+  (`shared_agreements()`, `shared_agreement_files()`, migration `20261016001200`). Verified live with a temp workspace
+  for Lensify (DREP's MSA visible, detail + file list, upload refused). Written test
+  `test_counterparty_sees_the_agreement_and_its_files_read_only` runs in CI. Open: the counterparty can't yet accept or
+  sign a requested MSA from its side; that's the next step.
 - 2026-10-16 · CO-03, AGR-07 · Business IDs unique platform-wide (`C-` + sequence, migration `20261016001100`;
   duplicates renumbered); agreement with the company itself refused by the API and excluded from the picker.
   Verified live. Committed to main.

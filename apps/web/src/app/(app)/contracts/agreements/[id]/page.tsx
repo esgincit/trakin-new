@@ -16,10 +16,12 @@ export default function AgreementDetail() {
   const { data: a, error, loading, reload } = useApi(`/agreements/${id}`);
   if (loading) return <Loading rows={6} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
-  const canEdit = allows(workspace, "legal", "account_manager", "finance", "hr");
+  // A shared agreement belongs to the workspace that recorded it: read-only here.
+  const shared = !!a.shared;
+  const canEdit = allows(workspace, "legal", "account_manager", "finance", "hr") && !shared;
   return (
     <>
-      <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{a.counterparty} · <Chip status={a.status} /> · {a.source === "myTrakIn" ? "Created in myTrakIn" : `Recorded (${a.source})`}</>}
+      <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{shared ? `Received from ${a.sent_by_company ?? "the other company"}` : a.counterparty} · <Chip status={a.status} /> · {shared ? "Sent to your company" : a.source === "myTrakIn" ? "Created in myTrakIn" : `Recorded (${a.source})`}</>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && ["draft", "active"].includes(a.status) && <Link className="btn pri" href={`/esign/new?agreement_id=${id}&title=${encodeURIComponent(`${label(a.kind)} ${a.code}`)}`}>Send for signature</Link>}
@@ -52,7 +54,7 @@ export default function AgreementDetail() {
           {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
         </div>
       </div>
-      <Acceptance entityType="agreement" entityId={id} canRecord={allows(workspace, "legal", "account_manager") && a.status !== "active"} onRecorded={reload} active={a.status === "active"} />
+      <Acceptance entityType="agreement" entityId={id} canRecord={allows(workspace, "legal", "account_manager") && a.status !== "active" && !shared} onRecorded={reload} active={a.status === "active"} />
       <Attachments ownerType="agreement" ownerId={id} canEdit={canEdit} />
     </>
   );

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Agreements are visible to the company they are with (2026-10-16, PLAN AGR-07):** an MSA recorded in one workspace
+  now appears, read-only, in the counterparty company's workspace — terms from its own side ("Received from …"),
+  plus the files attached to it. The counterparty can download but can't edit, add files, sign for the sender, or see
+  the sender's SOWs and signatures. Migration `20261016001200`.
 - **Company IDs are unique platform-wide; no agreement with the company itself (2026-10-16, PLAN CO-03, AGR-07):**
   - Business IDs (`C-0001` …) come from one platform sequence and are unique across all companies. Previously each
     workspace numbered its own, so several companies shared `C-0001`; the earliest keeps its ID and the others were
