@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { uploadDirect } from "@/lib/upload";
+import { MAX_UPLOAD, uploadDirect } from "@/lib/upload";
 
 type Admin = { name: string; email: string; company: string | null; company_id: string; company_role: string };
 type Creator = { name: string; email: string; company: string | null; company_id: string | null };
@@ -13,6 +13,8 @@ type Parties = {
   counterparty: { id: string; name: string | null } | null;
   signers: Admin[];
 };
+
+const MAX_DOCUMENTS = 10;   // must match MAX_DOCUMENTS in the API
 
 /** A counterparty signer row: either one of their admins, or an e-mail we were asked to invite. */
 type Signer =
@@ -33,6 +35,7 @@ function NewEnvelope() {
   const [note, setNote] = useState("");
   const [parties, setParties] = useState<Parties | null>(null);
   const [signers, setSigners] = useState<Signer[]>([]);
+  const picker = useRef<HTMLInputElement>(null);
   const { run, busy } = useAction();
 
   // Who is expected to sign: us (fixed, first) and the other company's admins.
@@ -53,6 +56,25 @@ function NewEnvelope() {
 
   const update = (i: number, patch: Partial<Signer>) =>
     setSigners((s) => s.map((x, j) => (j === i ? ({ ...x, ...patch } as Signer) : x)));
+
+  /** Add the chosen PDFs, in the order they were picked, and say so if one is not usable. */
+  const addFiles = (picked: FileList | null) => {
+    // Copy first: clearing the input empties its live FileList.
+    const chosen = picked ? Array.from(picked) : [];
+    if (picker.current) picker.current.value = "";   // so the same file can be picked again
+    if (!chosen.length) return;
+    const room = MAX_DOCUMENTS - files.length;
+    const good: File[] = [];
+    const rejected: string[] = [];
+    for (const f of chosen.slice(0, room)) {
+      if (f.type && f.type !== "application/pdf") rejected.push(`${f.name} (not a PDF)`);
+      else if (f.size > MAX_UPLOAD) rejected.push(`${f.name} (over 25 MB)`);
+      else good.push(f);
+    }
+    if (chosen.length > room) rejected.push(`${chosen.length - room} more (10 documents is the limit)`);
+    if (good.length) setFiles((x) => [...x, ...good]);
+    if (rejected.length) alert(`Can't attach: ${rejected.join(", ")}`);
+  };
 
   const submit = async (send: boolean) => {
     if (!files.length) return alert("Choose at least one PDF to sign");
@@ -98,38 +120,32 @@ function NewEnvelope() {
         <input id="t" className="ctl" value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="Master Services Agreement — Nova Analytics" />
 
         <label htmlFor="f">Documents (up to 10)</label>
-        {files.map((f, i) => (
-          <div key={`${f.name}-${i}`} className="row" style={{ marginBottom: 6 }}>
-            <input
-              className="ctl"
-              type="file"
-              accept="application/pdf"
-              aria-label={`Replace ${f.name}`}
-              onChange={(e) => {
-                const next = e.target.files?.[0];
-                if (next) setFiles((x) => x.map((old, j) => (j === i ? next : old)));
-              }}
-              style={{ flex: 1 }}
-            />
-            {files.length > 1 && (
-              <button className="btn sm" type="button" onClick={() => setFiles((x) => x.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`}>✕</button>
-            )}
+        <input ref={picker} id="f" type="file" accept="application/pdf" multiple hidden
+          onChange={(e) => addFiles(e.target.files)} />
+        {files.length > 0 ? (
+          <div className="ftiles">
+            {files.map((f, i) => (
+              <div key={`${f.name}-${i}`} className="ftile">
+                <div className="fext">PDF</div>
+                <div className="fname" title={f.name}>{f.name}</div>
+                <div className="muted" style={{ fontSize: 11.5 }}>{i + 1} of {files.length} · {Math.ceil(f.size / 1024)} KB</div>
+                <div className="row" style={{ justifyContent: "center", marginTop: 6 }}>
+                  <button className="btn sm" type="button"
+                    onClick={() => setFiles((x) => x.filter((_, j) => j !== i))}
+                    aria-label={`Remove ${f.name}`}>Remove</button>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-        {files.length < 10 && (
-          <input
-            id="f"
-            className="ctl"
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => {
-              const next = e.target.files?.[0];
-              if (next) setFiles((x) => [...x, next]);
-              e.target.value = "";
-            }}
-          />
+        ) : (
+          <p className="note" style={{ marginTop: -4 }}>No documents chosen yet.</p>
         )}
-        <p className="note" style={{ marginTop: -6 }}>
+        {files.length < MAX_DOCUMENTS && (
+          <button className="btn sm mt" type="button" onClick={() => picker.current?.click()}>
+            {files.length ? "Add another document" : "Choose documents"}
+          </button>
+        )}
+        <p className="note">
           {files.length > 1
             ? `${files.length} documents. Every signer gets them in this order, followed by one certificate of completion.`
             : "Add an MSA and its SOW, or a contract and its exhibits — one envelope, signed once."}
