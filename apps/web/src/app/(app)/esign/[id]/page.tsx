@@ -37,6 +37,21 @@ export default function EnvelopeDetail() {
         </>} />
       <div className="grid c2">
         <div className="card">
+          <h3>Documents{env.documents?.length > 1 ? ` (${env.documents.length}, signed as one)` : ""}</h3>
+          {(env.documents ?? []).map((d: any) => (
+            <div key={d.id} className="alert">
+              <div>
+                <b>{d.position}. {d.name}</b>
+                <div className="muted" style={{ fontSize: 12.5 }}>
+                  {d.size_bytes != null && `${(d.size_bytes / 1024).toFixed(0)} KB · `}
+                  <code style={{ wordBreak: "break-all" }}>{d.sha256}</code>
+                </div>
+              </div>
+            </div>
+          ))}
+          {!env.documents?.length && <p className="note">No documents recorded for this envelope.</p>}
+        </div>
+        <div className="card">
           <h3>Signers</h3>
           {env.signers.map((s: any) => (
             <div key={s.id} className="alert">

@@ -147,6 +147,30 @@ def build_certificate(envelope: dict, signers: list[dict], events: list[dict], d
     return bytes(pdf.output())
 
 
+def merge_documents(blobs: list[bytes]) -> bytes:
+    """Concatenate an envelope's PDFs, in order, into the one document that gets signed.
+
+    A packet (an MSA plus its SOW, a contract and its exhibits) is one envelope:
+    every signer sees the same pages in the same order, and the certificate of
+    completion is appended to the result when the last signature lands.
+    """
+    writer = PdfWriter()
+    for blob in blobs:
+        for page in PdfReader(io.BytesIO(blob)).pages:
+            writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def combined_document(blobs: list[bytes]) -> bytes:
+    """The PDF an envelope asks to be signed: a single document is stored as it is,
+    several are merged so every signer sees them in the same order."""
+    if len(blobs) == 1:
+        return blobs[0]
+    return merge_documents(blobs)
+
+
 def seal(original: bytes | None, certificate: bytes) -> bytes:
     """Append the certificate pages to the original PDF (or return the certificate alone)."""
     writer = PdfWriter()

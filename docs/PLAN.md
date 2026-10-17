@@ -283,7 +283,7 @@ own invoices and projects.
 | ID | Requirement | Status |
 |---|---|---|
 | ESG-01 | Tabs: action required, waiting, completed, drafts, all; KPIs needs your signature, waiting on others, completed, avg days to sign. | ✅ verify KPIs |
-| ESG-02 | Send: pick MSA/SOW/amendment or **template (Mutual NDA, offer letter W-2, ICA 1099)** or upload PDF; title; signers in order; expiry days; remind every N days; message; save draft or send. | 🟡 templates missing |
+| ESG-02 | Send: pick MSA/SOW/amendment or **template (Mutual NDA, offer letter W-2, ICA 1099)** or upload PDF; title; signers in order; expiry days; remind every N days; message; save draft or send. | 🟡 signers now picked from each company's own admins (creator fixed first, e-mail fallback), several PDFs per envelope, every admin of the counterparty notified on send; **templates missing** |
 | ESG-03 | Signer flow: e-mail code → ESIGN/UETA consent → read → type or draw signature + intent checkbox → sign; or decline with reason. | ✅ |
 | ESG-04 | Evidence per event: UTC time, IP, device, approximate location, auth method. | ✅ |
 | ESG-05 | Completion: sealed PDF + certificate of completion, SHA-256; all parties e-mailed; record updated (amendment applied, MSA renewed, NDA marked signed). | ✅ |
@@ -439,7 +439,7 @@ own invoices and projects.
 | ID | Requirement | Status |
 |---|---|---|
 | NOT-01 | Catalog of functional §4 (invitation, registration, workspace ready, timesheet, invoice, AR courtesy/overdue, contract ending, document expiring, policy, signature events). De-duplicated daily cron. | ✅ |
-| NOT-02 | AP payee notified when invoice matched, held, scheduled, paid. | ❌ |
+| NOT-02 | AP payee notified when invoice matched, held, scheduled, paid. | ❌ (e-signature side done 2026-10-17: every admin of the counterparty company is notified when an envelope is sent) |
 | NOT-03 | Unsigned envelope: remind every 3 days, escalate after 9. | 🟡 escalation verify |
 | NOT-04 | SMS channel for timesheet reminders. | ❌ (needs SMS provider) |
 
@@ -643,6 +643,16 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-17 · ESG-02, NOT-02 · **Send for signature reworked.** Signers are no longer typed in: you are fixed as
+  signer 1 (your company) and the rest are picked from the other company's own admins/owners, strongest role
+  first, with an e-mail invite box only when that company has no admin with an account (`GET /envelopes/signing-parties`,
+  `company_signing_admins()` — name, e-mail and role only, cross-workspace, nothing else of that company).
+  An envelope now carries several PDFs (`envelope_documents`, merged in order, add/remove while it is a draft);
+  sending e-mails **every** admin of the counterparty company, recorded as `counterparty_notified`. The form field
+  is labelled "Note". Migration `20261016001400`. Tests in `tests/test_esign.py`; 109 API tests pass, ruff/tsc/build
+  green. **Left:** ESG templates (NDA / offer / ICA) and template versioning are still missing — the other half of
+  ESG-02 and all of ESG-08.
 
 - 2026-10-17 · RULE-01, SEC-13, CO-03, AGR-07 · **Security fix + CI green.** The cross-tenant directory had left the
   `companies_directory` policy from migration 0780 in place: "any signed-in member may select any company" with no

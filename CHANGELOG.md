@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Send for signature: pick your signers, attach a packet, tell the other company (2026-10-17, PLAN ESG-02, NOT-02):**
+  - **Signers are chosen, not typed.** "Send for signature" asks who is expected to sign: you are fixed as the
+    first signer (your own company), and the second is picked from the other company's own admins and owners —
+    only people who may actually sign for them, strongest role first. When that company has no admin with an
+    account yet, the form falls back to inviting the signer by e-mail instead of blocking the send.
+    `GET /envelopes/signing-parties`.
+  - **Several documents per envelope.** An MSA and its SOW, or a contract and its exhibits, now travel as one
+    envelope: add documents up front or to a draft later, and every signer gets them in order followed by one
+    certificate of completion. `POST /envelopes/{id}/documents`, `DELETE /envelopes/{id}/documents/{id}`,
+    migration `20261016001400`.
+  - **The other company is told.** Sending e-mails every admin of the counterparty company, not just the signer —
+    the agreement is theirs to action even when they are not the one signing. It is recorded on the envelope's
+    timeline as "Counterparty notified" and listed in the notification log. (They also already see the agreement
+    in their own workspace, read-only.)
+  - The form field is now labelled **Note** rather than "Message to signers".
 - **Company profiles are private to their workspace again (2026-10-17, PLAN RULE-01, SEC-13, CO-03):** the
   cross-tenant company directory had left behind a row-level-security policy that let **any signed-in person read
   every company row in every workspace** — contact e-mail, address, EIN, W-9 status and data, notes, bank_verified.
