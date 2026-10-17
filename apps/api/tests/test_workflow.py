@@ -3,6 +3,7 @@ acceptance, payment confirmation. Tests restore every switch or record they chan
 
 from __future__ import annotations
 
+import orjson
 from sqlalchemy import text
 
 from app.db import get_engine
@@ -40,11 +41,28 @@ async def _company(client, auth, name: str) -> str:
     return next(c["id"] for c in (await client.get("/companies", headers=auth("admin"))).json() if c["name"] == name)
 
 
+async def _registered_person(name: str, email: str, role: str = "viewer") -> str:
+    """A user who already has an account and a membership here, so they can be
+    onboarded as a consultant (their details are read from their profile)."""
+    async with get_engine().begin() as conn:
+        uid = (await conn.execute(
+            text("""insert into auth.users (email, raw_user_meta_data)
+                   values (:e, cast(:m as jsonb)) returning id"""),
+            {"e": email, "m": orjson.dumps({"full_name": name}).decode()})).scalar()
+        await conn.execute(
+            text("""insert into mytrakin.memberships (tenant_id, user_id, role, status)
+                   select m.tenant_id, :u, :r, 'active'
+                     from mytrakin.memberships m join mytrakin.profiles p on p.id = m.user_id
+                    where p.email = 'admin@example.com' limit 1"""),
+            {"u": uid, "r": role})
+    return str(uid)
+
+
 async def test_engagement_types_include_e2e(client, auth):
     types = {t["code"]: t["pay_model"] for t in (await client.get("/consultants/engagement-types", headers=auth("admin"))).json()}
     assert types["e2e"] == "vendor" and types["c2c"] == "vendor" and types["1099"] == "self"
     bright = await _company(client, auth, "BrightPath Tech LLC")
-    person = {"full_name": "Esha Twoe", "email": "esha.e2e@example.com", "start_date": "2026-11-02"}
+    person = {"user_id": await _registered_person("Esha Twoe", "esha.e2e@example.com"), "start_date": "2026-11-02"}
     missing = await client.post("/consultants", headers=auth("admin"), json={**person, "engagement": "e2e"})
     assert missing.status_code == 400 and "employer" in missing.text, missing.text
     unknown = await client.post("/consultants", headers=auth("admin"), json={**person, "engagement": "h1b_magic"})

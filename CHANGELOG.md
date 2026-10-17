@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Onboarding a consultant: pick the person, don't type them (2026-10-17, PLAN CON-02):** the free-text "Full name"
+  box is gone. Search the people registered with your workspace by name, U-ID or e-mail; each result shows the U-ID,
+  and anyone already on the books here is marked as such. Choosing someone fills in the e-mail and mobile, and the
+  API reads the name, e-mail and mobile from that person's profile rather than trusting the form, so a consultant
+  can no longer be created as a near-duplicate of somebody already here under a different spelling. The same person
+  cannot be onboarded twice. A consultant must already have a myTrakIn account. Fixed alongside it: onboarding
+  someone who already had a role in your workspace used to leave them on that role with no consultant access,
+  because `memberships` is unique per (tenant, user) - the link is now attached without taking their access away.
 - **Send for signature: pick your signers, attach a packet, tell the other company (2026-10-17, PLAN ESG-02, NOT-02):**
   - **Signers are chosen, not typed.** "Send for signature" asks who is expected to sign: you are fixed as the
     first signer (your own company), and the second is picked from the other company's own admins and owners —

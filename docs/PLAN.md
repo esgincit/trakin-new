@@ -250,7 +250,7 @@ own invoices and projects.
 | ID | Requirement | Status |
 |---|---|---|
 | CON-01 | Engagement types and checklists: W-2 full-time, W-2 contract, C2C, 1099 (lists in functional §3.4). | ✅ |
-| CON-02 | Onboard form: type, employer (C2C), name, e-mail (personal ok), mobile, title, start date, location, **any number of projects** each with hours/week, AR bill rate, AP/pay rate. | ✅ verify multi-project rows |
+| CON-02 | Onboard form: type, employer (C2C), name, e-mail (personal ok), mobile, title, start date, location, **any number of projects** each with hours/week, AR bill rate, AP/pay rate. | 🟡 identity is picked, not typed (2026-10-17): search registered users by name/U-ID/e-mail, their details come from their profile, and the same person cannot be onboarded twice; multi-project rows still to verify |
 | CON-03 | List: progress n/N, next step, starting in 14 days, ready to activate; filter by type. | ✅ |
 | CON-04 | Activate only when checklist done (project item may be open); creates placements and timesheet access; sends sign-in invite. | ✅ |
 | CON-05 | Rehire from Former: restarts checklist. | ✅ |
@@ -643,6 +643,19 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-17 · CON-02 · **A consultant is picked, not typed.** "Onboard a consultant" no longer asks for a name in a
+  free-text box: `GET /consultants/candidates` lists the people registered with this workspace (members plus people
+  added to its companies), each with their U-ID, searchable by name, U-ID or e-mail. Picking one fills the e-mail and
+  mobile, and `POST /consultants` now takes `user_id` and reads name/e-mail/mobile **from the profile server-side** —
+  the form no longer supplies them, so a consultant cannot be created as a near-duplicate of somebody already here.
+  The same person cannot be onboarded twice (409, rehire covers that). Fixed a related bug this exposed: because
+  `memberships` is unique on (tenant, user), onboarding someone who already had a role here would have silently
+  kept that role and never given them consultant access; the membership now keeps its role and gains the consultant
+  link. A user from another workspace is refused, and the old name+e-mail payload no longer validates.
+  **Consequence:** a consultant must already have a myTrakIn account (owner's decision) — there is no manual entry
+  for somebody who has never signed up. Tests in `tests/test_consultant_picker.py`; 115 API tests pass; ruff, tsc and
+  next build green.
 
 - 2026-10-17 · ESG-02, NOT-02 · **Send for signature reworked.** Signers are no longer typed in: you are fixed as
   signer 1 (your company) and the rest are picked from the other company's own admins/owners, strongest role

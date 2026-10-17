@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from ..config import get_settings
 from ..deps import TenantDb, tenant_db
-from ..errors import bad_request, not_found
+from ..errors import bad_request, conflict, not_found
 from ..services import workflow
 from ..services.email import render, send_email
 
@@ -45,10 +45,52 @@ async def engagement_types(db: TenantDb = Depends(tenant_db)):
     return await db.all("select code, name, pay_model from engagement_types where is_active order by sort, name")
 
 
+@router.get("/candidates")
+async def consultant_candidates(db: TenantDb = Depends(tenant_db), q: str | None = None):
+    """People already registered with this workspace, to pick from when onboarding a
+    consultant. Search by name, U-ID or e-mail; every result shows its U-ID.
+
+    A consultant must be someone who already has an account: their name, e-mail and
+    mobile come from their profile rather than being typed again, and the U-ID is
+    what ties them across workspaces. `already_consultant` flags the ones who are
+    on the books here already.
+    """
+    db.ctx.require("hr", "account_manager", "legal")
+    return await db.all(
+        """select * from (
+             select distinct on (p.id)
+                    p.id as user_id, uc.code as user_code, p.full_name, p.email, p.phone,
+                    (select count(*) from consultants c
+                      where c.tenant_id = :t and c.user_id = p.id and c.status <> 'former') as already_consultant
+               from (
+                 -- people with access to this workspace
+                 select pr.id, pr.full_name, pr.email, pr.phone
+                   from mytrakin.memberships m join mytrakin.profiles pr on pr.id = m.user_id
+                  where m.tenant_id = :t and m.status <> 'removed' and m.user_id is not null
+                 union
+                 -- people added to one of this workspace's companies
+                 select pr.id, pr.full_name, pr.email, pr.phone
+                   from mytrakin.company_members cm
+                   join mytrakin.companies c on c.id = cm.company_id
+                   join mytrakin.profiles pr on pr.id = cm.user_id
+                  where c.tenant_id = :t and cm.status = 'active' and cm.user_id is not null
+               ) p
+               left join mytrakin.user_codes uc on uc.user_id = p.id
+              where (cast(:q as text) is null
+                     or p.full_name ilike '%' || :q || '%'
+                     or p.email ilike '%' || :q || '%'
+                     or uc.code ilike '%' || :q || '%')
+              order by p.id
+           ) d
+           order by d.full_name nulls last
+           limit 25""",
+        {"t": db.ctx.tenant_id, "q": (q or "").strip() or None})
+
+
 class ConsultantIn(BaseModel):
-    full_name: str = Field(min_length=2, max_length=120)
-    email: EmailStr
-    phone: str | None = None
+    # The person is picked from the registered users; their details are read from
+    # their profile server-side, never from the form.
+    user_id: UUID
     engagement: str = Field(min_length=2, max_length=30)   # a code from engagement_types
     employer_company_id: UUID | None = None
     title: str | None = None
@@ -110,41 +152,67 @@ async def list_consultants(db: TenantDb = Depends(tenant_db), status: str | None
 
 @router.post("", status_code=201)
 async def onboard(body: ConsultantIn, db: TenantDb = Depends(tenant_db)):
-    """Start onboarding. The checklist depends on the engagement type."""
+    """Start onboarding for someone who already has a myTrakIn account. Their name,
+    e-mail and mobile come from their profile, so a consultant can't be created as a
+    near-duplicate of a person who is already here under another name."""
     db.ctx.require("hr", "account_manager", "legal")
     pay_model = await workflow.pay_model(db, body.engagement)
     if pay_model == "vendor" and body.employer_company_id is None:
         raise bad_request("C2C and E2E consultants need their employer (vendor) company")
+
+    person = await db.one("select id, full_name, email, phone from profiles where id = :u", {"u": body.user_id})
+    if person is None:
+        raise not_found("User")
+    known = await db.val(
+        """select exists (select 1 from memberships m
+                         where m.tenant_id = :t and m.user_id = :u and m.status <> 'removed')
+                or exists (select 1 from company_members cm join companies c on c.id = cm.company_id
+                            where c.tenant_id = :t and cm.user_id = :u and cm.status = 'active')""",
+        {"t": db.ctx.tenant_id, "u": body.user_id})
+    if not known:
+        raise bad_request("That person isn't registered with your company — pick someone from the list")
+    name = (person["full_name"] or "").strip()
+    if len(name) < 2:
+        raise bad_request("That user has no name on their profile — ask them to complete it, then pick them again")
+    if not person["email"]:
+        raise bad_request("That user has no e-mail on their profile — they cannot be onboarded yet")
+    duplicate = await db.one(
+        "select id from consultants where tenant_id = :t and user_id = :u and status <> 'former'",
+        {"t": db.ctx.tenant_id, "u": body.user_id})
+    if duplicate is not None:
+        raise conflict(f"{name} is already a consultant here — open their record instead")
+
     checklist = checklist_for(body.engagement, pay_model)
     consultant = await db.one(
-        """insert into consultants (tenant_id, full_name, email, phone, engagement, employer_company_id, title, location,
+        """insert into consultants (tenant_id, user_id, full_name, email, phone, engagement, employer_company_id, title, location,
                                     status, start_date, onboarding_checklist, skills)
-           values (:t, :name, :email, :phone, :eng, :emp, :title, :loc, 'onboarding', :start, cast(:cl as jsonb), :skills)
+           values (:t, :u, :name, :email, :phone, :eng, :emp, :title, :loc, 'onboarding', :start, cast(:cl as jsonb), :skills)
            returning *""",
-        {"t": db.ctx.tenant_id, "name": body.full_name.strip(), "email": body.email, "phone": body.phone,
+        {"t": db.ctx.tenant_id, "u": body.user_id, "name": name, "email": person["email"], "phone": person["phone"],
          "eng": body.engagement, "emp": body.employer_company_id if pay_model == "vendor" else None,
          "title": body.title, "loc": body.location, "start": body.start_date, "cl": orjson.dumps(checklist).decode(),
          "skills": body.skills},
     )
-    # Invite them to sign in (the membership is claimed automatically at first sign-in).
-    # Someone who already has a myTrakIn login (e.g. from another company) is linked right away.
-    existing_user = await db.val("select id from profiles where email = :e", {"e": body.email})
+    # They already have an account, so access is active straight away. If they were
+    # already a member of this workspace (a viewer, say, or staff in another role) keep
+    # the role they have and attach the consultant link -- onboarding someone must not
+    # quietly take away access they already had.
     await db.run(
-        """insert into memberships (tenant_id, user_id, invited_email, role, consultant_id, title, status)
-           values (:t, :u, :e, 'consultant', :c, :title, :status) on conflict do nothing""",
-        {"t": db.ctx.tenant_id, "u": existing_user, "e": None if existing_user else body.email, "c": consultant["id"],
-         "title": body.title, "status": "active" if existing_user else "invited"},
+        """insert into memberships (tenant_id, user_id, role, consultant_id, title, status)
+           values (:t, :u, 'consultant', :c, :title, 'active')
+           on conflict (tenant_id, user_id) where user_id is not null
+           do update set consultant_id = excluded.consultant_id,
+                         title = coalesce(memberships.title, excluded.title)""",
+        {"t": db.ctx.tenant_id, "u": body.user_id, "c": consultant["id"], "title": body.title},
     )
-    if existing_user:
-        await db.run("update consultants set user_id = :u where id = :c", {"u": existing_user, "c": consultant["id"]})
     tenant = await db.val("select name from tenants where id = :t", {"t": db.ctx.tenant_id})
-    await send_email(db, to=body.email, subject=f"Welcome to {tenant} — your myTrakIn access", kind="invite",
+    await send_email(db, to=person["email"], subject=f"You have been added to {tenant} in myTrakIn", kind="invite",
                      tenant_id=db.ctx.tenant_id, ref_type="consultant", ref_id=consultant["id"],
-                     html_body=render(f"Welcome, {body.full_name.split()[0]}",
-                                      [f"{tenant} uses myTrakIn for timesheets, documents and payment status.",
-                                       "Sign in with this e-mail address — we'll send you a one-time code. You'll find your "
-                                       "onboarding documents and company policies there."],
-                                      button=("Sign in", f"{get_settings().web_origin.rstrip('/')}/login?email={body.email}")))
+                     html_body=render(f"Welcome, {name.split()[0]}",
+                                      [f"{tenant} has added you as a consultant. Your onboarding documents, timesheets and "
+                                       "payment status are in myTrakIn.",
+                                       "Sign in with this e-mail address — we'll send you a one-time code."],
+                                      button=("Sign in", f"{get_settings().web_origin.rstrip('/')}/login?email={person['email']}")))
     return consultant
 
 
