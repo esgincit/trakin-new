@@ -29,6 +29,75 @@ async def _counterparty(user_ids: dict) -> tuple[str, str]:
     return str(tenant), str(company)
 
 
+async def test_a_signature_is_never_refused_by_the_one_live_msa_rule(client, auth, user_ids):
+    """Signing must not be blocked by bookkeeping.
+
+    Velocity raised a counter-MSA while DREP's was still out for signature (the rule only
+    counts pending/accepted/active as live), so the pair ended up with two unsigned MSAs.
+    When the last signer finished, the update to 'accepted' tripped the rule and aborted
+    the whole transaction -- a real signature reported as an error.
+    """
+    today = date.today()
+    created: list[str] = []
+    async with get_engine().begin() as conn:
+        t1 = (await conn.execute(text(
+            "insert into mytrakin.tenants (name, status) values ('Signfix Alpha', 'active')"))).scalar()
+        c1 = (await conn.execute(text(
+            """insert into mytrakin.companies (tenant_id, name, kind, kinds, status)
+                values (:t, 'Signfix Alpha Co', 'vendor', array['vendor'], 'active')"""), {"t": t1})).scalar()
+        t2 = (await conn.execute(text(
+            "insert into mytrakin.tenants (name, status) values ('Signfix Beta', 'active')"))).scalar()
+        c2 = (await conn.execute(text(
+            """insert into mytrakin.companies (tenant_id, name, kind, kinds, status)
+                values (:t, 'Signfix Beta Co', 'vendor', array['vendor'], 'active')"""), {"t": t2})).scalar()
+        for t, c in ((t1, c1), (t2, c2)):
+            await conn.execute(text("update mytrakin.tenants set company_id = :c where id = :t"), {"c": c, "t": t})
+    try:
+        # Alpha's MSA is out for signature; Beta raises a counter-MSA, which is allowed
+        # precisely because an unsigned copy does not count as live.
+        async with get_engine().begin() as conn:
+            a1 = (await conn.execute(text(
+                """insert into mytrakin.agreements (tenant_id, code, kind, company_id, initiator_company_id,
+                                                   tenant_side, status, effective_on)
+                    values (:t, 'SIGNFIX-A-1', 'msa', :c, :me, 'supplier', 'out_for_signature', :d) returning id"""),
+                {"t": t1, "c": c2, "me": c1, "d": today})).scalar()
+            created.append(a1)
+            a2 = (await conn.execute(text(
+                """insert into mytrakin.agreements (tenant_id, code, kind, company_id, initiator_company_id,
+                                                   tenant_side, status, effective_on)
+                    values (:t, 'SIGNFIX-B-1', 'msa', :c, :me, 'buyer', 'pending', :d) returning id"""),
+                {"t": t2, "c": c1, "me": c2, "d": today})).scalar()
+            created.append(a2)
+
+            # The signature: Alpha's MSA comes into force. This used to raise MT409.
+            await conn.execute(text("update mytrakin.agreements set status = 'accepted' where id = :id"), {"id": a1})
+            signed = (await conn.execute(text("select status from mytrakin.agreements where id = :id"), {"id": a1})).scalar()
+            assert signed == "accepted", signed
+
+            # The pair settles on the agreement that was signed.
+            superseded = (await conn.execute(
+                text("select status, decision_note from mytrakin.agreements where id = :id"), {"id": a2})).first()
+            assert superseded[0] == "terminated", superseded
+            assert "SIGNFIX-A-1" in superseded[1], superseded
+
+            # A genuine second *live* MSA for the same pair is still stopped at creation.
+            try:
+                await conn.execute(text(
+                    """insert into mytrakin.agreements (tenant_id, code, kind, company_id, initiator_company_id,
+                                                       tenant_side, status, effective_on)
+                        values (:t, 'SIGNFIX-C-1', 'msa', :c, :me, 'buyer', 'pending', :d)"""),
+                    {"t": t2, "c": c1, "me": c2, "d": today})
+                raise AssertionError("a duplicate live MSA should not be allowed")
+            except Exception as e:                                    # noqa: BLE001
+                assert "MT409" in str(e) or "already an active MSA" in str(e), e
+    finally:
+        async with get_engine().begin() as conn:
+            for agreement_id in created:
+                await conn.execute(text("delete from mytrakin.agreements where id = :id"), {"id": agreement_id})
+            await conn.execute(text("delete from mytrakin.tenants where name like 'Signfix%'"))
+            await conn.execute(text("delete from mytrakin.companies where name like 'Signfix% Co'"))
+
+
 async def test_msa_lifecycle_pending_accept_reject_renew_expire(client, auth, user_ids):
     admin = auth("admin")
     tenant, partner = await _counterparty(user_ids)

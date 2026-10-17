@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A signature is never refused (2026-10-17, PLAN AGR-04, AGR-05):** signing the MSA between Velocity Workforce
+  and DREP Software failed with *"There is already an active MSA between these two companies (MSA-DREPSOFTWARE-001)"*.
+  DREP had signed; Velocity's administrator was the second signer and got the error. The real story:
+  - Velocity had raised a counter-MSA while DREP's was `out_for_signature`. The one-live-MSA-per-pair trigger only
+    counts `pending` / `accepted` / `active` as live, so an unsigned copy did not stop a second one being created,
+    and the pair ended up with two MSAs waiting on each other.
+  - When the last signer finished, sealing the envelope set the agreement to `accepted`. That is an `UPDATE`, so
+    the same trigger fired, found Velocity's pending MSA and raised — **aborting the whole transaction**. The
+    signature had been recorded in the audit trail and was legally real, yet the request returned a conflict and
+    the signer was told to try again.
+  - Now the rule guards *creating* a second live MSA, which is where duplicates actually come from; a status
+    change on an agreement that already exists never raises. When an MSA comes into force, the opposite-direction
+    agreement for the same pair that has **not** come into force is superseded (with a note naming its
+    replacement) rather than left dangling. An MSA already in force is never quietly ended by someone else's
+    signature — and if legacy data somehow has two in force, a signature still goes through.
+  - Migration `20261016001800`.
 - **SOWs run both ways under one MSA, sent to the other company for approval (2026-10-17, PLAN AGR-05):**
   - **Either company can raise work under an MSA, whichever workspace recorded it.** `POST /sows` read the
     agreement with a plain `SELECT`, and the restrictive tenant-isolation policy hides another workspace's

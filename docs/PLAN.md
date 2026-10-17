@@ -644,6 +644,22 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-17 · AGR-04, AGR-05 · **A signature is never refused.** Signing the Velocity ↔ DREP MSA failed with
+  "There is already an active MSA between these two companies (MSA-DREPSOFTWARE-001)". Velocity had raised a
+  counter-MSA while DREP's was `out_for_signature` — the trigger counts only pending/accepted/active as live, so
+  an unsigned copy did not block a second one — leaving two MSAs waiting on each other. When the last signer
+  finished, sealing the envelope set the agreement to `accepted`, the same trigger fired on that UPDATE, found the
+  other pending MSA and raised, **rolling the whole transaction back**: the signature was real and already in the
+  audit trail, yet the signer was shown a conflict. The rule now guards *creating* a second live MSA (where
+  duplicates come from) and never blocks a status change on an agreement that already exists; when an MSA comes
+  into force the opposite-direction copy that has not is superseded with a note naming its replacement, while one
+  already in force is never quietly ended by another party's signature. Migration `20261016001800`, applied.
+  Regression test in `tests/test_msa_lifecycle.py`; verified live on a throwaway pair that the signature now
+  completes, the unsigned copy is superseded, a genuine duplicate is still refused at creation, and a pre-existing
+  pair of in-force MSAs still signs cleanly. **Seen but not fixed:** agreement codes and envelope numbers are
+  unique per workspace only, so two different workspaces both hold `MSA-VELOCITYWORK-001` and two both hold
+  `ENV-00002` — which is what made this ambiguous to diagnose.
+
 - 2026-10-17 · AGR-05 · **SOWs run both ways under one MSA, with approval.** An MSA between two companies is one
   agreement whichever workspace recorded it, so work under it has to be possible from either side. It was not:
   `POST /sows` read the agreement with a plain SELECT and the restrictive tenant-isolation policy hides another
