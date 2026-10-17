@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Company profiles are private to their workspace again (2026-10-17, PLAN RULE-01, SEC-13, CO-03):** the
+  cross-tenant company directory had left behind a row-level-security policy that let **any signed-in person read
+  every company row in every workspace** — contact e-mail, address, EIN, W-9 status and data, notes, bank_verified.
+  Opening another workspace's company returned 200 with its details. The directory needs only names, so it now goes
+  through the narrow `company_directory_all()` / `company_public_name()` / `company_counterparty()` helpers and the
+  broad policy is dropped; a company outside your workspace is 404, not a redacted 200. Migration
+  `20261016001300`. The MSA picker still lists every active company, and an agreement with a company of another
+  workspace still shows who it is with.
+- **Green CI (2026-10-17):** the three tests that had been failing on every push since 2026-10-16 are fixed, and the
+  cross-tenant company read is now covered by a regression test.
+  - The agreement **list** resolves a cross-tenant counterparty's name through `company_public_name()`, like the
+    agreement detail and SOW list already did — an MSA with another workspace's company showed a blank counterparty.
+  - A company admin asking for an MSA **from a company they cannot read** now gets 404 instead of 403: a workspace
+    you can't see must be indistinguishable from one that doesn't exist.
+  - `test_non_staff_can_upload_session_w9` uses its own EIN; it had been reusing the shared fixture EIN that another
+    test in the same workspace already registered.
 - **Agreements are visible to the company they are with (2026-10-16, PLAN AGR-07):** an MSA recorded in one workspace
   now appears, read-only, in the counterparty company's workspace — terms from its own side ("Received from …"),
   plus the files attached to it. The counterparty can download but can't edit, add files, sign for the sender, or see

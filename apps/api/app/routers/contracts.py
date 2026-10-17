@@ -71,7 +71,7 @@ class AmendmentIn(BaseModel):
 @router.get("/agreements")
 async def list_agreements(db: TenantDb = Depends(tenant_db), kind: str | None = None):
     rows = await db.all(
-        """select a.*, coalesce(co.name, c.full_name) as counterparty,
+        """select a.*, coalesce(co.name, mytrakin.company_public_name(a.company_id), c.full_name) as counterparty,
                   (a.expires_on - current_date) as days_left,
                   (select count(*) from sows s where s.agreement_id = a.id) as sow_count, false as shared
              from agreements a left join companies co on co.id = a.company_id left join consultants c on c.id = a.consultant_id

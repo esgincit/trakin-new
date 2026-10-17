@@ -383,11 +383,13 @@ async def test_company_member_without_workspace_can_start_onboarding(client, aut
 
 async def test_non_staff_can_upload_session_w9(client, auth):
     """Session file writes + reads must work for non-staff (INSERT ... RETURNING
-    checks SELECT policies too — this 403'd before the session-docs read policy)."""
+    checks SELECT policies too — this 403'd before the session-docs read policy).
+    Its own EIN: EIN uniqueness is checked inside the workspace, and the default
+    one belongs to the company test_w9_upload_extract_verify_activate creates."""
     session = (await client.post("/onboarding/sessions", headers=auth("consultant"),
                                  json={"country": "US"})).json()
     uploaded = await client.post(f"/onboarding/sessions/{session['id']}/w9", headers=auth("consultant"),
-                                 files={"file": ("w9.pdf", w9_pdf(), "application/pdf")})
+                                 files={"file": ("w9.pdf", w9_pdf("22-3334422"), "application/pdf")})
     assert uploaded.status_code == 200, uploaded.text
     assert uploaded.json()["parsed"]["engine"] in ("form-fields", "pdf-text"), uploaded.text
 
@@ -441,11 +443,12 @@ async def test_msa_directory_and_company_initiated_msa(client, auth):
     search = await client.get("/companies/directory", params={"q": "Northwind"}, headers=vendor)
     assert [c["name"] for c in search.json()] == ["Northwind Consulting"], search.text
 
-    # Not your company → no MSA from it.
+    # Not your company → no MSA from it. 404, not 403: a workspace the caller
+    # can't read must be indistinguishable from one that doesn't exist.
     denied = await client.post(f"/companies/{north['id']}/msas", headers=vendor, json={
         "counterparty_company_id": bright["id"], "kind": "msa", "tenant_side": "buyer",
         "existing": False, "effective_on": str(date.today())})
-    assert denied.status_code == 403, denied.text
+    assert denied.status_code == 404, denied.text
 
     # NDA gate applies before the MSA (Verify → NDA → MSA), then creation works.
     created_ids: list[str] = []
@@ -599,9 +602,10 @@ async def test_counterparty_sees_the_agreement_and_its_files_read_only(client, a
             await conn.execute(text("delete from mytrakin.tenants where id = :id"), {"id": other})
 
 
-async def test_directory_spans_tenants(client, auth):
+async def test_directory_spans_tenants(client, auth, user_ids):
     """The picker directory lists every active company, not just the current
-    tenant's — and a cross-tenant company works as an MSA counterparty."""
+    tenant's — and a cross-tenant company works as an MSA counterparty,
+    without that workspace's records becoming readable."""
     admin = auth("admin")
     async with get_engine().begin() as conn:
         other_tenant = (await conn.execute(text(
@@ -610,6 +614,10 @@ async def test_directory_spans_tenants(client, auth):
             """insert into mytrakin.companies (tenant_id, name, kind, kinds, status)
                 values (:t, 'Faraway Corp', 'client', array['client'], 'active') returning id"""),
             {"t": other_tenant})).scalar()
+        await conn.execute(text(
+            """insert into mytrakin.memberships (tenant_id, user_id, role, status)
+                values (:t, :u, 'tenant_admin', 'active')"""),
+            {"t": other_tenant, "u": user_ids["finance2"]})
     created_ids: list[str] = []
     try:
         directory = await client.get("/companies/directory", headers=admin)
@@ -632,12 +640,26 @@ async def test_directory_spans_tenants(client, auth):
         assert msa.status_code == 201, msa.text
         created_ids.append(msa.json()["id"])
 
+        # The agreement books to this workspace but names a company of another
+        # workspace: the list must still show who it is with.
         listed = await client.get("/agreements", headers=admin)
         row = next(a for a in listed.json() if a["id"] == msa.json()["id"])
         assert row["counterparty"] == "Faraway Corp", row
+
+        # ...but that other workspace's company record itself stays unreadable:
+        # the directory names a counterparty, it does not open its profile.
+        # (RULE-01 / SEC-13. A broad "every signed-in member may select every
+        # company" policy leaked contact e-mail, EIN and W-9 data platform-wide.)
+        hidden = await client.get(f"/companies/{other_co}", headers=admin)
+        assert hidden.status_code == 404, hidden.text
+        # The same holds for a member of that other workspace.
+        cp = {**auth("finance2"), "X-Tenant-Id": str(other_tenant)}
+        assert (await client.get(f"/companies/{other_co}", headers=cp)).status_code == 200
+        assert (await client.get(f"/companies/{bright['id']}", headers=cp)).status_code == 404
     finally:
         async with get_engine().begin() as conn:
             for agreement_id in created_ids:
                 await conn.execute(text("delete from mytrakin.agreements where id = :id"), {"id": agreement_id})
             await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": other_co})
+            await conn.execute(text("delete from mytrakin.memberships where tenant_id = :t"), {"t": other_tenant})
             await conn.execute(text("delete from mytrakin.tenants where id = :id"), {"id": other_tenant})

@@ -461,7 +461,7 @@ Phase 0.4 and applied whenever the matching code is touched.
 | SEC-10 | Strict Content-Security-Policy; consider cookie sessions. | 🟡 |
 | SEC-11 | Production deploys only from a push to `main`; PR code never runs with secrets. | 🟡 |
 | SEC-12 | Upload allow-list (types, size), server-side content sniffing, user files served as attachments, no inline SVG/HTML. | 🟡 |
-| SEC-13 | Every query scoped by tenant (RLS) and by party; two-tenant test per router. | 🟡 |
+| SEC-13 | Every query scoped by tenant (RLS) and by party; two-tenant test per router. | 🟡 company profile cross-tenant read fixed 2026-10-17 (migration `20261016001300`, regression test); two-tenant test per router still outstanding |
 | SEC-14 | CSV formula-injection protection. | ✅ |
 | SEC-15 | Lockfiles, `npm ci`, pinned Python versions. | 🟡 |
 | SEC-16 | One-time secret scan of the repo and its history. | ❓ |
@@ -643,6 +643,18 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-17 · RULE-01, SEC-13, CO-03, AGR-07 · **Security fix + CI green.** The cross-tenant directory had left the
+  `companies_directory` policy from migration 0780 in place: "any signed-in member may select any company" with no
+  tenant filter, so any user could read every workspace's contact e-mail, address, EIN, W-9 data and notes
+  (`GET /companies/{id}` answered 200 for another workspace). Migration `20261016001300` drops it — the picker and
+  counterparty names already go through the narrow helpers of migration 1000 — and a company outside your workspace is
+  now 404. Same fix makes `POST /companies/{id}/msas` from an unreadable company 404 instead of 403. Also: the
+  agreement **list** now resolves a cross-tenant counterparty through `company_public_name()` (it showed blank while
+  the detail endpoint didn't), and `test_non_staff_can_upload_session_w9` got its own EIN (it reused the shared
+  fixture EIN another test in the workspace had registered). Regression test in
+  `test_directory_spans_tenants`. All 104 API tests pass; ruff, tsc and `next build` green. **Left:** SEC-13 is only
+  partly done — a two-tenant test per router is still outstanding (Phase 0.5). Uncommitted.
 
 - 2026-10-16 · AGR-07 · Agreements shared with the counterparty: an agreement recorded by one workspace is visible,
   read-only and from the counterparty's side, in the workspace of the company it is with, with its files
