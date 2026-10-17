@@ -265,6 +265,17 @@ async def create_envelope(
     return await get_envelope(env["id"], db)
 
 
+@router.get("/{envelope_id}/documents/{document_id}/download")
+async def download_document(envelope_id: UUID, document_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """A link to one document of the envelope, so it can be read without signing anything."""
+    doc = await db.one("select id, name from envelope_documents where id = :d and envelope_id = :e",
+                       {"d": document_id, "e": envelope_id})
+    if doc is None:
+        raise not_found("Document")
+    path = await db.val("select storage_path from envelope_documents where id = :d", {"d": document_id})
+    return {"id": str(doc["id"]), "name": doc["name"], "url": await storage.signed_url("esign", path)}
+
+
 @router.post("/{envelope_id}/documents", status_code=201)
 async def add_document(envelope_id: UUID, db: TenantDb = Depends(tenant_db),
                        file: UploadFile | None = File(None), document_path: str | None = Form(None)):

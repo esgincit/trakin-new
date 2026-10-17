@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Acceptance } from "@/components/Acceptance";
 import { Attachments } from "@/components/Attachments";
-import { Bar, Chip, ErrorBox, Loading, PageHead } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
+import { api } from "@/lib/api";
 import { date, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -14,6 +15,13 @@ export default function AgreementDetail() {
   const router = useRouter();
   const { workspace } = useSession();
   const { data: a, error, loading, reload } = useApi(`/agreements/${id}`);
+  const { run } = useAction();
+  // A document sent for signature lives with its envelope, not in this agreement's
+  // files — open it from there rather than duplicating the upload.
+  const openDocument = async (envelopeId: string, doc: any) => {
+    const r = await run(() => api(`/envelopes/${envelopeId}/documents/${doc.id}/download`));
+    if (r?.url) window.open(r.url, "_blank", "noopener");
+  };
   if (loading) return <Loading rows={6} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   // A shared agreement belongs to the workspace that recorded it: read-only here.
@@ -50,7 +58,25 @@ export default function AgreementDetail() {
           ))}
           {!a.sows.length && <p className="muted">None yet.</p>}
           <h3 className="mt">Signatures</h3>
-          {a.envelopes.map((e: any) => <div key={e.id} className="alert click" onClick={() => router.push(`/esign/${e.id}`)}><Chip status={e.status} />{e.number} · {e.title}</div>)}
+          {a.envelopes.map((e: any) => (
+            <div key={e.id} className="alert">
+              <div className="alert click" onClick={() => router.push(`/esign/${e.id}`)}>
+                <Chip status={e.status} />{e.number} · {e.title}
+              </div>
+              {e.documents?.length > 0 && (
+                <div className="mt" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <span className="muted" style={{ fontSize: 12.5, alignSelf: "center" }}>
+                    {e.documents.length > 1 ? `${e.documents.length} documents:` : "Document:"}
+                  </span>
+                  {e.documents.map((d: any) => (
+                    <button key={d.id} className="btn sm" onClick={() => openDocument(e.id, d)}>
+                      📄 {d.name}{d.size_bytes != null ? ` · ${Math.ceil(d.size_bytes / 1024)} KB` : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
           {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
         </div>
       </div>

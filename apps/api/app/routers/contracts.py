@@ -133,8 +133,13 @@ async def get_agreement(agreement_id: UUID, db: TenantDb = Depends(tenant_db)):
         return row
     row["sows"] = await db.all("select s.id, s.code, s.title, s.end_date, b.burn_pct from sows s left join sow_burn b on b.sow_id = s.id "
                                "where s.agreement_id = :id order by s.end_date", {"id": agreement_id})
-    row["envelopes"] = await db.all("select id, number, title, status, completed_at from envelopes where agreement_id = :id "
-                                    "order by created_at desc", {"id": agreement_id})
+    row["envelopes"] = await db.all(
+        """select e.id, e.number, e.title, e.status, e.completed_at, e.sent_at,
+                  (select coalesce(json_agg(json_build_object('id', d.id, 'name', d.name, 'size_bytes', d.size_bytes)
+                                           order by d.position), '[]'::json)
+                     from mytrakin.envelope_documents d where d.envelope_id = e.id) as documents
+             from envelopes e where e.agreement_id = :id order by e.created_at desc""",
+        {"id": agreement_id})
     return row
 
 

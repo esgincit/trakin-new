@@ -189,8 +189,42 @@ async def test_sending_notifies_every_admin_of_the_counterparty(client, auth):
                 await conn.execute(text("delete from mytrakin.envelopes where id = :id"), {"id": created})
 
 
+async def test_agreement_page_shows_the_documents_sent_for_signature(client, auth):
+    """The documents an envelope carries are listed on the agreement that sent them,
+    with a link that opens the file -- they live with the envelope, not in the
+    agreement's own files."""
+    agreement_id = await _msa_with_brightpath()
+    created = None
+    try:
+        response = await client.post(
+            "/envelopes", headers=auth("admin"),
+            data={"title": "MSA packet", "agreement_id": str(agreement_id),
+                  "signers": json.dumps([{"name": "Ada Admin", "email": "admin@example.com"}])},
+            files=[("files", ("msa.pdf", pdf(2, "msa"), "application/pdf")),
+                   ("files", ("sow.pdf", pdf(1, "sow"), "application/pdf"))])
+        assert response.status_code == 201, response.text
+        created = response.json()["id"]
+
+        detail = (await client.get(f"/agreements/{agreement_id}", headers=auth("admin"))).json()
+        mine = next(e for e in detail["envelopes"] if e["id"] == created)
+        assert [d["name"] for d in mine["documents"]] == ["msa.pdf", "sow.pdf"], mine["documents"]
+
+        # Each one can be opened on its own.
+        first = mine["documents"][0]
+        link = await client.get(f"/envelopes/{created}/documents/{first['id']}/download", headers=auth("admin"))
+        assert link.status_code == 200 and link.json()["url"], link.text
+        assert link.json()["name"] == "msa.pdf", link.text
+
+        # A document of another envelope is not reachable through this one.
+        assert (await client.get(f"/envelopes/{created}/documents/{first['id']}/download",
+                                 headers=auth("vendor"))).status_code in (403, 404)
+    finally:
+        if created:
+            async with get_engine().begin() as conn:
+                await conn.execute(text("delete from mytrakin.envelopes where id = :id"), {"id": created})
+
+
 async def test_standalone_envelope_notifies_nobody_else(client, auth):
-    """No agreement means no counterparty company, so there is nobody to announce to."""
     created = None
     try:
         response = await client.post(
