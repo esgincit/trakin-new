@@ -29,9 +29,12 @@ export default function TimesheetReview() {
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canApprove && ["submitted", "approved"].includes(ts.status) && (
             <button className="btn" disabled={busy} onClick={async () => {
-              const reason = prompt("What should the consultant fix? They'll see this message.");
-              if (reason && await run(() => api(`/timesheets/${id}/reject`, { body: { reason } }), "Returned to the consultant")) reload();
-            }}>Return for changes</button>
+              const approved = ts.status === "approved";
+              const reason = prompt(approved ? "What needs to change? The consultant corrects the week and it comes back to you for approval."
+                                             : "What should the consultant fix? They'll see this message.");
+              if (reason && await run(() => api(`/timesheets/${id}/reject`, { body: { reason } }),
+                                      approved ? "Adjustment opened — changes need approval again" : "Returned to the consultant")) reload();
+            }}>{ts.status === "approved" ? "Request adjustment" : "Return for changes"}</button>
           )}
           {canApprove && ts.status === "submitted" && (
             <button className="btn pri" disabled={busy} onClick={async () => {
@@ -57,6 +60,7 @@ export default function TimesheetReview() {
       </div>
       {ts.note && <p className="note">Consultant's note: {ts.note}</p>}
       {ts.reject_reason && <p className="err">Returned: {ts.reject_reason}</p>}
+      {ts.status === "approved" && <p className="note">Approved{ts.decided_at && ` on ${date(ts.decided_at)}`}. Locked — once invoiced, corrections go on the invoice as a credit note or an extra invoice.</p>}
 
       <div className="grid c2 mt">
         <div className="card">

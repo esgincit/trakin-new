@@ -308,10 +308,10 @@ own invoices and projects.
 | TS-04 | Approver list per week: KPIs waiting / approved / not submitted / flagged; daily hours; checks summary; approve; **approve all that pass**; **remind not submitted**. | ✅ verify remind button |
 | TS-05 | Detail shows "what approval creates": AR amount and AP amount (finance/admin). | ✅ |
 | TS-06 | All-weeks history for every consultant/project with filters and CSV. | ✅ verify |
-| TS-07 | **Adjustment after approval**: request adjustment → re-approval; adjusts un-invoiced amounts or creates a correction line. | 🟡 reopening blocked once invoiced (2026-10-15); credit-note path still Phase 1 |
+| TS-07 | **Adjustment after approval**: request adjustment → re-approval; adjusts un-invoiced amounts or creates a correction line. | ✅ re-open until invoiced; after that a credit note (AR-06) or extra invoice (2026-10-18) |
 | TS-08 | Reminders Fri 3 pm, Mon 9 am, escalate Tue (HR/vendor admin). | ✅ |
 | TS-09 | Vendors see their consultants' timesheets read-only. | ✅ |
-| TS-10 | Approved time off pre-filled on the timesheet; client approver notified. | ❌ |
+| TS-10 | Approved time off pre-filled on the timesheet; client approver notified. | 🟡 shown on My timesheet (2026-10-18); client approver not notified (no approver e-mail on projects) |
 
 ### 5.15 Payment flow (`/payments`)
 | ID | Requirement | Status |
@@ -328,7 +328,7 @@ own invoices and projects.
 | AR-03 | Client receipts: aging buckets (current, 1–30, 31–60, 61–90, 90+), by customer (open, overdue, terms), tabs open / overdue / paid / all / credit notes. | 🟡 aging verify |
 | AR-04 | Invoice detail: bill to, consultant/period/hours × rate, SOW/PO, linked vendor bill and its status, payments, collection notes (add), Record payment, Send reminder, **Download PDF**. | 🟡 PDF verify |
 | AR-05 | Record payment (amount ≤ balance, date, ACH/wire/check/card/other, reference); part payments; recording releases pay-when-paid AP invoices and says so. | ✅ |
-| AR-06 | **Credit notes**: number, customer, against invoice, date, reason, amount, status (open → applied to next payment); reduce balance/aging. | ❌ |
+| AR-06 | **Credit notes**: number, customer, against invoice, date, reason, amount, status (open → applied to next payment); reduce balance/aging. | ✅ against one invoice, ≤ its balance (2026-10-18); no void / carry-over yet |
 | AR-07 | Reminders: −7 courtesy, +1/+7/+15 (copy AM), +30 escalate finance head + flag stop-work review. | ✅ verify +30 flag |
 | AR-08 | **AI-drafted collection e-mail** from invoice, payments and notes; firmer/friendlier; edit and send. | ❌ |
 | AR-09 | Void with reason (only without payments). | ✅ |
@@ -568,7 +568,7 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 | # | Item | IDs | Size |
 |---|---|---|---|
 | 1.1 | Payment ledger page | LED-01 | S |
-| 1.2 | Credit notes | AR-06 | M |
+| 1.2 | Credit notes | AR-06 | ✅ 2026-10-18 |
 | 1.3 | My approvals inbox (existing approval types first: timesheets, expenses, time off, AP exceptions, registrations) | APR-01, APR-02 | M |
 | 1.4 | Approval chains + thresholds + dual approval for payment runs | APR-03 | L |
 | 1.5 | Bank-detail change with second approver + callback | APR-04 | M |
@@ -578,7 +578,7 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 | 1.9 | Signing-limit enforcement for countersigners | ACC-05, ESG-07 | S |
 | 1.10 | Remittance e-mail + NACHA file | AP-05, AP-06 | M |
 | 1.11 | Payout hold on expired COI / missing W-9 (if 0.1 shows it's missing) | AP-09, PAY-02 | S |
-| 1.12 | Timesheet adjustment after approval | TS-07 | M |
+| 1.12 | Timesheet adjustment after approval | TS-07 | ✅ 2026-10-18 |
 
 ### Phase 2 — visibility & everyday usability
 | # | Item | IDs | Size |
@@ -591,7 +591,7 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 | 2.6 | Offboarding checklist + retention dates | WA-04, WA-05 | S |
 | 2.7 | E-sign templates (NDA, offer, ICA) + template version / legal approval | ESG-02, ESG-08 | M |
 | 2.8 | AP payee status notifications | NOT-02 | S |
-| 2.9 | Time off pre-filled on timesheets | TS-10 | S |
+| 2.9 | Time off pre-filled on timesheets | TS-10 | 🟡 2026-10-18 (approver notice left) |
 | 2.10 | Per-page template/import/export toolbar | UX-10 | S |
 | 2.11 | Access-matrix tab | ACC-04 | S |
 | 2.12 | Import templates for timesheets, payments, expenses | DATA-01 | S |
@@ -643,6 +643,17 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-18 · AR-06, TS-07, TS-10 · **Credit notes, adjustment after invoicing, time off on the timesheet.** New
+  `credit_notes` table (migration `20261018000100`, RLS: staff + the billed customer read, finance writes; audited);
+  `invoice_balances.balance` now subtracts credits (new `credited` column), so aging, payment caps and pay-when-paid
+  release follow. `POST /invoices/{id}/credit-notes` (sent AR only, ≤ open balance minus in-flight payments,
+  number `CN-{YEAR}-{SEQ:4}` from the numbering engine), `GET /credit-notes` (status open → applied once the invoice
+  is settled); invoices with credits can't be voided. Web: Credit notes tab, credits + "Issue credit note" on the
+  invoice. TS-07: re-opening an invoiced week names the invoice and says void / credit note / extra invoice;
+  "Request adjustment" wording on approved weeks. TS-10: approved time off shown as a read-only row on My timesheet.
+  Left: credit-note void, customer credit carried to another invoice, client-approver notice for time off (no
+  approver e-mail on projects), prod migration. main CI was already red (~14 team tests) before this change.
 
 - 2026-10-17 · AGR-04, AGR-05 · **A signature is never refused.** Signing the Velocity ↔ DREP MSA failed with
   "There is already an active MSA between these two companies (MSA-DREPSOFTWARE-001)". Velocity had raised a

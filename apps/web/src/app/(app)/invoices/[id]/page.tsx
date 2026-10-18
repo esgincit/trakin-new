@@ -41,6 +41,7 @@ export default function InvoiceDetail() {
             <dt>Hours × rate</dt><dd>{num(inv.hours, 2)} × {money(inv.rate)}</dd>
             <dt>Amount</dt><dd><b>{money(inv.amount)}</b></dd>
             <dt>Paid</dt><dd>{money(inv.paid)}</dd>
+            {Number(inv.credited) > 0 && <><dt>Credited</dt><dd>{money(inv.credited)}</dd></>}
             <dt>Balance</dt><dd><b>{money(inv.balance)}</b></dd>
             <dt>Issued / due</dt><dd>{date(inv.issued_on)} · {inv.due_on ? `due ${date(inv.due_on)}` : "pay-when-paid"}{inv.days_late > 0 && <span className="err"> · {inv.days_late} days late</span>}</dd>
             <dt>Terms</dt><dd>{inv.terms ?? "–"}</dd>
@@ -102,6 +103,31 @@ export default function InvoiceDetail() {
             </form>
           )}
 
+          {ar && (inv.credits?.length > 0 || (finance && inv.status !== "draft" && inv.status !== "void" && Number(inv.balance) > 0)) && (
+            <>
+              <h3 className="mt">Credit notes</h3>
+              {inv.credits?.length > 0 && (
+                <table><tbody>{inv.credits.map((c: any) => (
+                  <tr key={c.id}><td>{c.number}</td><td>{date(c.issued_on)}</td><td>{c.reason}</td><td className="num">−{money(c.amount)}</td></tr>
+                ))}</tbody></table>
+              )}
+              {finance && inv.status !== "draft" && inv.status !== "void" && Number(inv.balance) > 0 && (
+                <form className="form mt" onSubmit={async (e) => {
+                  e.preventDefault();
+                  const v = formValues(e.currentTarget);
+                  if (await run(() => api(`/invoices/${id}/credit-notes`, { body: { ...v, amount: Number(v.amount) } }), "Credit note issued")) reload();
+                }}>
+                  <div className="fields">
+                    <Field label="Credit amount" name="amount" type="number" step="0.01" min="0.01" max={inv.balance} required />
+                    <Field label="Reason" name="reason" placeholder="8 holiday hours billed at the regular rate" required minLength={3} full />
+                  </div>
+                  <p className="note">Lowers what the customer owes on this invoice. A fully credited invoice counts as settled and releases pay-when-paid vendor invoices.</p>
+                  <button className="btn mt" disabled={busy}>Issue credit note</button>
+                </form>
+              )}
+            </>
+          )}
+
           {inv.notes && (
             <>
               <h3 className="mt">Follow-up notes</h3>
@@ -118,7 +144,7 @@ export default function InvoiceDetail() {
               </form>
             </>
           )}
-          {finance && inv.status !== "void" && Number(inv.paid) === 0 && (
+          {finance && inv.status !== "void" && Number(inv.paid) === 0 && !inv.credits?.length && (
             <p className="note mt"><a onClick={async () => {
               const reason = prompt("Why is this invoice being voided?");
               if (reason && await run(() => api(`/invoices/${id}/void`, { body: { body: reason } }), "Invoice voided")) reload();

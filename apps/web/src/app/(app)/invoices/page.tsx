@@ -5,7 +5,7 @@ import { Suspense, useState } from "react";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { allows, canEdit as permits, useSession } from "@/lib/session";
+import { allows, isStaff, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 import { iso } from "@/lib/weeks";
 
@@ -22,6 +22,16 @@ const columns: Column<any>[] = [
   { key: "live_status", label: "Status", type: "status", filter: true },
 ];
 
+const creditColumns: Column<any>[] = [
+  { key: "number", label: "Credit note" },
+  { key: "customer", label: "Customer", filter: true },
+  { key: "invoice", label: "Against" },
+  { key: "issued_on", label: "Date", type: "date" },
+  { key: "reason", label: "Reason", hideSm: true },
+  { key: "amount", label: "Amount", type: "money" },
+  { key: "status", label: "Status", type: "status", filter: true },
+];
+
 export default function InvoicesPage() {
   return <Suspense><Invoices /></Suspense>;
 }
@@ -30,8 +40,10 @@ function Invoices() {
   const params = useSearchParams();
   const router = useRouter();
   const { workspace } = useSession();
-  const [direction, setDirection] = useState<"ar" | "ap">(params.get("tab") === "ap" ? "ap" : "ar");
-  const { data, error, reload } = useApi<any[]>("/invoices", { direction });
+  const tab = params.get("tab");
+  const [direction, setDirection] = useState<"ar" | "ap" | "credits">(tab === "ap" || tab === "credits" ? tab : "ar");
+  const credits = direction === "credits";
+  const { data, error, reload } = useApi<any[]>(credits ? "/credit-notes" : "/invoices", credits ? undefined : { direction });
   const [modal, setModal] = useState<"generate" | "run" | "manual" | null>(params.get("generate") ? "generate" : null);
   const finance = allows(workspace, "finance");
 
@@ -48,10 +60,16 @@ function Invoices() {
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={direction === "ar"} className={direction === "ar" ? "on" : ""} onClick={() => setDirection("ar")}>Client invoices (AR)</button>
         <button role="tab" aria-selected={direction === "ap"} className={direction === "ap" ? "on" : ""} onClick={() => setDirection("ap")}>Vendor & 1099 invoices (AP)</button>
+        {isStaff(workspace?.role) && <button role="tab" aria-selected={credits} className={credits ? "on" : ""} onClick={() => setDirection("credits")}>Credit notes</button>}
       </div>
       <ErrorBox error={error} retry={reload} />
-      <DataTable id={`invoices-${direction}`} rows={data} columns={columns} onRowClick={(r) => router.push(`/invoices/${r.id}`)}
-                 empty={direction === "ar" ? "No client invoices yet. Approve timesheets, then create invoices from them." : "No vendor invoices yet."} />
+      {credits ? (
+        <DataTable id="invoices-credits" rows={data} columns={creditColumns} onRowClick={(r) => router.push(`/invoices/${r.invoice_id}`)}
+                   empty="No credit notes. Issue one from a client invoice when the customer was over-billed." />
+      ) : (
+        <DataTable id={`invoices-${direction}`} rows={data} columns={columns} onRowClick={(r) => router.push(`/invoices/${r.id}`)}
+                   empty={direction === "ar" ? "No client invoices yet. Approve timesheets, then create invoices from them." : "No vendor invoices yet."} />
+      )}
       {modal === "generate" && <GenerateModal onClose={() => setModal(null)} onDone={reload} />}
       {modal === "manual" && <ManualInvoiceModal onClose={() => setModal(null)} onDone={(id) => router.push(`/invoices/${id}`)} />}
       {modal === "run" && <PaymentRunModal rows={direction === "ap" ? data : undefined} onClose={() => setModal(null)} onDone={reload} />}

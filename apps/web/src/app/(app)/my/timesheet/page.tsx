@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { date, num } from "@/lib/format";
+import { date, label, num } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
 import { addDays, dayLabels, sundayOf } from "@/lib/weeks";
 
@@ -58,6 +58,10 @@ export default function MyTimesheet() {
                     <td className="num"><b>{num(r.hours.reduce((a, h) => a + h, 0), 2)}</b></td>
                   </tr>
                 ))}
+                {data.time_off?.some(Boolean) && (
+                  <tr><td className="muted">Time off (approved)</td>
+                    {data.time_off.map((k: string | null, di: number) => <td key={di} className="muted">{k ? label(k) : ""}</td>)}<td /></tr>
+                )}
                 <tr><td><b>Day total</b></td>{days.map((d, di) => <td key={d} className={dayTotal(di) > 12 ? "err" : "muted"}>{num(dayTotal(di), 2)}</td>)}<td className="num"><b>{num(total, 2)}</b></td></tr>
               </tbody>
             </table>

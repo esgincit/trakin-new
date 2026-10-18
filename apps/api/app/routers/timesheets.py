@@ -178,8 +178,13 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
             for p in projects]
     if None in grid:
         rows.append({"placement_id": None, "project": "Internal / non-billable", "hours": grid[None]})
+    # TS-10: approved time off shown per day (read-only, never saved as hours or billed).
+    off = await db.all(
+        """select starts_on, ends_on, kind from time_off where consultant_id = :c and status in ('approved', 'holiday')
+            and starts_on <= cast(:ws as date) + 6 and ends_on >= :ws""", {"c": db.ctx.consultant_id, "ws": ws})
+    time_off = [next((o["kind"] for o in off if o["starts_on"] <= ws + timedelta(days=i) <= o["ends_on"]), None) for i in range(7)]
     return {"week_start": ws, "status": ts["status"] if ts else "draft", "reject_reason": ts["reject_reason"] if ts else None,
-            "note": ts["note"] if ts else None, "rows": rows, "projects": projects}
+            "note": ts["note"] if ts else None, "rows": rows, "projects": projects, "time_off": time_off}
 
 
 @router.put("/mine")
@@ -282,13 +287,15 @@ async def reject(timesheet_id: UUID, body: Decision, db: TenantDb = Depends(tena
         raise bad_request("Give a reason so the consultant knows what to fix")
     # Invoice generation skips periods that already have an AR invoice, so reopening invoiced hours would lose the change.
     invoiced = await db.val(
-        """select exists (select 1 from timesheet_entries e
-                            join invoices i on i.placement_id = e.placement_id and i.direction = 'ar' and i.status <> 'void'
-                                           and i.period_start <= e.work_date and i.period_end >= e.work_date
-                           where e.timesheet_id = :id)""", {"id": timesheet_id})
+        """select string_agg(distinct i.number, ', ') from timesheet_entries e
+             join invoices i on i.placement_id = e.placement_id and i.direction = 'ar' and i.status <> 'void'
+                            and i.period_start <= e.work_date and i.period_end >= e.work_date
+            where e.timesheet_id = :id""", {"id": timesheet_id})
     if invoiced:
-        raise ApiError(409, "already_invoiced", "These hours are already invoiced. Void or credit the invoice first, "
-                                                "then request the adjustment.")
+        # TS-07: once billed, the correction is on the invoice — a credit note for fewer hours, an extra invoice for more.
+        raise ApiError(409, "already_invoiced", f"These hours are already invoiced ({invoiced}). Void the invoice if nothing "
+                                                "is paid to re-open the week, or record the difference as a credit note "
+                                                "(fewer hours) or an extra invoice (more hours).")
     row = await db.one(
         """update timesheets set status = 'rejected', decided_by = :u, decided_at = now(), reject_reason = :r
             where id = :id and status in ('submitted', 'approved') returning id, status""",

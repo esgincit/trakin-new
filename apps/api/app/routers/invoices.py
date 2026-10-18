@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import TenantDb, tenant_db
 from ..errors import ApiError, bad_request, not_found
-from ..services import workflow
+from ..services import numbering, workflow
 from ..services.email import render, send_email
 from ..services.invoicing import check_payable, generate_invoices, next_invoice_number, record_payment, settle
 from ..utils import money, parse_terms_days
@@ -62,6 +62,11 @@ class NoteIn(BaseModel):
     body: str = Field(min_length=2, max_length=2000)
 
 
+class CreditIn(BaseModel):
+    amount: Decimal = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=500)
+
+
 class RunIn(BaseModel):
     invoice_ids: list[UUID] = Field(min_length=1, max_length=200)
     method: str = Field("ACH", pattern="^(ACH|Wire|Check)$")
@@ -78,7 +83,7 @@ def _hide(row: dict, ctx) -> dict:
 
 _LIST_SQL = """
 select b.id, b.number, b.direction, b.period_start, b.period_end, b.hours, b.approved_hours, b.rate, b.amount, b.paid,
-       b.balance, b.issued_on, b.due_on, b.scheduled_on, b.terms, b.live_status, b.days_late, b.status, b.po_number,
+       b.balance, b.credited, b.issued_on, b.due_on, b.scheduled_on, b.terms, b.live_status, b.days_late, b.status, b.po_number,
        b.pay_when_paid_of, coalesce(co.name, k.full_name) as party, s.code as sow, cons.full_name as consultant,
        pr.name as project
   from invoice_balances b
@@ -114,6 +119,9 @@ async def get_invoice(invoice_id: UUID, db: TenantDb = Depends(tenant_db)):
         raise ApiError(403, "forbidden", "Consultants see payment progress under My payments")
     row["payments"] = await db.all("select id, amount, paid_on, method, reference, status, confirmed_by_name, confirmed_at from payments where invoice_id = :id order by paid_on",
                                    {"id": invoice_id})
+    if row["direction"] == "ar":
+        row["credits"] = await db.all("select id, number, issued_on, reason, amount from credit_notes where invoice_id = :id order by issued_on, number",
+                                      {"id": invoice_id})
     if db.ctx.internal:
         row["notes"] = await db.all("select body, author_name, created_at from collection_notes where invoice_id = :id order by created_at",
                                     {"id": invoice_id})
@@ -309,10 +317,55 @@ async def void_invoice(invoice_id: UUID, body: NoteIn, db: TenantDb = Depends(te
     db.ctx.require("finance")
     if await db.val("select count(*) from payments where invoice_id = :id", {"id": invoice_id}):
         raise ApiError(409, "has_payments", "Invoices with payments can't be voided — issue a credit instead")
+    if await db.val("select count(*) from credit_notes where invoice_id = :id", {"id": invoice_id}):
+        raise ApiError(409, "has_credits", "This invoice has credit notes — it can't be voided")
     if await db.run("update invoices set status = 'void', memo = coalesce(memo || ' | ', '') || :r where id = :id",
                     {"id": invoice_id, "r": f"Voided: {body.body}"}) == 0:
         raise not_found("Invoice")
     return {"id": invoice_id, "status": "void"}
+
+
+# ----------------------------------------------------------------------------- credit notes (AR-06)
+@router.post("/invoices/{invoice_id}/credit-notes", status_code=201)
+async def issue_credit(invoice_id: UUID, body: CreditIn, db: TenantDb = Depends(tenant_db)):
+    """Credit part or all of a client invoice's open balance. Credits count like payments: the balance and aging
+    drop at once, and a client invoice settled by credit releases the pay-when-paid vendor invoices waiting on it."""
+    db.ctx.require("finance")
+    # Lock the invoice so a credit and a payment recorded at the same time can't both use the same balance.
+    if await db.one("select id from invoices where id = :id for update", {"id": invoice_id}) is None:
+        raise not_found("Invoice")
+    inv = await db.one("select number, direction, status, balance from invoice_balances where id = :id", {"id": invoice_id})
+    if inv["direction"] != "ar":
+        raise bad_request("Credit notes are for client invoices")
+    if inv["status"] in ("void", "draft"):
+        raise ApiError(409, "not_open", f"Only sent client invoices can be credited — this one is {inv['status']}")
+    in_flight = money(await db.val(
+        "select coalesce(sum(amount), 0) from payments where invoice_id = :id and status in ('pending', 'processing')",
+        {"id": invoice_id}))
+    open_balance = money(inv["balance"]) - in_flight
+    amount = money(body.amount)
+    if amount > open_balance:
+        raise bad_request(f"That is more than the open balance of ${open_balance:,.2f}"
+                          + (f" (${in_flight:,.2f} is already in flight)" if in_flight else ""))
+    credit = await db.one(
+        """insert into credit_notes (tenant_id, number, invoice_id, reason, amount, created_by)
+           values (:t, :n, :i, :r, :a, :u) returning id, number, issued_on, reason, amount""",
+        {"t": db.ctx.tenant_id, "n": await numbering.next_code(db, "credit_note"), "i": invoice_id,
+         "r": body.reason.strip(), "a": amount, "u": db.ctx.user_id})
+    return {**credit, "invoice": inv["number"], **await settle(db, invoice_id)}
+
+
+@router.get("/credit-notes")
+async def list_credits(db: TenantDb = Depends(tenant_db)):
+    """Every credit note with its invoice and customer. Open = the invoice still has a balance; applied = settled."""
+    if not db.ctx.internal:
+        raise ApiError(403, "forbidden", "Staff only")
+    return await db.all(
+        """select c.id, c.number, c.issued_on, c.reason, c.amount, b.id as invoice_id, b.number as invoice,
+                  co.name as customer, case when b.balance > 0 then 'open' else 'applied' end as status
+             from credit_notes c join invoice_balances b on b.id = c.invoice_id
+             left join companies co on co.id = b.company_id
+            order by c.issued_on desc, c.number desc""")
 
 
 @router.post("/payment-runs")
