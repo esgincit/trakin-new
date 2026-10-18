@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Sign-in codes: people could not enter the code they were sent (2026-10-17):** "E-mail me a code" sends an
+  **8-digit** code — that is Supabase's OTP length — but the login form demanded exactly 6 (`pattern="\d{6}"`,
+  `maxLength={6}`, and a button disabled until `code.length === 6`). The last two digits could not be typed, the
+  form failed native validation, and the button never enabled, so anybody signing in with a code was stuck. The
+  field now accepts 6–8 digits and enables once there are at least 6, which covers e-mail (8), text (6) and
+  whatever the project's OTP setting is changed to later; the label and the confirmation messages no longer claim
+  a length. The authenticator-app (TOTP) field stays at 6 digits, which is correct for TOTP.
 - **A signature is never refused (2026-10-17, PLAN AGR-04, AGR-05):** signing the MSA between Velocity Workforce
   and DREP Software failed with *"There is already an active MSA between these two companies (MSA-DREPSOFTWARE-001)"*.
   DREP had signed; Velocity's administrator was the second signer and got the error. The real story:

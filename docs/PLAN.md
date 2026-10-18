@@ -644,6 +644,14 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-17 · AUTH · **Sign-in codes were unenterable.** "E-mail me a code" sends Supabase's default **8-digit**
+  OTP, but `CodeEntry` in the login page required exactly 6: `pattern="\d{6}"`, `maxLength={6}` and a button
+  disabled until `code.length === 6`. The last two digits could not be typed, native validation rejected the form
+  and the button stayed grey — nobody could sign in with a code at all. The field now takes 6–8 digits and
+  enables at six or more, which covers e-mail (8), SMS (6) and any future change to the project's OTP length; the
+  label and the "we sent a … code" messages no longer assert a length. The TOTP field stays at 6 digits, which is
+  correct for an authenticator app. Verified tsc + next build; there is no automated coverage of this screen.
+
 - 2026-10-17 · AGR-04, AGR-05 · **A signature is never refused.** Signing the Velocity ↔ DREP MSA failed with
   "There is already an active MSA between these two companies (MSA-DREPSOFTWARE-001)". Velocity had raised a
   counter-MSA while DREP's was `out_for_signature` — the trigger counts only pending/accepted/active as live, so

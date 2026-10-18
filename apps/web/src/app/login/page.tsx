@@ -59,7 +59,7 @@ function Login() {
     attempt(async () => {
       const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
       if (error) throw error;
-      setInfo(`We sent a 6-digit code to ${email}.`);
+      setInfo(`We sent a sign-in code to ${email}.`);
       setStep("email_code");
     });
   };
@@ -78,7 +78,7 @@ function Login() {
       // Only numbers already added to an account (Account & security) can sign in by text.
       const { error } = await sb.auth.signInWithOtp({ phone: normalized.startsWith("+") ? normalized : `+1${normalized}`, options: { shouldCreateUser: false } });
       if (error) throw new Error("We couldn't text that number. Sign in with an e-mail code first and add your mobile under Account & security.");
-      setInfo("We texted you a 6-digit code.");
+      setInfo("We texted you a sign-in code.");
       setStep("phone_code");
     });
   };
@@ -230,16 +230,19 @@ function Login() {
   );
 }
 
+/** A sign-in code from Supabase: 8 digits for e-mail by default, 6 for a text message,
+ *  and the project's OTP setting can change either. Accept what actually arrives
+ *  rather than insisting on one length and locking people out of their own account. */
 function CodeEntry({ info, busy, onSubmit, onResend }: { info: string | null; busy: boolean; onSubmit: (code: string) => void; onResend: () => void }) {
   const [code, setCode] = useState("");
   return (
     <form className="form" onSubmit={(e) => { e.preventDefault(); onSubmit(code); }}>
       <h2>Enter your code</h2>
       {info && <p className="muted">{info}</p>}
-      <label htmlFor="code">6-digit code</label>
-      <input id="code" className="ctl" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required autoFocus
-             value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} style={{ fontSize: 22, letterSpacing: 8, textAlign: "center" }} />
-      <button className="btn pri mt" disabled={busy || code.length !== 6} style={{ width: "100%" }}>Sign in</button>
+      <label htmlFor="code">Code we sent you</label>
+      <input id="code" className="ctl" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6,8}" maxLength={8} required autoFocus
+             value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 8))} style={{ fontSize: 22, letterSpacing: 8, textAlign: "center" }} />
+      <button className="btn pri mt" disabled={busy || code.length < 6} style={{ width: "100%" }}>Sign in</button>
       <p className="note">Didn't get it? Check spam, or <a onClick={onResend}>send a new code</a>.</p>
     </form>
   );
