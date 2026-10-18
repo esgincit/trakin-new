@@ -31,6 +31,7 @@ export function label(v: string | null | undefined): string {
     prime_vendor: "Prime vendor", end_client: "End client", tenant_admin: "Admin", account_manager: "Account manager",
     vendor_admin: "Vendor", client_user: "Client", super_admin: "Owner", owner: "Co-owner", msa: "MSA", nda: "NDA", ica: "Contractor agreement",
     we_bill: "We bill", we_pay: "We pay", due_30: "Within 30 days", due_120: "Within 120 days", ok: "OK", i9_reverification: "I-9 reverification", ead: "EAD", i94: "I-94", coi: "COI", w9: "W-9",
+    pto: "Paid time off",
   };
   return special[v] ?? v.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }

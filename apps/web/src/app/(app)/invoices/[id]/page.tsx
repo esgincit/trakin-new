@@ -108,14 +108,18 @@ export default function InvoiceDetail() {
               <h3 className="mt">Credit notes</h3>
               {inv.credits?.length > 0 && (
                 <table><tbody>{inv.credits.map((c: any) => (
-                  <tr key={c.id}><td>{c.number}</td><td>{date(c.issued_on)}</td><td>{c.reason}</td><td className="num">−{money(c.amount)}</td></tr>
+                  <tr key={c.id}>
+                    <td style={{ whiteSpace: "normal" }}>{c.number}<div className="muted" style={{ fontSize: 12 }}>{date(c.issued_on)} · {c.reason}</div></td>
+                    <td className="num">−{money(c.amount)}</td>
+                  </tr>
                 ))}</tbody></table>
               )}
               {finance && inv.status !== "draft" && inv.status !== "void" && Number(inv.balance) > 0 && (
                 <form className="form mt" onSubmit={async (e) => {
                   e.preventDefault();
-                  const v = formValues(e.currentTarget);
-                  if (await run(() => api(`/invoices/${id}/credit-notes`, { body: { ...v, amount: Number(v.amount) } }), "Credit note issued")) reload();
+                  const form = e.currentTarget;
+                  const v = formValues(form);
+                  if (await run(() => api(`/invoices/${id}/credit-notes`, { body: { ...v, amount: Number(v.amount) } }), "Credit note issued")) { form.reset(); reload(); }
                 }}>
                   <div className="fields">
                     <Field label="Credit amount" name="amount" type="number" step="0.01" min="0.01" max={inv.balance} required />
