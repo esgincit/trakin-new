@@ -978,6 +978,26 @@ Body (`application/json`):
 |---|---|---|
 | `body` | string | yes |
 
+### `POST /v1/invoices/{invoice_id}/credit-notes`
+
+Credit part or all of a client invoice's open balance. Credits count like payments: the balance and aging
+drop at once, and a client invoice settled by credit releases the pay-when-paid vendor invoices waiting on it.
+
+| Parameter | In | Type | Required |
+|---|---|---|---|
+| `invoice_id` | path | uuid | yes |
+
+Body (`application/json`):
+
+| Field | Type | Required |
+|---|---|---|
+| `amount` | number or string (optional) | yes |
+| `reason` | string | yes |
+
+### `GET /v1/credit-notes`
+
+Every credit note with its invoice and customer. Open = the invoice still has a balance; applied = settled.
+
 ### `POST /v1/payment-runs`
 
 Pay several vendor / 1099 invoices at once. Held or mismatched invoices are skipped.

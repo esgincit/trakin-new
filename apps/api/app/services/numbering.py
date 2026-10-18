@@ -17,12 +17,14 @@ DEFAULTS = {   # today's formats, so nothing changes until an admin edits them
     "nda": "NDA-{CLIENT}-{SEQ:3}", "offer_letter": "OFFER-{CLIENT}-{SEQ:3}",
     "sow": "SOW-{PROJECT}-{SEQ:3}", "contract": "CON-{YEAR}-{SEQ:4}",
     "invoice_ar": "AR-{YEAR}-{SEQ:4}", "invoice_ap": "AP-{YEAR}-{SEQ:4}", "envelope": "ENV-{SEQ:5}",
+    "credit_note": "CN-{YEAR}-{SEQ:4}",
 }
 PLACEHOLDERS = ("CLIENT", "PROJECT")
 COUNTER_KEYS = {"invoice_ar": "inv_AR", "invoice_ap": "inv_AP"}   # existing counters, so numbers don't restart
 # Where each entity's numbers live, to skip numbers already taken (imports, hand-typed codes). Fixed, never user input.
 _TAKEN = {"project": ("projects", "code"), "sow": ("sows", "code"), "contract": ("sows", "code"),
           "invoice_ar": ("invoices", "number"), "invoice_ap": ("invoices", "number"), "envelope": ("envelopes", "number"),
+          "credit_note": ("credit_notes", "number"),
           **{k: ("agreements", "code") for k in ("msa", "subcontract", "ica", "nda", "offer_letter")}}
 # ponytail: codes only collide with numbers already in use (imports, hand-typed); 50 skips is plenty.
 MAX_TRIES = 50

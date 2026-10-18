@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Credit notes, adjustment after invoicing, time off on the timesheet (2026-10-18, PLAN AR-06, TS-07, TS-10):**
+  - Finance can issue a **credit note** against a sent client invoice — up to its open balance (payments still in
+    flight count against it), with a reason, numbered `CN-2026-0001` (editable in Settings → Numbering). The
+    invoice balance, aging and dashboards drop at once; a client invoice fully settled by payments plus credits is
+    paid and releases its pay-when-paid vendor invoices. Invoices with credit notes can't be voided.
+    New **Credit notes** tab on Invoices (open → applied once the invoice is settled); credits listed on the invoice.
+  - Re-opening an approved week that is already invoiced now names the invoice and says what to do: void it if
+    nothing is paid, otherwise a credit note (fewer hours) or an extra invoice (more hours). Approved weeks show
+    **Request adjustment**.
+  - Approved time off appears as a read-only row on **My timesheet** (not saved as hours, never billed).
+  - Migration `20261018000100` (table `credit_notes`, `invoice_balances.credited`) — apply to production **before**
+    deploying this code: `/invoices` reads the new column.
+
 - **"E-mail codes aren't going out" was really a one-minute cooldown (2026-10-17):** Supabase allows only one
   sign-in code per address per minute, and a second request returns `over_email_send_rate_limit` ("you can only
   request this after 59 seconds"). `friendlyAuthError` matched `rate limit`/`over_email` and reported that as
