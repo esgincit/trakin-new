@@ -19,8 +19,20 @@ export function AuthLayout({ children, footer }: { children: ReactNode; footer?:
 export const isStrongPassword = (pw: string) => pw.length >= 12 && /[A-Za-z]/.test(pw) && /\d/.test(pw);
 
 /** Turns Supabase's technical sign-in errors into something a person can act on. */
-export function friendlyAuthError(error: { message?: string } | string | null | undefined): string {
-  const m = (typeof error === "string" ? error : error?.message) ?? "";
+export function friendlyAuthError(error: { message?: string; code?: string } | string | null | undefined): string {
+  if (typeof error === "string") return error || "Something went wrong. Please try again.";
+  const m = error?.message ?? "";
+  const code = error?.code ?? "";
+  // Asking for a second code too quickly is not a broken mail server - it is a
+  // one-minute cooldown on the address. Say so, with the time it actually needs,
+  // instead of telling people to e-mail their administrator.
+  if (/over_email_send_rate_limit|over_sms_send_rate_limit/.test(code)
+      || /only request this after (\d+) second/i.test(m)) {
+    const secs = m.match(/after (\d+) second/i)?.[1];
+    return secs
+      ? `You asked for a code a moment ago. Wait ${secs} seconds and ask again - only one code can be sent per minute.`
+      : "You asked for a code a moment ago. Wait a minute and ask again - only one code can be sent per minute.";
+  }
   if (/provider is not enabled|unsupported provider/i.test(m))
     return "That sign-in option isn't switched on yet. Use an e-mail code instead, or ask your administrator.";
   if (/invalid api key/i.test(m))
@@ -28,8 +40,8 @@ export function friendlyAuthError(error: { message?: string } | string | null | 
   if (/access_denied/i.test(m)) return "Sign-in was cancelled. Try again or choose another way.";
   if (/redirect/i.test(m) && /not allowed|invalid/i.test(m))
     return "This web address isn't allowed for sign-in yet. Ask your administrator to add it in Supabase.";
-  if (/sending|confirmation email|rate limit|unexpected_failure|over_email|email not confirmed/i.test(m))
-    return "E-mail codes aren't going out right now. If you have a password, use that instead — otherwise ask your administrator.";
+  if (/sending|confirmation email|unexpected_failure|over_email|email not confirmed/i.test(m))
+    return "We couldn't send the e-mail. Please try again in a minute.";
   return m || "Something went wrong. Please try again.";
 }
 

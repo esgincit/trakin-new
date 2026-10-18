@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **"E-mail codes aren't going out" was really a one-minute cooldown (2026-10-17):** Supabase allows only one
+  sign-in code per address per minute, and a second request returns `over_email_send_rate_limit` ("you can only
+  request this after 59 seconds"). `friendlyAuthError` matched `rate limit`/`over_email` and reported that as
+  **"E-mail codes aren't going out right now… ask your administrator"** — so a person who pressed "send a new
+  code" twice was told the mail server was broken when it was working fine. The cooldown is now recognised
+  first, and says how many seconds to wait; a genuine send failure no longer sends anyone to an administrator,
+  it just asks them to try again.
 - **Sign-in codes: people could not enter the code they were sent (2026-10-17):** "E-mail me a code" sends an
   **8-digit** code — that is Supabase's OTP length — but the login form demanded exactly 6 (`pattern="\d{6}"`,
   `maxLength={6}`, and a button disabled until `code.length === 6`). The last two digits could not be typed, the
