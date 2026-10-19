@@ -74,7 +74,9 @@ class PlacementPatch(BaseModel):
 
 # ----------------------------------------------------------------------------- projects
 async def _client_name(db: TenantDb, company_id) -> str | None:
-    return await db.val("select name from companies where id = :id", {"id": company_id}) if company_id else None
+    # The other company may live in another workspace (row security hides it there); its name is public.
+    return await db.val("select coalesce((select name from companies where id = :id), mytrakin.company_public_name(:id))",
+                        {"id": company_id}) if company_id else None
 
 
 @router.get("/projects/next-code")
@@ -83,12 +85,40 @@ async def next_project_code(db: TenantDb = Depends(tenant_db), client_company_id
     return {"code": await numbering.preview_code(db, "project", CLIENT=await _client_name(db, client_company_id))}
 
 
+@router.get("/projects/counterparties")
+async def project_counterparties(db: TenantDb = Depends(tenant_db)):
+    """Companies we have an MSA in force with, whichever side sent it (T011303-1049). They live in their own
+    workspace, so they are not in our company list — the New project form offers them as client or prime."""
+    return await db.all(
+        """select x.id, mytrakin.company_public_name(x.id) as name
+             from (select a.company_id as id from agreements a
+                    where a.status in ('active', 'accepted') and a.kind = any(:kinds)
+                   union
+                   select mytrakin.agreement_peer_company(s.id) from mytrakin.shared_agreements() s
+                    where s.status in ('active', 'accepted') and s.kind = any(:kinds)) x
+            where x.id is not null and not x.id = any (mytrakin.my_company_ids())
+              and mytrakin.company_public_name(x.id) is not null
+            order by 2""", {"kinds": list(workflow.MASTER_KINDS)})
+
+
+@router.get("/projects/shared")
+async def shared_projects(db: TenantDb = Depends(tenant_db)):
+    """Other companies' live projects we were sent a SOW / work order for (T011303-1047). No money."""
+    rows = await db.all("select * from mytrakin.shared_projects() order by name")
+    linked = {r["source_project_id"]: r["id"] for r in await db.all(
+        "select id, source_project_id from projects where source_project_id is not null")}
+    for r in rows:
+        r["local_project_id"] = linked.get(r["id"])
+    return rows
+
+
 @router.get("/projects")
 async def list_projects(db: TenantDb = Depends(tenant_db)):
     show_money = db.ctx.allows("finance")
     rows = await db.all(
         """select pr.id, pr.code, pr.name, pr.status, pr.start_date, pr.end_date, pr.description, pr.client_approver,
-                  cl.name as client, pm.name as prime,
+                  coalesce(cl.name, mytrakin.company_public_name(pr.client_company_id)) as client,
+                  coalesce(pm.name, mytrakin.company_public_name(pr.prime_company_id)) as prime,
                   (select count(*) from placements p where p.project_id = pr.id and p.status in ('active', 'ending', 'onboarding')) as team_size,
                   (select string_agg(c.full_name, ', ' order by c.full_name) from placements p join consultants c on c.id = p.consultant_id
                     where p.project_id = pr.id and p.status in ('active', 'ending', 'onboarding')) as team,
@@ -146,7 +176,8 @@ async def create_project(body: ProjectIn, db: TenantDb = Depends(tenant_db)):
 @router.get("/projects/{project_id}")
 async def get_project(project_id: UUID, db: TenantDb = Depends(tenant_db)):
     project = await db.one(
-        """select pr.*, cl.name as client, pm.name as prime from projects pr
+        """select pr.*, coalesce(cl.name, mytrakin.company_public_name(pr.client_company_id)) as client,
+                  coalesce(pm.name, mytrakin.company_public_name(pr.prime_company_id)) as prime from projects pr
              left join companies cl on cl.id = pr.client_company_id left join companies pm on pm.id = pr.prime_company_id
             where pr.id = :id""", {"id": project_id})
     if project is None:
@@ -190,6 +221,32 @@ async def update_project(project_id: UUID, body: ProjectIn, db: TenantDb = Depen
     return row
 
 
+async def _local_project(db: TenantDb, project_id: UUID) -> UUID:
+    """The project in this workspace to place someone on. A project another company assigned to us gets our own
+    copy the first time (prime = that company), so timesheets, invoices and rates stay on our side (RULE-01)."""
+    if await db.val("select id from projects where id = :id", {"id": project_id}):
+        return project_id
+    local = await db.val("select id from projects where source_project_id = :id", {"id": project_id})
+    if local:
+        return local
+    src = await db.one("select * from mytrakin.shared_projects() where id = :id", {"id": project_id})
+    if src is None:
+        raise not_found("Project")
+    db.ctx.require("account_manager")   # adding the project here is a project write
+    body = ProjectIn(name=src["name"], client_company_id=src["client_company_id"], prime_company_id=src["assigned_by_company_id"],
+                     description=src["description"], start_date=src["start_date"], end_date=src["end_date"],
+                     status=src["status"])
+    await _activation_gate(db, body)
+    code = await numbering.next_code(db, "project", CLIENT=src["client"])
+    return await db.val(
+        """insert into projects (tenant_id, code, name, client_company_id, prime_company_id, description, start_date, end_date,
+                                 status, source_project_id)
+           values (:t, :code, :name, :client, :prime, :desc, :start, :end, :status, :src) returning id""",
+        {"t": db.ctx.tenant_id, "code": code, "name": body.name, "client": body.client_company_id,
+         "prime": body.prime_company_id, "desc": body.description, "start": body.start_date, "end": body.end_date,
+         "status": body.status, "src": project_id})
+
+
 # ----------------------------------------------------------------------------- placements
 def placement_view(row: dict, ctx) -> dict:
     """Only ever show the caller the rates they're allowed to see."""
@@ -206,7 +263,9 @@ def placement_view(row: dict, ctx) -> dict:
 
 _PLACEMENT_SQL = """
 select p.*, c.full_name as consultant, c.engagement, pr.name as project, pr.code as project_code,
-       ec.name as end_client, ar.name as ar_company, ap.name as ap_company, apc.full_name as ap_consultant,
+       coalesce(ec.name, mytrakin.company_public_name(p.end_client_company_id)) as end_client,
+       coalesce(ar.name, mytrakin.company_public_name(p.ar_company_id)) as ar_company,
+       coalesce(ap.name, mytrakin.company_public_name(p.ap_company_id)) as ap_company, apc.full_name as ap_consultant,
        ars.code as ar_sow, aps.code as ap_sow
   from placements p
   join consultants c on c.id = p.consultant_id
@@ -240,6 +299,10 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
         raise bad_request("W-2 employees are paid through payroll — leave the AP payee empty")
     if pay_model == "self":
         body.ap_consultant_id = body.ap_consultant_id or body.consultant_id
+    body.project_id = await _local_project(db, body.project_id)
+    if body.ar_company_id is None:   # on a project another company assigned to us, we bill that company
+        body.ar_company_id = await db.val("select prime_company_id from projects where id = :id and source_project_id is not null",
+                                          {"id": body.project_id})
     row = await db.one(
         """insert into placements (tenant_id, consultant_id, project_id, role_title, start_date, end_date, hours_per_week,
                                    end_client_company_id, ar_company_id, ar_sow_id, bill_rate, ar_terms, ap_company_id,

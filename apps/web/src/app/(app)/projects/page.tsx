@@ -61,9 +61,15 @@ export default function Projects() {
 
 function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: any) => void }) {
   const companies = useApi<any[]>("/companies");
+  // T011303-1049: companies we have an MSA with live in their own workspace, so they aren't in /companies.
+  const partners = useApi<any[]>("/projects/counterparties");
   const nextCode = useApi<{ code: string }>("/projects/next-code");
   const { run, busy } = useAction();
-  const opts = (kinds: string[]) => [["", "–"] as [string, string], ...(companies.data ?? []).filter((c) => playsRole(c, ...kinds)).map((c) => [c.id, c.name] as [string, string])];
+  const opts = (kinds: string[]) => {
+    const own = (companies.data ?? []).filter((c) => playsRole(c, ...kinds));
+    const msa = (partners.data ?? []).filter((p) => !own.some((c) => c.id === p.id));
+    return [["", "–"] as [string, string], ...[...own, ...msa].map((c) => [c.id, c.name] as [string, string])];
+  };
   return (
     <Modal title="New project" onClose={onClose}>
       <form className="form" onSubmit={async (e) => { e.preventDefault(); const r = await run(() => api("/projects", { body: formValues(e.currentTarget) }), "Project created"); if (r) onDone(r); }}>
@@ -88,12 +94,17 @@ function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: an
 function PlacementModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const consultants = useApi<any[]>("/consultants");
   const projects = useApi<any[]>("/projects");
+  const shared = useApi<any[]>("/projects/shared");
   const companies = useApi<any[]>("/companies");
+  const partners = useApi<any[]>("/projects/counterparties");
   const sows = useApi<any[]>("/sows");
   const [consultantId, setConsultantId] = useState("");
   const { run, busy } = useAction();
   const consultant = consultants.data?.find((c) => c.id === consultantId);
   const pick = (rows: any[] | undefined, f: (r: any) => boolean, lbl: (r: any) => string) => [["", "–"] as [string, string], ...(rows ?? []).filter(f).map((r) => [r.id, lbl(r)] as [string, string])];
+  // Our companies in that role, plus the companies we have an MSA with (they live in their own workspace).
+  const orMsa = (...kinds: string[]) => (c: any) => playsRole(c, ...kinds) || (partners.data ?? []).some((p) => p.id === c.id);
+  const parties = [...(companies.data ?? []), ...(partners.data ?? []).filter((p) => !companies.data?.some((c) => c.id === p.id))];
 
   return (
     <Modal title="New placement" onClose={onClose}>
@@ -107,17 +118,21 @@ function PlacementModal({ onClose, onDone }: { onClose: () => void; onDone: () =
         <div className="fields">
           <Field label="Consultant" name="consultant_id" as="select" required value={consultantId} onChange={(e: any) => setConsultantId(e.target.value)}
                  options={pick(consultants.data, (c) => c.status !== "former", (c) => `${c.full_name} (${label(c.engagement)})`)} />
-          <Field label="Project" name="project_id" as="select" required options={pick(projects.data, () => true, (p) => `${p.code} · ${p.name}`)} />
+          {/* Our live projects, plus ones another company assigned to us by SOW (our copy is made on save). */}
+          <Field label="Project" name="project_id" as="select" required options={[
+            ...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
+            ...(shared.data ?? []).filter((p) => !p.local_project_id).map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string]),
+          ]} />
           <Field label="Role" name="role_title" />
           <Field label="Hours per week" name="hours_per_week" type="number" defaultValue="40" min="1" max="80" />
           <Field label="Start" name="start_date" type="date" required />
           <Field label="End" name="end_date" type="date" />
           <Field label="End client (name only)" name="end_client_company_id" as="select" options={pick(companies.data, (c) => playsRole(c, "end_client", "client"), (c) => c.name)} full />
-          <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(companies.data, (c) => playsRole(c, "client", "prime_vendor"), (c) => c.name)} />
+          <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(parties, orMsa("client", "prime_vendor"), (c) => c.name)} />
           <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}`)} />
           <Field label="Bill rate ($/h)" name="bill_rate" type="number" step="0.01" min="0" />
           <Field label="AR terms" name="ar_terms" placeholder="Net 30" />
-          {["c2c", "e2e"].includes(consultant?.engagement) &&<Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(companies.data, (c) => playsRole(c, "vendor"), (c) => c.name)} />}
+          {["c2c", "e2e"].includes(consultant?.engagement) &&<Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(parties, orMsa("vendor"), (c) => c.name)} />}
           {consultant && !consultant.engagement.startsWith("w2") && <>
             <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}`)} />
             <Field label="Pay rate ($/h)" name="pay_rate" type="number" step="0.01" min="0" />

@@ -7,9 +7,11 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid, parseaddr
 from typing import Any
 
 import httpx
@@ -27,8 +29,11 @@ def _send_via_smtp(*, host: str, port: int, user: str, password: str, use_tls: b
     msg["From"] = sender
     msg["To"] = ", ".join(recipients)
     msg["Subject"] = subject
-    # Plain-text fallback for clients that ignore HTML.
-    msg.set_content("This message is best viewed in an HTML-capable e-mail client.")
+    # T011303-1045/1046: Date, Message-ID and a real text part. Mail without them is more often deferred or
+    # spam-foldered by Gmail and Outlook (it arrived late, or seemingly never).
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=parseaddr(sender)[1].rpartition("@")[2] or None)
+    msg.set_content(text_version(html_body))
     msg.add_alternative(html_body, subtype="html")
     context = ssl.create_default_context()
     with smtplib.SMTP(host, port, timeout=20) as smtp:
@@ -39,6 +44,14 @@ def _send_via_smtp(*, host: str, port: int, user: str, password: str, use_tls: b
         if user:
             smtp.login(user, password)
         smtp.send_message(msg)
+
+
+def text_version(html_body: str) -> str:
+    """Plain-text part from our own HTML: paragraphs on their own lines, link targets kept."""
+    text = re.sub(r'<a [^>]*href="([^"]*)"[^>]*>(.*?)</a>', r"\2: \1", html_body)
+    text = re.sub(r"</p>|<br\s*/?>", "\n\n", text)
+    text = html.unescape(re.sub(r"<[^>]+>", "", text))
+    return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
 
 
 def render(title: str, paragraphs: list[str], button: tuple[str, str] | None = None, footer: str | None = None) -> str:

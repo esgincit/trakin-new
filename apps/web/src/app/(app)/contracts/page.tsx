@@ -7,7 +7,7 @@ import { DataTable, type Column } from "@/components/DataTable";
 import { Bar, Chip, ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { api } from "@/lib/api";
-import { daysLeft, label } from "@/lib/format";
+import { AGREEMENT_TERMS, daysLeft, label } from "@/lib/format";
 import { linkFor } from "@/lib/links";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -108,10 +108,10 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
           <Field label="You are the" name="tenant_side" as="select" options={personal ? [["employer", "Employer / buyer"], ["buyer", "Buyer"]] : [["supplier", "Supplier (you bill them)"], ["buyer", "Buyer (you pay them)"]]} />
           <Field label="Effective" name="effective_on" type="date" required />
           <Field label="Expires" name="expires_on" type="date" />
-          <Field label="Payment terms" name="payment_terms" placeholder="Net 30" />
-          <Field label="Renewal" name="renewal" placeholder="Auto, 1 year" />
-          <Field label="Notice period" name="notice_period" placeholder="30 days" />
-          <Field label="Insurance required" name="insurance_required" placeholder="GL $1M, E&O $2M" />
+          <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} />
+          <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} />
+          <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} />
+          <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} />
           {existing && <Field label="Signed by" name="signed_by" full />}
         </div>
         <p className="note">The agreement number is assigned automatically. {existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, send it for e-signature from the agreement page."}</p>

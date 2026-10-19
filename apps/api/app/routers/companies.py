@@ -675,7 +675,7 @@ async def propose_msa(company_id: UUID, body: CompanyMsaIn, db: TenantDb = Depen
     if body.kind in ("msa", "subcontract") and (await workflow.rules(db))["requireNDA"]:
         has_nda = await db.val("select mytrakin.has_company_agreement(:t, array['nda'], :c, current_date)",
                                {"t": db.ctx.tenant_id, "c": counterparty["id"]})
-        if not has_nda:
+        if not has_nda and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=counterparty["id"]):
             raise workflow.blocked("nda_required", "Sign an NDA with this company before its MSA "
                                     "(or turn off 'Require NDA' in Settings → Workflow)")
     code = await numbering.next_code(db, body.kind, CLIENT=counterparty["name"])

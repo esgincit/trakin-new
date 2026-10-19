@@ -644,6 +644,17 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-19 · Strike T011303-1037/1045/1046/1047/1048/1049 · **Six QA tickets.** 1049: the New-project client list
+  only held our own workspace's companies, so the MSA counterparty could not be picked (tester picked their own
+  company → "no active MSA"); now `/projects/counterparties` offers every company with an MSA in force either way, and
+  `workflow.has_active_agreement` also counts an MSA the other company sent us (`shared_agreements`). 1047: projects
+  another company assigned to us by a sent SOW are offered in New placement (`shared_projects()`); placing someone
+  creates our own copy (`projects.source_project_id`, prime = that company, AR defaults to it). 1048: MSA payment
+  terms / renewal / notice / insurance are dropdowns. 1037: a company still being set up shows no admin menu or
+  "tenant admin" role. 1045/1046: mail left our server at once (notifications all `sent`); delay/loss is downstream —
+  added Date, Message-ID and a real text part; **owner: add a DMARC record for esgos.app**. Migration
+  `20261019000100_shared_projects.sql` must be applied to prod before deploy (`/projects/shared` needs it).
+  Cross-company names on projects/placements now fall back to `company_public_name`. Browser-QA'd on local QA DB.
 - 2026-10-19 · TS-01…09, AR-01 · **Timesheets browser-tested end to end** (local QA DB; consultant, finance, vendor):
   enter / save / reload / submit / lock, checks flag a 17-h day, return with reason, consultant fixes + resubmits,
   approve, approve-all-that-pass, history + CSV, vendor read-only without money, consultant kept off the staff list,

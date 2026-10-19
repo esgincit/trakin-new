@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **QA tickets T011303-1037, 1045–1049 (2026-10-19):**
+  - **Project with an MSA counterparty (1049):** the client / prime lists on New project only showed companies in
+    your own workspace, so the company you have an MSA with could not be chosen and the project failed with "no
+    active MSA". Both lists now include every company you have an MSA in force with, whichever side sent it, and
+    the MSA check also counts an MSA the other company sent you. Project and placement pages show that company's
+    name (it was blank / "Internal").
+  - **Projects assigned to you (1047):** New placement lists your active projects plus projects another company
+    assigned to you by sending a SOW / work order ("from …"). Placing someone on one creates your own copy of the
+    project (prime = that company, bill-to defaults to it); timesheets, invoices and rates stay in your workspace.
+  - **MSA terms are dropdowns (1048):** payment terms (Net 15–90), renewal, notice period and insurance required.
+  - **No admin access before your company exists (1037):** a company still being set up or waiting for activation
+    shows only the network / My companies menu and no "tenant admin" role; admin pages explain how to finish setup.
+  - **E-mail delivery (1045, 1046):** our log shows the consultant and offer-letter mails were handed to the mail
+    server immediately; delays happen after that. Mails now carry Date and Message-ID headers and a real plain-text
+    part (fewer spam / deferral flags); the consultant mail's subject says "… added you as a consultant".
+    The sending domain has no DMARC record — add one in DNS.
+  - Migration `20261019000100_shared_projects.sql` — apply to production **before** deploying.
+
 - **Credit notes, adjustment after invoicing, time off on the timesheet (2026-10-18, PLAN AR-06, TS-07, TS-10):**
   - Finance can issue a **credit note** against a sent client invoice — up to its open balance (payments still in
     flight count against it), with a reason, numbered `CN-2026-0001` (editable in Settings → Numbering). The

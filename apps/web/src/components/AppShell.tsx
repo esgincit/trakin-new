@@ -117,7 +117,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
   if (noWorkspace && !inMemberArea(path)) return <div className="content"><Loading /></div>;
-  const pending = workspace?.tenant.status === "onboarding" && !inPendingArea(path);
+  // T011303-1037: a company still being set up (or waiting for activation) grants no admin role or menus yet.
+  const settingUp = workspace?.tenant.status === "onboarding";
+  const pending = settingUp && !inPendingArea(path);
 
   const name = me?.profile?.full_name ?? me?.profile?.email;
   return (
@@ -126,7 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className={navOpen ? "open" : ""} aria-label="Main navigation">
         <div className="logo"><i>mT</i>myTrakIn</div>
         <nav className="nav">
-          {workspace && NAV.map((sec, i) => {
+          {workspace && !settingUp && NAV.map((sec, i) => {
             const items = sec.items.filter((it) => (!it.show || it.show(workspace)) && (!it.module || perm(workspace, it.module) !== "none"));
             if (!items.length) return null;
             return (
@@ -140,7 +142,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             );
           })}
-          {noWorkspace && !workspace && MEMBER_NAV.map((sec, i) => (
+          {((noWorkspace && !workspace) || settingUp) && MEMBER_NAV.map((sec, i) => (
             <div key={i}>
               <div className="sec">{sec.title}</div>
               {sec.items.map((it) => (
@@ -181,7 +183,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className={`amenu ${menuOpen ? "open" : ""}`} role="menu">
           <div style={{ padding: "8px 10px" }}>
             <b>{name}</b>
-            <div className="muted" style={{ fontSize: 12.5 }}>{workspace ? `${workspace.role.replace(/_/g, " ")} · ` : ""}{me?.profile?.email}</div>
+            <div className="muted" style={{ fontSize: 12.5 }}>{workspace && !settingUp ? `${workspace.role.replace(/_/g, " ")} · ` : ""}{me?.profile?.email}</div>
           </div>
           <Link href="/profile" role="menuitem">My profile</Link>
           <Link href="/account" role="menuitem">Account & security</Link>
@@ -189,9 +191,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <div className="content">{pending && workspace ? (
           <div className="card">
-            <h2>Waiting for activation</h2>
-            <p className="muted">The myTrakIn team is reviewing {workspace.tenant.name}. We&apos;ll e-mail you as soon as it&apos;s active.
-              Meanwhile you can complete your company profile.</p>
+            {workspace.tenant.company_id ? <>
+              <h2>Waiting for activation</h2>
+              <p className="muted">The myTrakIn team is reviewing {workspace.tenant.name}. We&apos;ll e-mail you as soon as it&apos;s active.
+                Meanwhile you can complete your company profile.</p>
+            </> : <>
+              <h2>Your company isn&apos;t set up yet</h2>
+              <p className="muted">Finish creating it from My companies. Until it is submitted and activated you have no admin access.</p>
+              <p><Link className="btn pri" href="/businesses">Go to My companies</Link></p>
+            </>}
             {workspace.tenant.company_id && <p><Link className="btn pri" href={`/companies/${workspace.tenant.company_id}`}>Open company profile</Link></p>}
           </div>
         ) : children}</div>

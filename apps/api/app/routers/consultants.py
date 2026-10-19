@@ -188,7 +188,7 @@ async def onboard(body: ConsultantIn, db: TenantDb = Depends(tenant_db)):
         "select mytrakin.grant_consultant_access(:t, :u, :c, :title)",
         {"t": db.ctx.tenant_id, "u": body.user_id, "c": consultant["id"], "title": body.title})
     tenant = await db.val("select name from tenants where id = :t", {"t": db.ctx.tenant_id})
-    await send_email(db, to=person["email"], subject=f"You have been added to {tenant} in myTrakIn", kind="invite",
+    await send_email(db, to=person["email"], subject=f"{tenant} added you as a consultant in myTrakIn", kind="invite",
                      tenant_id=db.ctx.tenant_id, ref_type="consultant", ref_id=consultant["id"],
                      html_body=render(f"Welcome, {name.split()[0]}",
                                       [f"{tenant} has added you as a consultant. Your onboarding documents, timesheets and "

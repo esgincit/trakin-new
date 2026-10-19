@@ -68,3 +68,12 @@ export function daysLeft(n: number | null | undefined): string {
   if (n === 0) return "today";
   return `in ${n} days`;
 }
+
+// T011303-1048: fixed choices for MSA terms, so every agreement reads the same ("Net 45" is what the API parses for due dates).
+const opts = (xs: string[]): [string, string][] => [["", "Choose…"], ...xs.map((x) => [x, x] as [string, string])];
+export const AGREEMENT_TERMS = {
+  payment_terms: opts(["Net 15", "Net 30", "Net 45", "Net 60", "Net 90"]),
+  renewal: opts(["No auto-renewal", "Auto-renewal for 1 year", "Auto-renewal for 2 years", "Auto-renewal for 3 years", "Auto-renewal for 5 years"]),
+  notice_period: opts(["10 days", "15 days", "30 days", "45 days", "60 days", "90 days"]),
+  insurance_required: opts(["None", "GL $1M", "GL $2M", "GL $1M, E&O $1M", "GL $1M, E&O $2M", "GL $2M, E&O $2M", "GL $1M, E&O $2M, Cyber $1M", "GL $2M, E&O $5M, Cyber $2M"]),
+};
