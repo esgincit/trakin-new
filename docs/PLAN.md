@@ -305,7 +305,7 @@ own invoices and projects.
 | TS-01 | One timesheet per consultant per week (Sun–Sat), rows per project + internal; add/remove project rows; 0–24 h per day. | ✅ |
 | TS-02 | Save draft, submit; submitted/approved weeks locked; returned with reason shown to consultant. | ✅ |
 | TS-03 | Checks: submitted, no day >12 h, within allocation, weekend hours, W-2 overtime >40 h, inside placement dates, fits remaining SOW value. | ✅ |
-| TS-04 | Approver list per week: KPIs waiting / approved / not submitted / flagged; daily hours; checks summary; approve; **approve all that pass**; **remind not submitted**. | ✅ verify remind button |
+| TS-04 | Approver list per week: KPIs waiting / approved / not submitted / flagged; daily hours; checks summary; approve; **approve all that pass**; **remind not submitted**. | 🟡 browser QA 2026-10-19: no KPIs and no "Remind not submitted" (API or UI); approve-all works |
 | TS-05 | Detail shows "what approval creates": AR amount and AP amount (finance/admin). | ✅ |
 | TS-06 | All-weeks history for every consultant/project with filters and CSV. | ✅ verify |
 | TS-07 | **Adjustment after approval**: request adjustment → re-approval; adjusts un-invoiced amounts or creates a correction line. | ✅ re-open until invoiced; after that a credit note (AR-06) or extra invoice (2026-10-18) |
@@ -643,6 +643,13 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-10-19 · TS-01…09, AR-01 · **Timesheets browser-tested end to end** (local QA DB; consultant, finance, vendor):
+  enter / save / reload / submit / lock, checks flag a 17-h day, return with reason, consultant fixes + resubmits,
+  approve, approve-all-that-pass, history + CSV, vendor read-only without money, consultant kept off the staff list,
+  invoices from the approved week (24 h × $95, 16 h × $105) — 31/34 pass. Gaps found: TS-04 KPIs and "Remind not
+  submitted" missing (status corrected to 🟡); unsent draft AR invoices show "Open" in the AR list (live_status
+  ignores draft, so drafts also count in balances/aging); week list Checks column off-screen at 1280 px.
 
 - 2026-10-18 · AR-06, TS-07, TS-10 · **Credit notes, adjustment after invoicing, time off on the timesheet.** New
   `credit_notes` table (migration `20261018000100`, RLS: staff + the billed customer read, finance writes; audited);
