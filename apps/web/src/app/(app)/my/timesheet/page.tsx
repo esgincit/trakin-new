@@ -25,6 +25,8 @@ export default function MyTimesheet() {
   }, [data]);
 
   const locked = data && ["submitted", "approved"].includes(data.status);
+  // Rejected timesheets are editable: the consultant can fix and resubmit.
+  // Only submitted/approved weeks are locked.
   const days = dayLabels(week);
   const set = (ri: number, di: number, v: string) =>
     setRows((rs) => rs.map((r, i) => i !== ri ? r : { ...r, hours: r.hours.map((h, j) => (j === di ? Math.max(0, Math.min(24, Number(v) || 0)) : h)) }));

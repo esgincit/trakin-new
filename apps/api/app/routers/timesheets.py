@@ -199,6 +199,8 @@ async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
         if row.placement_id and str(row.placement_id) not in allowed:
             raise bad_request("One of the projects isn't assigned to you")
     ts = await db.one("select id, status from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
+    # Submitted/approved weeks are locked and cannot be edited. Rejected weeks can be
+    # edited and resubmitted by the consultant until they are approved.
     if ts and ts["status"] in ("submitted", "approved"):
         raise ApiError(409, "locked", "This week is already submitted. Ask your admin to return it if something needs to change.")
     if ts is None:
