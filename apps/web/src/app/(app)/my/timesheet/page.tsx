@@ -114,9 +114,9 @@ export default function MyTimesheet() {
         <h3>My timesheet history</h3>
         {history.data?.length ? (
           <div className="tw"><table>
-            <thead><tr><th>Week</th><th>Project</th><th className="num">Hours</th><th>Status</th></tr></thead>
+            <thead><tr><th>Week</th><th>Project</th><th className="num">Hours</th><th>Placed By</th><th>End Client</th></tr></thead>
             <tbody>{history.data.slice(0, 40).map((h, i) => (
-              <tr key={i} className="click" onClick={() => setWeek(h.week_start)}><td>{date(h.week_start)}</td><td>{h.project}</td><td className="num">{num(h.hours, 2)}</td><td><Chip status={h.status} /></td></tr>
+              <tr key={i} className="click" onClick={() => setWeek(h.week_start)}><td>{date(h.week_start)}</td><td>{h.project}</td><td className="num">{num(h.hours, 2)}</td><td><Chip status={h.placed_by_approved ? "accepted" : "pending"} /></td><td><Chip status={h.end_client_approved ? "accepted" : "pending"} /></td></tr>
             ))}</tbody>
           </table></div>
         ) : <p className="muted">Your submitted weeks will appear here.</p>}

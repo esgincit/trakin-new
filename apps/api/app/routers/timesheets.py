@@ -143,16 +143,17 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
     if not db.ctx.internal and db.ctx.role != "vendor_admin":
         raise ApiError(403, "forbidden", "Use My timesheet for your own history")
     return await db.all(
-        """select t.id, t.week_start, t.status, c.full_name, c.id as consultant_id, coalesce(pr.name, 'Internal') as project,
+        """select t.id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
+                  c.full_name, c.id as consultant_id, coalesce(pr.name, 'Internal') as project,
                   sum(e.hours) as hours, t.decided_at
-             from timesheets t join consultants c on c.id = t.consultant_id
-             join timesheet_entries e on e.timesheet_id = t.id
-             left join placements p on p.id = e.placement_id left join projects pr on pr.id = p.project_id
-            where (cast(:c as uuid) is null or t.consultant_id = :c)
-              and (cast(:f as date) is null or t.week_start >= :f) and (cast(:u as date) is null or t.week_start <= :u)
-            group by t.id, c.id, pr.name
-            order by t.week_start desc, c.full_name, project
-            limit 2000""",
+              from timesheets t join consultants c on c.id = t.consultant_id
+              join timesheet_entries e on e.timesheet_id = t.id
+              left join placements p on p.id = e.placement_id left join projects pr on pr.id = p.project_id
+             where (cast(:c as uuid) is null or t.consultant_id = :c)
+               and (cast(:f as date) is null or t.week_start >= :f) and (cast(:u as date) is null or t.week_start <= :u)
+             group by t.id, c.id, pr.name, t.placed_by_approved, t.end_client_approved
+             order by t.week_start desc, c.full_name, project
+             limit 2000""",
         {"c": consultant_id, "f": since, "u": until})
 
 
