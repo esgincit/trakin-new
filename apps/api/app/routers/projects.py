@@ -254,7 +254,7 @@ def placement_view(row: dict, ctx) -> dict:
         row["bill_rate"] = None
     if not ctx.sees_pay_rate:
         row["pay_rate"] = None
-    if ctx.role == "vendor_admin" and row.get("ap_company_id") != ctx.company_id:
+    if ctx.role == "vendor_admin" and row.get("ap_company_id") is not None and row.get("ap_company_id") != ctx.company_id:
         row["pay_rate"] = None
     if ctx.role == "client_user":
         row["pay_rate"] = None
