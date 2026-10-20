@@ -300,6 +300,11 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
     if pay_model == "self":
         body.ap_consultant_id = body.ap_consultant_id or body.consultant_id
     body.project_id = await _local_project(db, body.project_id)
+    # The end client is the original company that initiated the project chain
+    # (the project's client), whichever workspace places the consultant. It is
+    # never the placing company's own company.
+    proj = await db.one("select client_company_id from projects where id = :id", {"id": body.project_id})
+    body.end_client_company_id = proj["client_company_id"]
     if body.ar_company_id is None:   # on a project another company assigned to us, we bill that company
         body.ar_company_id = await db.val("select prime_company_id from projects where id = :id and source_project_id is not null",
                                           {"id": body.project_id})

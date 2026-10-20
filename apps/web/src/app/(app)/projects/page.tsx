@@ -101,6 +101,9 @@ function PlacementModal({ onClose, onDone }: { onClose: () => void; onDone: () =
   const [consultantId, setConsultantId] = useState("");
   const { run, busy } = useAction();
   const consultant = consultants.data?.find((c) => c.id === consultantId);
+  const [projectId, setProjectId] = useState("");
+  const projClient = projects.data?.find((p) => p.id === projectId)?.client
+    ?? shared.data?.find((p) => p.id === projectId)?.client;
   const pick = (rows: any[] | undefined, f: (r: any) => boolean, lbl: (r: any) => string) => [["", "–"] as [string, string], ...(rows ?? []).filter(f).map((r) => [r.id, lbl(r)] as [string, string])];
   // Our companies in that role, plus the companies we have an MSA with (they live in their own workspace).
   const orMsa = (...kinds: string[]) => (c: any) => playsRole(c, ...kinds) || (partners.data ?? []).some((p) => p.id === c.id);
@@ -119,15 +122,16 @@ function PlacementModal({ onClose, onDone }: { onClose: () => void; onDone: () =
           <Field label="Consultant" name="consultant_id" as="select" required value={consultantId} onChange={(e: any) => setConsultantId(e.target.value)}
                  options={pick(consultants.data, (c) => c.status !== "former", (c) => `${c.full_name} (${label(c.engagement)})`)} />
           {/* Our live projects, plus ones another company assigned to us by SOW (our copy is made on save). */}
-          <Field label="Project" name="project_id" as="select" required options={[
-            ...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
-            ...(shared.data ?? []).filter((p) => !p.local_project_id).map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string]),
-          ]} />
+          <Field label="Project" name="project_id" as="select" required value={projectId} onChange={(e: any) => setProjectId(e.target.value)}
+                 options={[...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
+                   ...(shared.data ?? []).filter((p) => !p.local_project_id).map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string])]} />
+          {projectId && (
+            <div className="full"><label>End client</label><div className="ctl">{projClient ?? "—"}</div></div>
+          )}
           <Field label="Role" name="role_title" />
           <Field label="Hours per week" name="hours_per_week" type="number" defaultValue="40" min="1" max="80" />
           <Field label="Start" name="start_date" type="date" required />
           <Field label="End" name="end_date" type="date" />
-          <Field label="End client (name only)" name="end_client_company_id" as="select" options={pick(companies.data, (c) => playsRole(c, "end_client", "client"), (c) => c.name)} full />
           <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(parties, orMsa("client", "prime_vendor"), (c) => c.name)} />
           <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}`)} />
           <Field label="Bill rate ($/h)" name="bill_rate" type="number" step="0.01" min="0" />
