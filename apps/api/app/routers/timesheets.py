@@ -198,7 +198,7 @@ async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
     for row in body.rows:
         if row.placement_id and str(row.placement_id) not in allowed:
             raise bad_request("One of the projects isn't assigned to you")
-    ts = await db.one("select id, status from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
+    ts = await db.one("select id, status, note from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
     # Submitted/approved weeks are locked and cannot be edited. Rejected weeks can be
     # edited and resubmitted by the consultant until they are approved.
     if ts and ts["status"] in ("submitted", "approved"):
@@ -207,7 +207,9 @@ async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
         ts = await db.one("insert into timesheets (tenant_id, consultant_id, week_start, note) values (:t, :c, :ws, :n) returning id, status",
                           {"t": db.ctx.tenant_id, "c": db.ctx.consultant_id, "ws": ws, "n": body.note})
     else:
-        await db.run("update timesheets set note = :n where id = :id", {"n": body.note, "id": ts["id"]})
+        # Resetting approvals when a rejected timesheet is edited
+        await db.run("update timesheets set note = :n, placed_by_approved = false, end_client_approved = false where id = :id",
+                     {"n": body.note, "id": ts["id"]})
     await db.run("delete from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
     entries = [{"t": db.ctx.tenant_id, "ts": ts["id"], "p": row.placement_id, "d": ws + timedelta(days=i), "h": h}
                for row in body.rows for i, h in enumerate(row.hours) if h > 0]
@@ -222,14 +224,16 @@ async def submit_my_week(body: Decision, db: TenantDb = Depends(tenant_db), week
     if db.ctx.role != "consultant":
         raise ApiError(403, "forbidden", "Only consultants submit timesheets")
     ws = _sunday(week)
-    ts = await db.one("select id, status from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
+    ts = await db.one("select id, status, note from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
     if ts is None:
         raise bad_request("Enter your hours first")
+    if not ts["note"] or not ts["note"].strip():
+        raise bad_request("Please enter a note before submitting the timesheet.")
     total = await db.val("select coalesce(sum(hours), 0) from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
     if total <= 0:
         raise bad_request("Enter your hours first")
     await _contract_gate(db, ts["id"])
-    await db.run("update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null where id = :id", {"id": ts["id"]})
+    await db.run("update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null, placed_by_approved = false, end_client_approved = false where id = :id", {"id": ts["id"]})
     return {"id": ts["id"], "status": "submitted"}
 
 
@@ -273,12 +277,40 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     db.ctx.require(*APPROVER_ROLES)
     await _contract_gate(db, timesheet_id)
-    row = await db.one(
-        """update timesheets set status = 'approved', decided_by = :u, decided_at = now(), reject_reason = null
-            where id = :id and status = 'submitted' returning id, status""",
-        {"id": timesheet_id, "u": db.ctx.user_id})
-    if row is None:
+    ts = await db.one("select id, status from timesheets where id = :id", {"id": timesheet_id})
+    if ts is None:
+        raise not_found("Timesheet")
+    if ts["status"] != "submitted":
         raise ApiError(409, "not_submitted", "Only submitted timesheets can be approved")
+
+    # Determine which companies are on this timesheet's placement chain
+    placements = await db.all("""
+        select distinct p.end_client_company_id as end_client_id, p.ap_company_id as placed_by_id
+        from timesheet_entries e
+        join placements p on p.id = e.placement_id
+        where e.timesheet_id = :id
+    """, {"id": timesheet_id})
+    end_client_ids = {r["end_client_id"] for r in placements if r["end_client_id"]}
+    placed_by_ids = {r["placed_by_id"] for r in placements if r["placed_by_id"]}
+
+    approver_company_id = db.ctx.company_id
+    is_placed_by = approver_company_id in placed_by_ids
+    is_end_client = approver_company_id in end_client_ids
+
+    if not is_placed_by and not is_end_client:
+        raise ApiError(403, "forbidden", "Your company is not part of this timesheet's placement chain")
+
+    current = await db.one("select placed_by_approved, end_client_approved from timesheets where id = :id", {"id": timesheet_id})
+
+    new_pb = current["placed_by_approved"] or is_placed_by
+    new_ec = current["end_client_approved"] or is_end_client
+    new_status = "approved" if new_pb and new_ec else "submitted"
+
+    row = await db.one(
+        """update timesheets set status = :s, placed_by_approved = :pb, end_client_approved = :ec,
+            decided_by = :u, decided_at = now(), reject_reason = null
+            where id = :id returning id, status, placed_by_approved, end_client_approved""",
+        {"id": timesheet_id, "u": db.ctx.user_id, "s": new_status, "pb": new_pb, "ec": new_ec})
     return row
 
 
@@ -299,7 +331,8 @@ async def reject(timesheet_id: UUID, body: Decision, db: TenantDb = Depends(tena
                                                 "is paid to re-open the week, or record the difference as a credit note "
                                                 "(fewer hours) or an extra invoice (more hours).")
     row = await db.one(
-        """update timesheets set status = 'rejected', decided_by = :u, decided_at = now(), reject_reason = :r
+        """update timesheets set status = 'rejected', decided_by = :u, decided_at = now(), reject_reason = :r,
+            placed_by_approved = false, end_client_approved = false
             where id = :id and status in ('submitted', 'approved') returning id, status""",
         {"id": timesheet_id, "u": db.ctx.user_id, "r": body.reason.strip()})
     if row is None:

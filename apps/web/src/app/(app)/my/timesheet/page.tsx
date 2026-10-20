@@ -16,12 +16,14 @@ export default function MyTimesheet() {
   const history = useApi<any[]>("/me/timesheets");
   const [rows, setRows] = useState<Row[]>([]);
   const [note, setNote] = useState("");
+  const [noteError, setNoteError] = useState("");
   const { run, busy } = useAction();
 
   useEffect(() => {
     if (!data) return;
     setRows(data.rows.map((r: any) => ({ ...r, hours: r.hours.map(Number) })));
     setNote(data.note ?? "");
+    setNoteError("");
   }, [data]);
 
   const locked = data && ["submitted", "approved"].includes(data.status);
@@ -46,6 +48,22 @@ export default function MyTimesheet() {
       {loading ? <Loading /> : error ? <ErrorBox error={error} retry={reload} /> : (
         <>
           {data.reject_reason && <p className="err">Returned by your approver: {data.reject_reason}</p>}
+          {data.status === "submitted" && (
+            <div className="card mt" style={{ marginBottom: 16 }}>
+              <h3>Approval status</h3>
+              <div className="row" style={{ gap: 12 }}>
+                <div className="card" style={{ flex: 1 }}>
+                  <div className="muted" style={{ fontSize: 12.5 }}>Placed By (placing company)</div>
+                  <Chip status={data.placed_by_approved ? "accepted" : "pending"} />
+                </div>
+                <div className="card" style={{ flex: 1 }}>
+                  <div className="muted" style={{ fontSize: 12.5 }}>End Client</div>
+                  <Chip status={data.end_client_approved ? "accepted" : "pending"} />
+                </div>
+              </div>
+              <p className="note" style={{ fontSize: 12.5 }}>Both companies must approve before this timesheet is finalised.</p>
+            </div>
+          )}
           <div className="tw ts">
             <table>
               <thead><tr><th>Project</th>{days.map((d) => <th key={d}>{d}</th>)}<th className="num">Total</th></tr></thead>
@@ -69,7 +87,7 @@ export default function MyTimesheet() {
             </table>
           </div>
           {rows.length === 0 && <p className="muted">No projects are assigned to you for this week.</p>}
-          <textarea className="ctl mt" placeholder="Note for your approver (optional)" value={note} onChange={(e) => setNote(e.target.value)} disabled={locked} />
+          <textarea className={`ctl mt ${noteError ? "err" : ""}`} placeholder="Note for your approver" value={note} onChange={(e) => { setNote(e.target.value); setNoteError(""); }} disabled={locked} />
           {!locked && (
             <div className="row mt">
               {!rows.some((r) => r.placement_id === null) && (
@@ -78,6 +96,11 @@ export default function MyTimesheet() {
               <span className="grow" style={{ flex: 1 }} />
               <button className="btn" disabled={busy} onClick={async () => { if (await run(save, "Saved")) reload(); }}>Save draft</button>
               <button className="btn pri" disabled={busy || total <= 0} onClick={async () => {
+                if (!note || !note.trim()) {
+                  setNoteError("Please enter a note before submitting the timesheet.");
+                  return;
+                }
+                setNoteError("");
                 const ok = await run(async () => { await save(); return api("/timesheets/mine/submit", { body: {}, query: { week } }); }, "Submitted for approval");
                 if (ok) { reload(); history.reload(); }
               }}>Submit week</button>
