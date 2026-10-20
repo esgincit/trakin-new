@@ -135,7 +135,12 @@ function PlacementModal({ onClose, onDone }: { onClose: () => void; onDone: () =
           <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(parties, orMsa("client", "prime_vendor"), (c) => c.name)} />
           <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}`)} />
           <Field label="Bill rate ($/h)" name="bill_rate" type="number" step="0.01" min="0" />
-          <Field label="AR terms" name="ar_terms" placeholder="Net 30" />
+          <Field label="Accounts Receivable Payment Terms" name="ar_terms" as="select" options={[
+            ["Net 15", "Net 15"],
+            ["Net 30", "Net 30"],
+            ["Net 45", "Net 45"],
+            ["Net 60", "Net 60"],
+          ]} />
           {["c2c", "e2e"].includes(consultant?.engagement) &&<Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(parties, orMsa("vendor"), (c) => c.name)} />}
           {consultant && !consultant.engagement.startsWith("w2") && <>
             <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}`)} />
