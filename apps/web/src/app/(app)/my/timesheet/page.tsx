@@ -34,6 +34,7 @@ export default function MyTimesheet() {
     setRows((rs) => rs.map((r, i) => i !== ri ? r : { ...r, hours: r.hours.map((h, j) => (j === di ? Math.max(0, Math.min(24, Number(v) || 0)) : h)) }));
   const dayTotal = (di: number) => rows.reduce((s, r) => s + (r.hours[di] ?? 0), 0);
   const total = rows.reduce((s, r) => s + r.hours.reduce((a, h) => a + h, 0), 0);
+  const weekendHours = rows.reduce((s, r) => s + (r.hours[5] ?? 0) + (r.hours[6] ?? 0), 0);
   const save = () => api("/timesheets/mine", { method: "PUT", body: { week_start: week, note, rows: rows.map((r) => ({ placement_id: r.placement_id, hours: r.hours })) } });
 
   return (
@@ -48,6 +49,20 @@ export default function MyTimesheet() {
       {loading ? <Loading /> : error ? <ErrorBox error={error} retry={reload} /> : (
         <>
           {data.reject_reason && <p className="err">Returned by your approver: {data.reject_reason}</p>}
+          {data.status === "submitted" && weekendHours > 0 && !data.weekend_confirmed && data.weekend_requested && (
+            <div className="card mt" style={{ marginBottom: 16 }}>
+              <h3>Confirm weekend hours</h3>
+              <p>Your approver asks you to confirm the {num(weekendHours, 2)} hours logged on Saturday/Sunday this week.</p>
+              {data.weekend_review_note && <p className="note">Their note: {data.weekend_review_note}</p>}
+              <button className="btn pri" disabled={busy} onClick={async () => {
+                if (await run(() => api("/timesheets/mine/weekend-confirm", { body: {}, query: { week } }),
+                               "Confirmed — your approver has been notified")) reload();
+              }}>Confirm weekend hours</button>
+            </div>
+          )}
+          {data.status === "submitted" && weekendHours > 0 && data.weekend_confirmed && (
+            <p className="note">Weekend hours confirmed — waiting for approval.</p>
+          )}
           {data.status === "submitted" && (
             <div className="card mt" style={{ marginBottom: 16 }}>
               <h3>Approval status</h3>

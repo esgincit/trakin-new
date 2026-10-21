@@ -14,9 +14,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator
 
+from ..config import get_settings
 from ..deps import TenantDb, tenant_db
 from ..errors import ApiError, bad_request, not_found
 from ..services import workflow
+from ..services.email import render, send_email
 from ..services.timesheet_checks import Entry, PlacementInfo, run_checks, summarize
 from ..utils import week_start
 
@@ -47,10 +49,35 @@ class Decision(BaseModel):
     reason: str | None = Field(None, max_length=500)
 
 
+class WeekendNote(BaseModel):
+    note: str | None = Field(None, max_length=500)
+
+
 def _sunday(day: date) -> date:
     if day.weekday() != 6:
         raise bad_request("week_start must be a Sunday")
     return day
+
+
+async def _weekend_hours(db: TenantDb, timesheet_id) -> Decimal:
+    """Hours logged on Saturday/Sunday (dow 0 = Sunday, 6 = Saturday)."""
+    return Decimal(await db.val(
+        "select coalesce(sum(hours), 0) from timesheet_entries"
+        " where timesheet_id = :id and extract(dow from work_date) in (0, 6)",
+        {"id": timesheet_id}))
+
+
+async def _consultant_email(db: TenantDb, consultant_id) -> str | None:
+    """The consultant's login e-mail, or the address on their consultant record."""
+    row = await db.one(
+        """select coalesce(p.email, c.email) as email from consultants c
+             left join profiles p on p.id = c.user_id where c.id = :c""", {"c": consultant_id})
+    return row["email"] if row and row["email"] else None
+
+
+async def _user_email(db: TenantDb, user_id) -> str | None:
+    row = await db.one("select email from profiles where id = :u", {"u": user_id})
+    return row["email"] if row else None
 
 
 async def _checks(db: TenantDb, ts: dict) -> tuple[list, dict]:
@@ -185,7 +212,13 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
             and starts_on <= cast(:ws as date) + 6 and ends_on >= :ws""", {"c": db.ctx.consultant_id, "ws": ws})
     time_off = [next((o["kind"] for o in off if o["starts_on"] <= ws + timedelta(days=i) <= o["ends_on"]), None) for i in range(7)]
     return {"week_start": ws, "status": ts["status"] if ts else "draft", "reject_reason": ts["reject_reason"] if ts else None,
-            "note": ts["note"] if ts else None, "rows": rows, "projects": projects, "time_off": time_off}
+            "note": ts["note"] if ts else None,
+            "placed_by_approved": ts["placed_by_approved"] if ts else None,
+            "end_client_approved": ts["end_client_approved"] if ts else None,
+            "weekend_requested": bool(ts and ts["weekend_requested_at"]),
+            "weekend_review_note": ts["weekend_review_note"] if ts else None,
+            "weekend_confirmed": ts["weekend_confirmed"] if ts else None,
+            "rows": rows, "projects": projects, "time_off": time_off}
 
 
 @router.put("/mine")
@@ -208,8 +241,10 @@ async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
         ts = await db.one("insert into timesheets (tenant_id, consultant_id, week_start, note) values (:t, :c, :ws, :n) returning id, status",
                           {"t": db.ctx.tenant_id, "c": db.ctx.consultant_id, "ws": ws, "n": body.note})
     else:
-        # Resetting approvals when a rejected timesheet is edited
-        await db.run("update timesheets set note = :n, placed_by_approved = false, end_client_approved = false where id = :id",
+        # Resetting approvals and the weekend confirmation when a rejected timesheet is edited
+        await db.run("""update timesheets set note = :n, placed_by_approved = false, end_client_approved = false,
+                         weekend_confirmed = false, weekend_requested_by = null,
+                         weekend_requested_at = null, weekend_review_note = null where id = :id""",
                      {"n": body.note, "id": ts["id"]})
     await db.run("delete from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
     entries = [{"t": db.ctx.tenant_id, "ts": ts["id"], "p": row.placement_id, "d": ws + timedelta(days=i), "h": h}
@@ -234,7 +269,10 @@ async def submit_my_week(body: Decision, db: TenantDb = Depends(tenant_db), week
     if total <= 0:
         raise bad_request("Enter your hours first")
     await _contract_gate(db, ts["id"])
-    await db.run("update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null, placed_by_approved = false, end_client_approved = false where id = :id", {"id": ts["id"]})
+    await db.run("""update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null,
+                     placed_by_approved = false, end_client_approved = false, weekend_confirmed = false,
+                     weekend_requested_by = null, weekend_requested_at = null, weekend_review_note = null
+                     where id = :id""", {"id": ts["id"]})
     return {"id": ts["id"], "status": "submitted"}
 
 
@@ -278,11 +316,16 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     db.ctx.require(*APPROVER_ROLES)
     await _contract_gate(db, timesheet_id)
-    ts = await db.one("select id, status from timesheets where id = :id", {"id": timesheet_id})
+    ts = await db.one("select id, status, weekend_confirmed from timesheets where id = :id", {"id": timesheet_id})
     if ts is None:
         raise not_found("Timesheet")
     if ts["status"] != "submitted":
         raise ApiError(409, "not_submitted", "Only submitted timesheets can be approved")
+    # Weekend hours need the consultant's own confirmation before anyone approves.
+    weekend = await _weekend_hours(db, timesheet_id)
+    if weekend > 0 and not ts["weekend_confirmed"]:
+        raise ApiError(409, "weekend_confirmation_required",
+                       "This week has weekend hours. Ask the consultant to confirm them before approving.")
 
     # Determine which companies are on this timesheet's placement chain.
     # "Placed by" is this workspace (the company that placed the consultant) -- its staff
@@ -322,6 +365,73 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     return row
 
 
+@router.post("/{timesheet_id}/weekend-confirm-request")
+async def weekend_confirm_request(timesheet_id: UUID, body: WeekendNote, db: TenantDb = Depends(tenant_db)):
+    """Ask the consultant to confirm the weekend hours before the week can be approved."""
+    db.ctx.require(*APPROVER_ROLES)
+    ts = await db.one(
+        """select t.id, t.status, t.week_start, t.consultant_id, c.full_name
+             from timesheets t join consultants c on c.id = t.consultant_id where t.id = :id""",
+        {"id": timesheet_id})
+    if ts is None:
+        raise not_found("Timesheet")
+    if ts["status"] != "submitted":
+        raise ApiError(409, "not_submitted", "The week isn't awaiting approval any more")
+    hours = await _weekend_hours(db, timesheet_id)
+    if hours <= 0:
+        raise bad_request("This timesheet has no weekend hours to confirm")
+    note = (body.note or "").strip() or None
+    await db.run(
+        """update timesheets set weekend_requested_by = :u, weekend_requested_at = now(),
+             weekend_review_note = :n, weekend_confirmed = false where id = :id""",
+        {"u": db.ctx.user_id, "n": note, "id": timesheet_id})
+    # The consultant is notified by e-mail and sees a banner in My timesheet.
+    to = await _consultant_email(db, ts["consultant_id"])
+    if to:
+        settings = get_settings()
+        paras = [f"{hours:g} hours are logged on Saturday/Sunday for the week of {ts['week_start']}.",
+                 "Your approver asks you to confirm the client requested weekend work."]
+        if note:
+            paras.append(f"Note from your approver: {note}")
+        await send_email(db, to=to, subject=f"Confirm your weekend hours — week of {ts['week_start']}",
+                         kind="timesheet", tenant_id=db.ctx.tenant_id, ref_type="timesheet", ref_id=timesheet_id,
+                         html_body=render("Please confirm your weekend hours", paras,
+                                          button=("Open my timesheet", f"{settings.web_origin.rstrip('/')}/my/timesheet")))
+    return {"id": timesheet_id, "weekend_confirmed": False, "requested": True}
+
+
+@router.post("/mine/weekend-confirm")
+async def weekend_confirm(db: TenantDb = Depends(tenant_db), week: date = Query(...)):
+    """The consultant confirms the weekend hours their approver asked about."""
+    if db.ctx.role != "consultant":
+        raise ApiError(403, "forbidden", "Only consultants confirm their weekend hours")
+    ws = _sunday(week)
+    ts = await db.one(
+        """select t.id, t.status, t.week_start, t.weekend_confirmed, t.weekend_requested_at, t.weekend_requested_by,
+                  c.full_name from timesheets t join consultants c on c.id = t.consultant_id
+            where t.consultant_id = :c and t.week_start = :ws""", {"c": db.ctx.consultant_id, "ws": ws})
+    if ts is None or ts["status"] != "submitted":
+        raise ApiError(409, "not_submitted", "This week isn't awaiting approval")
+    if ts["weekend_confirmed"]:
+        return {"id": ts["id"], "weekend_confirmed": True}
+    if ts["weekend_requested_at"] is None:
+        raise bad_request("Your approver hasn't asked you to confirm weekend hours on this week")
+    await db.run(
+        "update timesheets set weekend_confirmed = true, weekend_confirmed_by = :u, weekend_confirmed_at = now() where id = :id",
+        {"u": db.ctx.user_id, "id": ts["id"]})
+    # Tell the approver who asked, so they can finish the approval.
+    to = await _user_email(db, ts["weekend_requested_by"])
+    if to:
+        settings = get_settings()
+        await send_email(db, to=to, subject=f"Weekend hours confirmed — week of {ts['week_start']}",
+                         kind="timesheet", tenant_id=db.ctx.tenant_id, ref_type="timesheet", ref_id=ts["id"],
+                         html_body=render("Weekend hours confirmed",
+                                          [f"{ts['full_name']} confirmed the weekend hours for the week of {ts['week_start']}.",
+                                           "You can approve the week now."],
+                                          button=("Review timesheet", f"{settings.web_origin.rstrip('/')}/timesheets/{ts['id']}")))
+    return {"id": ts["id"], "weekend_confirmed": True}
+
+
 @router.post("/{timesheet_id}/reject")
 async def reject(timesheet_id: UUID, body: Decision, db: TenantDb = Depends(tenant_db)):
     db.ctx.require(*APPROVER_ROLES)
@@ -340,11 +450,24 @@ async def reject(timesheet_id: UUID, body: Decision, db: TenantDb = Depends(tena
                                                 "(fewer hours) or an extra invoice (more hours).")
     row = await db.one(
         """update timesheets set status = 'rejected', decided_by = :u, decided_at = now(), reject_reason = :r,
-            placed_by_approved = false, end_client_approved = false
+            placed_by_approved = false, end_client_approved = false, weekend_confirmed = false,
+            weekend_requested_by = null, weekend_requested_at = null, weekend_review_note = null
             where id = :id and status in ('submitted', 'approved') returning id, status""",
         {"id": timesheet_id, "u": db.ctx.user_id, "r": body.reason.strip()})
     if row is None:
         raise not_found("Timesheet")
+    # The consultant is told what to fix, by e-mail and in My timesheet.
+    info = await db.one(
+        "select week_start, consultant_id from timesheets where id = :id", {"id": timesheet_id})
+    to = await _consultant_email(db, info["consultant_id"])
+    if to:
+        settings = get_settings()
+        await send_email(db, to=to, subject=f"Your timesheet was returned — week of {info['week_start']}",
+                         kind="timesheet", tenant_id=db.ctx.tenant_id, ref_type="timesheet", ref_id=timesheet_id,
+                         html_body=render("Timesheet returned for changes",
+                                          [f"Your timesheet for the week of {info['week_start']} was returned.",
+                                           f"Reason: {body.reason.strip()}"],
+                                          button=("Fix and resubmit", f"{settings.web_origin.rstrip('/')}/my/timesheet")))
     return row
 
 

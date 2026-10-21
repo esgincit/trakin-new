@@ -20,6 +20,7 @@ export default function TimesheetReview() {
   if (error) return <ErrorBox error={error} retry={reload} />;
   const days = dayLabels(ts.week_start);
   const total = ts.rows.reduce((s: number, r: any) => s + r.hours.reduce((a: number, h: any) => a + Number(h), 0), 0);
+  const weekendHours = ts.rows.reduce((s: number, r: any) => s + Number(r.hours[5] ?? 0) + Number(r.hours[6] ?? 0), 0);
 
   return (
     <>
@@ -35,6 +36,13 @@ export default function TimesheetReview() {
               if (reason && await run(() => api(`/timesheets/${id}/reject`, { body: { reason } }),
                                       approved ? "Adjustment opened — changes need approval again" : "Returned to the consultant")) reload();
             }}>{ts.status === "approved" ? "Request adjustment" : "Return for changes"}</button>
+          )}
+          {canApprove && ts.status === "submitted" && weekendHours > 0 && !ts.weekend_confirmed && (
+            <button className="btn" disabled={busy} onClick={async () => {
+              const note = prompt("Optional note for the consultant (e.g. why the weekend hours need confirming):") ?? "";
+              if (await run(() => api(`/timesheets/${id}/weekend-confirm-request`, { body: { note } }),
+                              "Asked the consultant to confirm the weekend hours")) reload();
+            }}>Ask consultant to confirm weekend hours</button>
           )}
           {canApprove && ts.status === "submitted" && (
             <button className="btn pri" disabled={busy} onClick={async () => {
@@ -59,6 +67,12 @@ export default function TimesheetReview() {
         </table>
       </div>
       {ts.note && <p className="note">Consultant's note: {ts.note}</p>}
+      {weekendHours > 0 && (
+        <p className="note">Weekend hours: {num(weekendHours, 2)} h — {ts.weekend_confirmed
+          ? "confirmed by the consultant, safe to approve."
+          : ts.weekend_requested_at ? "waiting for the consultant to confirm (approval is blocked until they do)."
+          : "not confirmed yet — ask the consultant to confirm before approving."}</p>
+      )}
       {ts.reject_reason && <p className="err">Returned: {ts.reject_reason}</p>}
       {ts.status === "approved" && <p className="note">Approved{ts.decided_at && ` on ${date(ts.decided_at)}`}. Locked — once invoiced, corrections go on the invoice as a credit note or an extra invoice.</p>}
 

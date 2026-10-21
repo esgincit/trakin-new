@@ -644,7 +644,13 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
-- 2026-10-19 · Strike T011303-1037/1045/1046/1047/1048/1049 · **Six QA tickets.** 1049: the New-project client list
+- 2026-10-21 · TS-08 weekend confirmation, timesheet two-level approval · **Weekend hours now need the
+  consultant's confirmation before approval**: approver asks (optional note) → e-mail + banner to the
+  consultant → consultant confirms → approver e-mailed, gate lifted; reject/resubmit resets the state; reject
+  also e-mails the reason. Fixed two-level approval ("Placed By" = the placing workspace, not the AP payee;
+  no external end client → one approval finalises) and applied the forgotten `20261020000100` and new
+  `20261021000100` migrations to production (the missing apply was the timesheet 500).
+- 2026-10-19 · Strike T011303-1037/1045/1046/1047/1048/1049 · **Six QA tickets.** 1049: the 1049: the New-project client list
   only held our own workspace's companies, so the MSA counterparty could not be picked (tester picked their own
   company → "no active MSA"); now `/projects/counterparties` offers every company with an MSA in force either way, and
   `workflow.has_active_agreement` also counts an MSA the other company sent us (`shared_agreements`). 1047: projects

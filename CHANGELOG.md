@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+
+
+- **Weekend hours need the consultant's confirmation (2026-10-21):** approving a week with weekend hours is
+  blocked until the consultant confirms them. The approver clicks "Ask consultant to confirm weekend hours"
+  (optional note), the consultant gets an e-mail and a banner in My timesheet with a "Confirm weekend hours"
+  button; confirming e-mails the approver and lifts the gate. Returning a week for changes also e-mails the
+  consultant the reason, and rejecting / resubmitting clears the weekend confirmation so every round starts
+  fresh. Migration 20261021000100_timesheet_weekend_confirmation.sql - apply to production before deploying.
+- **Two-level timesheet approval fixed (2026-10-21):** "Placed By" approval is the placing workspace's own
+  approval (it was wrongly matched against the vendor we pay); the end client approves when the placement has
+  one, and weeks without an external end client finalise on the placing company's approval alone. Migration
+  20261020000100_timesheet_two_level_approval.sql **must be applied to production** (it was committed on
+  2026-10-20 but never applied - every timesheet save / submit / approve returned 500 on the live DB until now).
 - **QA tickets T011303-1037, 1045–1049 (2026-10-19):**
   - **Project with an MSA counterparty (1049):** the client / prime lists on New project only showed companies in
     your own workspace, so the company you have an MSA with could not be chosen and the project failed with "no
