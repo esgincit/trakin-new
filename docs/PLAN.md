@@ -644,6 +644,12 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-21 · RLS regression fix · **Timesheets 500 for every role**: the 20261021000200 client policies
+  queried `timesheet_entries` inside a policy chain that `entries_read` loops back into `timesheets` →
+  Postgres "infinite recursion detected in policy" at plan time → every timesheet query 500'd on production.
+  Fixed with `SECURITY DEFINER` helper `client_is_end_client(consultant)` on placements
+  (`20261021000300`), applied to production directly (fix is DB-only, no deploy). Reproduced in-process,
+  verified all roles plan cleanly; regression test added (`test_timesheet_policies_do_not_recurse`).
 - 2026-10-21 · timesheet approval chain (QA) · **Placing company could not approve (403 "not part of the
   placement chain")**: "Placed By" was matched via `tenants.company_id`, null for most workspaces; now it is
   the workspace that owns the timesheet. End-client approval engages when that company has a representative

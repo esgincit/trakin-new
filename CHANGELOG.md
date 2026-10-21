@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Timesheets page returned 500 for everyone (2026-10-21, fixed on the live DB):** the end-client RLS policies
+  from the previous fix queried `timesheet_entries` inside policies of a table that `entries_read` checks back
+  against timesheets, so Postgres refused to plan any timesheet query ("infinite recursion detected in policy")
+  and the week overview / history / review views all 500'd for every role. The checks are now `SECURITY DEFINER`
+  helpers on placements (`20261021000300_fix_client_policy_recursion.sql`), which cannot recurse. Applied in
+  production directly — no deploy needed. Regression test `test_timesheet_policies_do_not_recurse` added to CI.
+
 
 
 - **Weekend hours need the consultant's confirmation (2026-10-21):** approving a week with weekend hours is

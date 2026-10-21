@@ -37,6 +37,15 @@ async def test_money_roles_work_without_mfa(client, auth):
     assert (await client.get("/session", headers=auth("consultant", aal="aal1"))).status_code == 200
 
 
+async def test_timesheet_policies_do_not_recurse(client, auth):
+    # End-client RLS helpers must not re-enter the timesheet policies: a loop makes
+    # Postgres refuse to plan every query touching timesheets, for every role.
+    overview = await client.get("/timesheets", headers=auth("admin"))
+    assert overview.status_code == 200 and "week_start" in overview.json()
+    history = await client.get("/timesheets/history", headers=auth("admin"))
+    assert history.status_code == 200
+
+
 async def test_session_capabilities(client, auth):
     finance = (await client.get("/session", headers=auth("finance"))).json()
     vendor = (await client.get("/session", headers=auth("vendor"))).json()
