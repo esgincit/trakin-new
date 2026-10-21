@@ -65,10 +65,18 @@ function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: an
   const partners = useApi<any[]>("/projects/counterparties");
   const nextCode = useApi<{ code: string }>("/projects/next-code");
   const { run, busy } = useAction();
+  const { workspace } = useSession();
+  const currentCompanyId = workspace?.company_id;
+  const currentCompany = companies.data?.find((c) => c.id === currentCompanyId);
   const opts = (kinds: string[]) => {
     const own = (companies.data ?? []).filter((c) => playsRole(c, ...kinds));
     const msa = (partners.data ?? []).filter((p) => !own.some((c) => c.id === p.id));
-    return [["", "–"] as [string, string], ...[...own, ...msa].map((c) => [c.id, c.name] as [string, string])];
+    // Always include the current company as an end client option — the project's creator is the end client.
+    const all = [...own, ...msa];
+    if (currentCompany && !all.some((c) => c.id === currentCompany.id)) {
+      all.push(currentCompany);
+    }
+    return [["", "–"] as [string, string], ...all.map((c) => [c.id, c.name] as [string, string])];
   };
   return (
     <Modal title="New project" onClose={onClose}>
