@@ -102,7 +102,11 @@ export default function MyTimesheet() {
                 }
                 setNoteError("");
                 const ok = await run(async () => { await save(); return api("/timesheets/mine/submit", { body: {}, query: { week } }); }, "Submitted for approval");
-                if (ok) { reload(); history.reload(); }
+                if (!ok) {
+                  setNoteError("Failed to submit. Please try again.");
+                  return;
+                }
+                reload(); history.reload();
               }}>Submit week</button>
             </div>
           )}
