@@ -284,19 +284,23 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     if ts["status"] != "submitted":
         raise ApiError(409, "not_submitted", "Only submitted timesheets can be approved")
 
-    # Determine which companies are on this timesheet's placement chain
+    # Determine which companies are on this timesheet's placement chain.
+    # "Placed by" is this workspace (the company that placed the consultant) -- its staff
+    # approve first. "End client" is the placement's end_client_company_id -- a user of
+    # that company's workspace approves second.
     placements = await db.all("""
-        select distinct p.end_client_company_id as end_client_id, p.ap_company_id as placed_by_id
+        select distinct p.end_client_company_id as end_client_id
         from timesheet_entries e
         join placements p on p.id = e.placement_id
         where e.timesheet_id = :id
     """, {"id": timesheet_id})
     end_client_ids = {r["end_client_id"] for r in placements if r["end_client_id"]}
-    placed_by_ids = {r["placed_by_id"] for r in placements if r["placed_by_id"]}
 
-    approver_company_id = db.ctx.company_id
-    is_placed_by = approver_company_id in placed_by_ids
-    is_end_client = approver_company_id in end_client_ids
+    placed_by_tenant = await db.val(
+        "select company_id from mytrakin.tenants where id = (select tenant_id from mytrakin.timesheets where id = :id)",
+        {"id": timesheet_id})
+    is_placed_by = db.ctx.tenant_id is not None and placed_by_tenant == db.ctx.tenant_id
+    is_end_client = db.ctx.company_id is not None and db.ctx.company_id in end_client_ids
 
     if not is_placed_by and not is_end_client:
         raise ApiError(403, "forbidden", "Your company is not part of this timesheet's placement chain")
@@ -305,7 +309,10 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 
     new_pb = current["placed_by_approved"] or is_placed_by
     new_ec = current["end_client_approved"] or is_end_client
-    new_status = "approved" if new_pb and new_ec else "submitted"
+    # A distinct external end client on the chain must also approve. Placements with
+    # none (direct W-2, internal work) are finalised by the placing company alone.
+    needs_end_client = bool(end_client_ids - {placed_by_tenant})
+    new_status = "approved" if new_pb and (new_ec or not needs_end_client) else "submitted"
 
     row = await db.one(
         """update timesheets set status = :s, placed_by_approved = :pb, end_client_approved = :ec,
