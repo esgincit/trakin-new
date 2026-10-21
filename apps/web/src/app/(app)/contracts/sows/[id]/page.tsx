@@ -48,7 +48,7 @@ export default function SowDetail() {
             </>
           )}
           {!shared && canEdit && s.status !== "rejected" && <button className="btn" onClick={() => setAmending(true)}>Amend / extend</button>}
-          {!shared && canEdit && <Link className="btn pri" href={`/esign/new?sow_id=${id}&title=${encodeURIComponent(`SOW ${s.code}`)}`}>Send for signature</Link>}
+          {!shared && canEdit && s.status !== "accepted" && <Link className="btn pri" href={`/esign/new?sow_id=${id}&title=${encodeURIComponent(`SOW ${s.code}`)}`}>Send for signature</Link>}
         </>} />
       {awaitingUs && (
         <div className="alert mt">
