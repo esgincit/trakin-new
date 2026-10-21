@@ -644,6 +644,12 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-21 · timesheet approval chain (QA) · **Placing company could not approve (403 "not part of the
+  placement chain")**: "Placed By" was matched via `tenants.company_id`, null for most workspaces; now it is
+  the workspace that owns the timesheet. End-client approval engages when that company has a representative
+  member in the placing workspace (`client_user`, company_id set) — RLS `20261021000200` lets them read and
+  approve, UI shows "Approve (end client)", e-mail tells them it is their turn; no represented end client →
+  placed-by approval finalises so invoicing unblocked. All four live submitted weeks resolve correctly.
 - 2026-10-21 · TS-08 weekend confirmation, timesheet two-level approval · **Weekend hours now need the
   consultant's confirmation before approval**: approver asks (optional note) → e-mail + banner to the
   consultant → consultant confirms → approver e-mailed, gate lifted; reject/resubmit resets the state; reject

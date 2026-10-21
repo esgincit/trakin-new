@@ -15,6 +15,16 @@
   one, and weeks without an external end client finalise on the placing company's approval alone. Migration
   20261020000100_timesheet_two_level_approval.sql **must be applied to production** (it was committed on
   2026-10-20 but never applied - every timesheet save / submit / approve returned 500 on the live DB until now).
+
+
+- **Placing company could not approve its consultants' timesheets (2026-10-21):** the two-level approval wrongly
+  identified "Placed By" via the tenant's company link, which is empty for most workspaces, so approval failed
+  with "Your company is not part of this timesheet's placement chain". Placed-by approval now belongs to the
+  workspace that owns the timesheet. The end client's approval engages when that company is actually represented
+  in the placing workspace (its contact invited as a member) — they get an Approve (end client) button and an
+  e-mail when it is their turn; weeks without a represented end client finalise on the placing company's
+  approval, unblocking invoicing. Migration 20261021000200_client_timesheet_approval.sql - apply to
+  production before deploying.
 - **QA tickets T011303-1037, 1045–1049 (2026-10-19):**
   - **Project with an MSA counterparty (1049):** the client / prime lists on New project only showed companies in
     your own workspace, so the company you have an MSA with could not be chosen and the project failed with "no

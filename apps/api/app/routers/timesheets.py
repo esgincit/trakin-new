@@ -80,6 +80,39 @@ async def _user_email(db: TenantDb, user_id) -> str | None:
     return row["email"] if row else None
 
 
+async def _end_clients(db: TenantDb, tenant_id, timesheet_id) -> set:
+    """End-client companies on this timesheet's placements whose representative is a
+    member of the placing workspace (its contact invited with that company)."""
+    chain = {r["cid"] for r in await db.all(
+        """select distinct p.end_client_company_id as cid
+             from timesheet_entries e join placements p on p.id = e.placement_id
+            where e.timesheet_id = :id and p.end_client_company_id is not null""", {"id": timesheet_id})}
+    reps = {r["cid"] for r in await db.all(
+        """select distinct m.company_id as cid from mytrakin.memberships m
+            where m.tenant_id = :t and m.status = 'active' and m.company_id is not null""", {"t": tenant_id})}
+    return chain & reps
+
+
+async def _notify_end_client(db: TenantDb, tenant_id, end_clients: set, timesheet_id) -> None:
+    """The placed-by approval is in — tell the end client's people it is their turn."""
+    rows = await db.all(
+        """select m.company_id, p.email from mytrakin.memberships m
+             join profiles p on p.id = m.user_id
+            where m.tenant_id = :t and m.status = 'active'
+              and m.company_id is not null and m.user_id is not null""", {"t": tenant_id})
+    to = [r["email"] for r in rows if r["company_id"] in end_clients and r["email"]]
+    if not to:
+        return
+    settings = get_settings()
+    placing = await db.val("select name from mytrakin.tenants where id = :t", {"t": tenant_id}) or "The placing company"
+    await send_email(db, to=to, subject=f"Timesheet awaiting your approval — {placing}",
+                     kind="timesheet", tenant_id=tenant_id, ref_type="timesheet", ref_id=timesheet_id,
+                     html_body=render("Timesheet awaiting your approval",
+                                      [f"{placing} approved the consultant's timesheet in your placement chain.",
+                                       "It is now waiting for your approval before invoicing can continue."],
+                                      button=("Review timesheet", f"{settings.web_origin.rstrip('/')}/timesheets/{timesheet_id}")))
+
+
 async def _checks(db: TenantDb, ts: dict) -> tuple[list, dict]:
     entries = await db.all("select placement_id, work_date, hours from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
     placements = await db.all(
@@ -305,7 +338,12 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
             preview["ap"] += Decimal(line["hours"]) * line["pay_rate"]
             preview["ap_to"].add(line["ap_payee"])
     checks, summary = await _checks(db, ts)
-    result = {**ts, "rows": list(rows.values()), "checks": checks, "summary": summary}
+    # Approval state for the page: which end-client companies are represented here and
+    # whether the week is waiting on them after the placed-by approval.
+    end_clients = await _end_clients(db, ts["tenant_id"], timesheet_id)
+    result = {**ts, "rows": list(rows.values()), "checks": checks, "summary": summary,
+              "end_client_companies": sorted(str(c) for c in end_clients),
+              "awaiting_end_client": bool(end_clients) and ts["placed_by_approved"] and not ts["end_client_approved"]}
     if db.ctx.allows("finance"):
         result["creates"] = {"ar_amount": preview["ar"], "ar_to": sorted(x for x in preview["ar_to"] if x),
                              "ap_amount": preview["ap"], "ap_to": sorted(x for x in preview["ap_to"] if x)}
@@ -314,9 +352,7 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 
 @router.post("/{timesheet_id}/approve")
 async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
-    db.ctx.require(*APPROVER_ROLES)
-    await _contract_gate(db, timesheet_id)
-    ts = await db.one("select id, status, weekend_confirmed from timesheets where id = :id", {"id": timesheet_id})
+    ts = await db.one("select id, status, weekend_confirmed, tenant_id from timesheets where id = :id", {"id": timesheet_id})
     if ts is None:
         raise not_found("Timesheet")
     if ts["status"] != "submitted":
@@ -327,41 +363,34 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
         raise ApiError(409, "weekend_confirmation_required",
                        "This week has weekend hours. Ask the consultant to confirm them before approving.")
 
-    # Determine which companies are on this timesheet's placement chain.
-    # "Placed by" is this workspace (the company that placed the consultant) -- its staff
-    # approve first. "End client" is the placement's end_client_company_id -- a user of
-    # that company's workspace approves second.
-    placements = await db.all("""
-        select distinct p.end_client_company_id as end_client_id
-        from timesheet_entries e
-        join placements p on p.id = e.placement_id
-        where e.timesheet_id = :id
-    """, {"id": timesheet_id})
-    end_client_ids = {r["end_client_id"] for r in placements if r["end_client_id"]}
-
-    placed_by_tenant = await db.val(
-        "select company_id from mytrakin.tenants where id = (select tenant_id from mytrakin.timesheets where id = :id)",
-        {"id": timesheet_id})
-    is_placed_by = db.ctx.tenant_id is not None and placed_by_tenant == db.ctx.tenant_id
-    is_end_client = db.ctx.company_id is not None and db.ctx.company_id in end_client_ids
-
+    # "Placed by" is the workspace that owns the timesheet — the company that placed
+    # the consultant approves first (its staff). The end client approves second, when
+    # that company is represented in this workspace by one of its own people; that
+    # representative writes through the timesheets_client_approve policy.
+    end_clients = await _end_clients(db, ts["tenant_id"], timesheet_id)
+    is_placed_by = db.ctx.tenant_id is not None and ts["tenant_id"] == db.ctx.tenant_id
+    is_end_client = db.ctx.company_id is not None and db.ctx.company_id in end_clients
     if not is_placed_by and not is_end_client:
         raise ApiError(403, "forbidden", "Your company is not part of this timesheet's placement chain")
+    if is_placed_by and not is_end_client:
+        db.ctx.require(*APPROVER_ROLES)
+    await _contract_gate(db, timesheet_id)
 
     current = await db.one("select placed_by_approved, end_client_approved from timesheets where id = :id", {"id": timesheet_id})
 
     new_pb = current["placed_by_approved"] or is_placed_by
     new_ec = current["end_client_approved"] or is_end_client
-    # A distinct external end client on the chain must also approve. Placements with
-    # none (direct W-2, internal work) are finalised by the placing company alone.
-    needs_end_client = bool(end_client_ids - {placed_by_tenant})
-    new_status = "approved" if new_pb and (new_ec or not needs_end_client) else "submitted"
+    # Weeks without a represented external end client finalise on the placing company's approval alone.
+    new_status = "approved" if new_pb and (new_ec or not end_clients) else "submitted"
 
     row = await db.one(
         """update timesheets set status = :s, placed_by_approved = :pb, end_client_approved = :ec,
             decided_by = :u, decided_at = now(), reject_reason = null
             where id = :id returning id, status, placed_by_approved, end_client_approved""",
         {"id": timesheet_id, "u": db.ctx.user_id, "s": new_status, "pb": new_pb, "ec": new_ec})
+    if new_status == "submitted" and end_clients:
+        # Placed-by approval is in — tell the end client's people it is their turn.
+        await _notify_end_client(db, ts["tenant_id"], end_clients, timesheet_id)
     return row
 
 
