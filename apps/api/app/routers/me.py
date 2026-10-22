@@ -90,7 +90,10 @@ async def my_consultant_overview(db: TenantDb = Depends(tenant_db)):
     )
     projects = await db.all(
         """select p.id as placement_id, p.role_title, p.start_date, p.end_date, p.status, p.hours_per_week,
-                  pr.name as project, pr.description, ec.name as end_client, ar.name as customer, ap.name as payee_company,
+                  pr.name as project, pr.description,
+                  coalesce(ec.name, mytrakin.company_public_name(p.end_client_company_id)) as end_client,
+                  coalesce(ar.name, mytrakin.company_public_name(p.ar_company_id)) as customer,
+                  coalesce(ap.name, mytrakin.company_public_name(p.ap_company_id)) as payee_company,
                   p.ap_consultant_id is not null as paid_directly, p.ap_terms, p.pay_when_paid,
                   coalesce(aps.code, ars.code) as governing_sow, coalesce(aps.start_date, ars.start_date) as sow_start,
                   coalesce(aps.end_date, ars.end_date) as sow_end,

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **End client resolved even when the companies row is cross-tenant (2026-10-22):** `/me/consultant` and the staff
+  payment-flow view selected `ec.name` with a plain join on `placements.end_client_company_id` — RLS hides another
+  tenant's company row, so the end client came back null in the consultant's My Work chain even though the
+  placement stores the correct id. Both now fall back to `mytrakin.company_public_name()` (the same
+  security-definer helper the placements/projects lists already use). Plus migration `20261022000100`
+  backfills `end_client_company_id` (already applied to production) for placements created before the chain fix.
+
 - **Domain check no longer blocks companies whose e-mail was verified at creation (2026-10-22):** during company
   creation any e-mail (including personal ones like Gmail) is accepted and OTP-verified, but the company page's
   verification then failed the "Domain" check because `contact_email`'s domain didn't match `companies.domain` —

@@ -409,7 +409,8 @@ async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True
     rows = await db.all(
         """select ar.id as ar_id, ar.number as ar_number, ar.period_start, ar.period_end, ar.hours, ar.amount as ar_amount,
                   ar.balance as ar_balance, ar.due_on as ar_due, ar.live_status as ar_status, cust.name as customer,
-                  ec.name as end_client, c.full_name as consultant, c.engagement, pr.name as project,
+                  coalesce(ec.name, mytrakin.company_public_name(p.end_client_company_id)) as end_client,
+                  c.full_name as consultant, c.engagement, pr.name as project,
                   ap.id as ap_id, ap.number as ap_number, ap.amount as ap_amount, ap.balance as ap_balance,
                   coalesce(ap.scheduled_on, ap.due_on) as ap_due, ap.live_status as ap_status, coalesce(pco.name, pk.full_name) as payee
              from invoice_balances ar
