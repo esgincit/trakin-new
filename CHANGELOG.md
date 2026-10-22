@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **End client now actually receives the timesheet to approve (2026-10-22):** the placed-by approval appears to
+  differ from the next step — `_end_client_recipients` discovered the end client's approvers by querying
+  `mytrakin.tenants`/`memberships`/`profiles` directly, but RLS in the placing workspace only exposes its own
+  tenant, so the end-client workspace was always invisible: the week finalised with `end_client_approved = false`,
+  no approval link, no e-mail, and invoicing followed without the client's sign-off. Discovery now goes through the
+  new SECURITY DEFINER helper `mytrakin.ts_client_recipients(uuid[])` (only members' e-mails of the end-client
+  companies' own workspaces are exposed; verified executable under the `mytrakin_api` role).
+  **Production remediation for the affected week** (week of 2026-08-02, TCS→Amazon): the timesheet was reset to
+  `submitted` (the placed-by approval kept), a fresh approval link was created, and the "Review & approve"
+  e-mail was re-sent to Amazon's approvers. Invoicing re-runs automatically on their decision and won't
+  duplicate the already-created AR draft.
+
 - **End client resolved even when the companies row is cross-tenant (2026-10-22):** `/me/consultant` and the staff
   payment-flow view selected `ec.name` with a plain join on `placements.end_client_company_id` — RLS hides another
   tenant's company row, so the end client came back null in the consultant's My Work chain even though the

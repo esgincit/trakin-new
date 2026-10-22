@@ -140,12 +140,12 @@ async def _end_client_recipients(db: TenantDb, tenant_id, chain: set) -> dict:
               and m.company_id is not null""", {"t": tenant_id}):
         rep_emails.setdefault(r["cid"], []).append(r["email"])
     ws_emails: dict = {}
+    # The end client's own workspace lives in a different tenant — invisible to this
+    # session under RLS — so discovery goes through the SECURITY DEFINER helper.
     for r in await db.all(
-        """select t.company_id as cid, p.email from mytrakin.tenants t
-             join mytrakin.memberships m on m.tenant_id = t.id and m.status = 'active' and m.user_id is not null
-             join profiles p on p.id = m.user_id
-            where t.company_id is not null"""):
-        ws_emails.setdefault(r["cid"], []).append(r["email"])
+        """select * from mytrakin.ts_client_recipients(cast(:ids as uuid[]))""",
+            {"ids": "{" + ",".join(sorted(str(c) for c in chain)) + "}"}):
+        ws_emails.setdefault(r["company_id"], []).append(r["email"])
     for cid in chain:
         seen: set = set()
         emails: list = []
