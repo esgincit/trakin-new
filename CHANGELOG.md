@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The timesheet note field is now clearly marked as required (2026-10-22):** submitting a week without a note
+  was rejected by the API, but the UI never said the field was mandatory (the generated message wasn't even
+  rendered). The note now shows a red `*` and "required to submit" hint, a clear inline message appears when
+  submitting with missing notes or with no logged hours (and focus moves to the field), submission failures
+  are explained inline, and the API-side requirement stays the same.
+
 - **"Review & approve" / approve endpoints fixed end-to-end (2026-10-22):** beyond the `ts.full_name` DB fix,
   the API itself 500'd on `POST /timesheets/{id}/client-link`, `client-decision` and the public
   `/public/ts-approvals/{token}/view|decide` endpoints: `json.loads`/`orjson.loads` was applied to the SQL

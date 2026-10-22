@@ -113,7 +113,15 @@ export default function MyTimesheet() {
             </table>
           </div>
           {rows.length === 0 && <p className="muted">No projects are assigned to you for this week.</p>}
-          <textarea className={`ctl mt ${noteError ? "err" : ""}`} placeholder="Note for your approver" value={note} onChange={(e) => { setNote(e.target.value); setNoteError(""); }} disabled={locked} />
+          <div className="mt">
+            <label htmlFor="tsNote" className="muted" style={{ fontSize: 12.5, display: "block", marginBottom: 4 }}>
+              Note for your approver <span style={{ color: "var(--bad)" }} aria-hidden="true">*</span>
+              <span className="muted"> — required to submit</span>
+            </label>
+            <textarea id="tsNote" className={`ctl ${noteError ? "err" : ""}`} placeholder="Explain anything your approver should know about this week"
+                      value={note} onChange={(e) => { setNote(e.target.value); setNoteError(""); }} disabled={locked} required />
+            {noteError && <p className="err" style={{ marginTop: 6 }}>{noteError}</p>}
+          </div>
           {!locked && (
             <div className="row mt">
               {!rows.some((r) => r.placement_id === null) && (
@@ -121,15 +129,20 @@ export default function MyTimesheet() {
               )}
               <span className="grow" style={{ flex: 1 }} />
               <button className="btn" disabled={busy} onClick={async () => { if (await run(save, "Saved")) reload(); }}>Save draft</button>
-              <button className="btn pri" disabled={busy || total <= 0} onClick={async () => {
-                if (!note || !note.trim()) {
-                  setNoteError("Please enter a note before submitting the timesheet.");
+              <button className="btn pri" disabled={busy} onClick={async () => {
+                if (total <= 0) {
+                  setNoteError("Enter the hours you worked this week — at least one day needs time logged before you can submit.");
+                  document.getElementById("tsNote")?.focus();
                   return;
                 }
-                setNoteError("");
+                if (!note || !note.trim()) {
+                  setNoteError("The note for your approver is required — say what the week covers (e.g. client request, tasks).");
+                  document.getElementById("tsNote")?.focus();
+                  return;
+                }
                 const ok = await run(async () => { await save(); return api("/timesheets/mine/submit", { body: {}, query: { week } }); }, "Submitted for approval");
                 if (!ok) {
-                  setNoteError("Failed to submit. Please try again.");
+                  setNoteError("Submitting failed. Check the message above and try again.");
                   return;
                 }
                 reload(); history.reload();
