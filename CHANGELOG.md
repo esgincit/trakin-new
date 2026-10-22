@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Every timesheet-approval (and e-signature) link page 500'd — `Ctx(ua=…)` typo (2026-10-22):**
+  `open_ts_approver` and `open_signer` constructed the request context with the keyword `ua=` instead of
+  `user_agent=`, so `GET /public/ts-approvals/{token}` (the page the approval e-mail opens) and e-signature
+  links raised `TypeError` — an unhandled 500 "Internal Server Error" for valid and invalid tokens alike,
+  which masked every other fix behind it. Fixed both call sites; verified locally against production data:
+  the link view returns 200 with the week's data and the decide endpoints behave (400 for too-short notes).
+
 - **The timesheet note field is now clearly marked as required (2026-10-22):** submitting a week without a note
   was rejected by the API, but the UI never said the field was mandatory (the generated message wasn't even
   rendered). The note now shows a red `*` and "required to submit" hint, a clear inline message appears when

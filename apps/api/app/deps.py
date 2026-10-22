@@ -250,7 +250,7 @@ async def open_signer(request: Request, token_hash: str) -> AsyncIterator[Tenant
             {"tid": found["tenant_id"], "ip": ip, "ua": ua, "sid": found["signer_id"]},
         )
         yield TenantDb(conn, Ctx(user_id=None, tenant_id=found["tenant_id"], role="signer",
-                                 signer_id=found["signer_id"], ip=ip, ua=ua,
+                                 signer_id=found["signer_id"], ip=ip, user_agent=ua,
                                  extra={"envelope_id": found["envelope_id"]}))
 
 
@@ -268,7 +268,7 @@ async def open_ts_approver(request: Request, token_hash: str) -> AsyncIterator[T
             text("select mytrakin.begin_request(null, :tid, 'signer', null, null, :ip, :ua)"),
             {"tid": found["tenant_id"], "ip": ip, "ua": ua},
         )
-        yield TenantDb(conn, Ctx(user_id=None, tenant_id=found["tenant_id"], role="signer", ip=ip, ua=ua,
+        yield TenantDb(conn, Ctx(user_id=None, tenant_id=found["tenant_id"], role="signer", ip=ip, user_agent=ua,
                                  extra={"timesheet_id": found["timesheet_id"]}))
 
 
