@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **The timesheet now flows to the end client's own approval (2026-10-21):** previously the second approval only
+  worked if the client's representative had been invited into the placing workspace — otherwise Company B's
+  approval silently finalised the week and nothing went to A. Now, when B's timesheet manager approves, the
+  week is routed to the client side **in the client's own myTrakIn workspace**: its people receive an e-mail
+  with a personal, expiring approval link (like e-signatures — hashed token, no account needed) that shows the
+  week's hours and offers **Approve** or **Return with note**. After the client approves, the week finalises
+  and AR/AP invoices are generated automatically; returning sends both the placing company and the consultant
+  a notice with the reason, and the week re-enters the normal fix-and-resubmit loop. B-only finalisation now
+  applies only when the end client has no workspace people and no representative in the placing workspace.
+  Migration `20261021000400_ts_approval_links.sql` — apply to production before deploying.
+  Regression tests: `tests/test_ts_approval_link.py` (approve + auto-invoice, and return-with-note).
+
 - **Invoices generate automatically on final timesheet approval (2026-10-21):** the full flow is now consultant
   submits → placed-by (Company B) manager approves / returns with notes → the end client's (Company A's)
   representative gets an e-mail and approves → **the week's AR invoice (bill rate × approved hours, to the

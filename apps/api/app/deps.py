@@ -250,8 +250,26 @@ async def open_signer(request: Request, token_hash: str) -> AsyncIterator[Tenant
             {"tid": found["tenant_id"], "ip": ip, "ua": ua, "sid": found["signer_id"]},
         )
         yield TenantDb(conn, Ctx(user_id=None, tenant_id=found["tenant_id"], role="signer",
-                                 signer_id=found["signer_id"], ip=ip, user_agent=ua,
+                                 signer_id=found["signer_id"], ip=ip, ua=ua,
                                  extra={"envelope_id": found["envelope_id"]}))
+
+
+async def open_ts_approver(request: Request, token_hash: str) -> AsyncIterator[TenantDb]:
+    """A personal approval link for the end client's timesheet manager.
+    Read/decides through ts_approval_view / ts_client_decide, not table RLS."""
+    ip, ua = client_ip(request), user_agent(request)
+    async with get_engine().begin() as conn:
+        found = (await conn.execute(text(
+            "select tenant_id, timesheet_id from mytrakin.ts_approval_links where token_hash = :h"),
+            {"h": token_hash})).mappings().first()
+        if found is None:
+            raise ApiError(404, "link_invalid", "This approval link is not valid. Ask the placing company for a new one.")
+        await conn.execute(
+            text("select mytrakin.begin_request(null, :tid, 'signer', null, null, :ip, :ua)"),
+            {"tid": found["tenant_id"], "ip": ip, "ua": ua},
+        )
+        yield TenantDb(conn, Ctx(user_id=None, tenant_id=found["tenant_id"], role="signer", ip=ip, ua=ua,
+                                 extra={"timesheet_id": found["timesheet_id"]}))
 
 
 async def open_system(tenant_id: UUID) -> AsyncIterator[TenantDb]:

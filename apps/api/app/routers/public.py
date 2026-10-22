@@ -9,10 +9,11 @@ Every signing step records the signer's IP address, device and approximate locat
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 import orjson
@@ -21,13 +22,14 @@ from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
 
 from ..config import get_settings
-from ..deps import TenantDb, open_public, open_signer
+from ..deps import TenantDb, open_public, open_signer, open_ts_approver
 from ..errors import ApiError, bad_request, conflict, not_found
 from ..services import storage
 from ..services.email import render, send_email
 from ..services.esign import ESIGN_DISCLOSURE, build_certificate, log_event, seal, send_to_signer
 from ..utils import approx_location, device_label, otp_code, sha256_hex
 from .esign import _mark_parent
+from .timesheets import _auto_invoice
 
 log = logging.getLogger("mytrakin.esign")
 router = APIRouter(prefix="/public", tags=["public"])
@@ -356,3 +358,77 @@ async def register(
 def _safe_name(filename: str | None) -> str:
     keep = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in (filename or "file"))
     return keep[-120:] or "file"
+
+
+# ============================================================================ timesheet approvals
+async def ts_approval_db(token: str, request: Request) -> AsyncIterator[TenantDb]:
+    if len(token) < 20 or len(token) > 100:
+        raise ApiError(404, "link_invalid", "This approval link is not valid. Ask the placing company for a new one.")
+    async for db in open_ts_approver(request, sha256_hex(token)):
+        yield db
+
+
+@router.get("/ts-approvals/{token}")
+async def ts_view(token: str, db: TenantDb = Depends(ts_approval_db)):
+    return orjson.loads(await db.val("select mytrakin.ts_approval_view(:h)", {"h": sha256_hex(token)}))
+
+
+@router.post("/ts-approvals/{token}/approve")
+async def ts_approve(request: Request, token: str, db: TenantDb = Depends(ts_approval_db)):
+    return await _ts_decide(request, db, token, "approve", None)
+
+
+class TsReturnIn(BaseModel):
+    note: str | None = Field(None, max_length=500)
+
+
+@router.post("/ts-approvals/{token}/return")
+async def ts_return(body: TsReturnIn, request: Request, token: str, db: TenantDb = Depends(ts_approval_db)):
+    return await _ts_decide(request, db, token, "return", body.note)
+
+
+async def _ts_decide(request: Request, db: TenantDb, token: str, decision: str, note: str | None) -> dict:
+    res = orjson.loads(await db.val("select mytrakin.ts_client_decide(:h, :d, :n)",
+                                    {"h": sha256_hex(token), "d": decision, "n": note}))
+    if not isinstance(res, dict) or res.get("error"):
+        if res.get("error") == "note_required":
+            raise bad_request("Add a short note so the consultant knows what to fix.")
+        if res.get("error") == "not_ready":
+            raise conflict("This week's status already changed — refresh the link or e-mail from the placing company.")
+        if res.get("error") in ("used", "expired"):
+            raise conflict("This approval link has already been used or expired. Ask the placing company for a new one.")
+        raise ApiError(404, "link_invalid", "This approval link is not valid. Ask the placing company for a new one.")
+    # The end client signed off — notifications and automatic invoicing follow.
+    if res.get("ok") and res.get("status") == "approved" and res.get("tenant_id") and res.get("week_start"):
+        asyncio.create_task(_auto_invoice(date.fromisoformat(res["week_start"]), res["tenant_id"], None))
+    # tell the placing company (and, on a return, the consultant) what was decided
+    settings = get_settings()
+    title = ("Timesheet approved by the client" if res.get("status") == "approved" else "Timesheet returned by the client")
+    paras: list[str] = []
+    if res.get("status") == "approved":
+        paras = [f"{res.get('company_name') or 'The end client'} approved {res.get('consultant')}'s timesheet "
+                 f"for the week of {res.get('week_start')}.",
+                 "Invoices for the week will be generated automatically."
+                 if res.get("consultant_email") else ""]
+    else:
+        paras = [f"{res.get('company_name') or 'The end client'} returned {res.get('consultant')}'s timesheet "
+                 f"for the week of {res.get('week_start')}. Reason: {note}",
+                 "Please ask the consultant to fix it; it comes back to you for approval afterwards."]
+    paras = [p for p in paras if p]
+    if res.get("creator_email"):
+        to = res["creator_email"]
+        await send_email(db, to=to, subject=f"{title} — week of {res.get('week_start')}", kind="timesheet",
+                         tenant_id=res.get("tenant_id"), ref_type="timesheet",
+                         ref_id=db.ctx.extra.get("timesheet_id"),
+                         html_body=render(title, paras,
+                                          button=("Open timesheets", f"{settings.web_origin.rstrip('/')}/timesheets")))
+    if res.get("status") == "rejected" and res.get("consultant_email"):
+        await send_email(db, to=res["consultant_email"], subject=f"Your timesheet was returned — week of {res.get('week_start')}",
+                         kind="timesheet", tenant_id=res.get("tenant_id"), ref_type="timesheet",
+                         ref_id=db.ctx.extra.get("timesheet_id"),
+                         html_body=render("Timesheet returned for changes",
+                                          [f"Your timesheet for the week of {res.get('week_start')} was returned by "
+                                           f"{res.get('company_name') or 'the end client'}.",
+                                           f"Reason: {note}"],
+                                          button=("Fix and resubmit", f"{settings.web_origin.rstrip('/')}/my/timesheet")))
+    return res

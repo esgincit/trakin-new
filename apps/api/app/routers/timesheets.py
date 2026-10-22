@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -23,7 +24,7 @@ from ..services import workflow
 from ..services.email import render, send_email
 from ..services.invoicing import generate_invoices
 from ..services.timesheet_checks import Entry, PlacementInfo, run_checks, summarize
-from ..utils import week_start
+from ..utils import sha256_hex, week_start
 
 router = APIRouter(prefix="/timesheets", tags=["timesheets"])
 
@@ -123,24 +124,62 @@ async def _auto_invoice(week_start: date, tenant_id, user_id) -> None:
         log.exception("auto-invoicing failed for tenant %s week of %s", tenant_id, week_start)
 
 
-async def _notify_end_client(db: TenantDb, tenant_id, end_clients: set, timesheet_id) -> None:
-    """The placed-by approval is in — tell the end client's people it is their turn."""
-    rows = await db.all(
-        """select m.company_id, p.email from mytrakin.memberships m
+async def _end_client_recipients(db: TenantDb, tenant_id, chain: set) -> dict:
+    """Who can be asked to approve for each end-client company: people of the client's
+    own myTrakIn workspace, or representatives invited into this workspace. Returns
+    {company_id: [emails]} for companies with at least one reachable person."""
+    out: dict = {}
+    if not chain:
+        return out
+    rep_emails: dict = {}
+    for r in await db.all(
+        """select m.company_id as cid, p.email from mytrakin.memberships m
              join profiles p on p.id = m.user_id
-            where m.tenant_id = :t and m.status = 'active'
-              and m.company_id is not null and m.user_id is not null""", {"t": tenant_id})
-    to = [r["email"] for r in rows if r["company_id"] in end_clients and r["email"]]
-    if not to:
-        return
+            where m.tenant_id = :t and m.status = 'active' and m.user_id is not null
+              and m.company_id is not null""", {"t": tenant_id}):
+        rep_emails.setdefault(r["cid"], []).append(r["email"])
+    ws_emails: dict = {}
+    for r in await db.all(
+        """select t.company_id as cid, p.email from mytrakin.tenants t
+             join mytrakin.memberships m on m.tenant_id = t.id and m.status = 'active' and m.user_id is not null
+             join profiles p on p.id = m.user_id
+            where t.company_id is not null"""):
+        ws_emails.setdefault(r["cid"], []).append(r["email"])
+    for cid in chain:
+        seen: set = set()
+        emails: list = []
+        for e in (*rep_emails.get(cid, ()), *ws_emails.get(cid, ())):
+            if e and e not in seen:
+                seen.add(e)
+                emails.append(e)
+        if emails:
+            out[cid] = emails
+    return out
+
+
+async def _send_client_approval(db: TenantDb, ts: dict, recipients: dict, timesheet_id) -> None:
+    """Create one approval link per end-client company and e-mail its people.
+    The link (like an e-signature link) shows the week and lets them approve it
+    or return it with a note — no account inside this workspace needed."""
     settings = get_settings()
-    placing = await db.val("select name from mytrakin.tenants where id = :t", {"t": tenant_id}) or "The placing company"
-    await send_email(db, to=to, subject=f"Timesheet awaiting your approval — {placing}",
-                     kind="timesheet", tenant_id=tenant_id, ref_type="timesheet", ref_id=timesheet_id,
-                     html_body=render("Timesheet awaiting your approval",
-                                      [f"{placing} approved the consultant's timesheet in your placement chain.",
-                                       "It is now waiting for your approval before invoicing can continue."],
-                                      button=("Review timesheet", f"{settings.web_origin.rstrip('/')}/timesheets/{timesheet_id}")))
+    placing = await db.val("select name from mytrakin.tenants where id = :t", {"t": ts["tenant_id"]}) or "The placing company"
+    total = Decimal(await db.val("select coalesce(sum(hours), 0) from timesheet_entries where timesheet_id = :id",
+                                 {"id": timesheet_id}))
+    for cid, emails in recipients.items():
+        token = secrets.token_urlsafe(32)
+        await db.run(
+            """insert into mytrakin.ts_approval_links (tenant_id, timesheet_id, company_id, token_hash, created_by)
+               values (:t, :ts, :c, :h, :u)""",
+            {"t": ts["tenant_id"], "ts": timesheet_id, "c": cid, "h": sha256_hex(token), "u": db.ctx.user_id})
+        await send_email(db, to=emails, subject=f"Timesheet to approve — {ts['consultant']}, week of {ts['week_start']}",
+                         kind="timesheet", tenant_id=ts["tenant_id"], ref_type="timesheet", ref_id=timesheet_id,
+                         html_body=render(f"{placing} approved a timesheet — your approval is next",
+                                          [f"{placing} approved {ts['consultant']}'s timesheet for the week of "
+                                           f"{ts['week_start']} ({total:g} hours across their projects).",
+                                           "Open the link to review the hours and approve — or return the week "
+                                           "with a note. Once you approve, invoices for the week are generated "
+                                           "automatically."],
+                                          button=("Review & approve", f"{settings.web_origin.rstrip('/')}/approve/timesheet/{token}")))
 
 
 async def _checks(db: TenantDb, ts: dict) -> tuple[list, dict]:
@@ -382,7 +421,9 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 
 @router.post("/{timesheet_id}/approve")
 async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
-    ts = await db.one("select id, status, week_start, weekend_confirmed, tenant_id from timesheets where id = :id", {"id": timesheet_id})
+    ts = await db.one(
+        """select t.id, t.status, t.week_start, t.weekend_confirmed, t.tenant_id, c.full_name as consultant
+             from timesheets t join consultants c on c.id = t.consultant_id where t.id = :id""", {"id": timesheet_id})
     if ts is None:
         raise not_found("Timesheet")
     if ts["status"] != "submitted":
@@ -394,10 +435,21 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
                        "This week has weekend hours. Ask the consultant to confirm them before approving.")
 
     # "Placed by" is the workspace that owns the timesheet — the company that placed
-    # the consultant approves first (its staff). The end client approves second, when
-    # that company is represented in this workspace by one of its own people; that
-    # representative writes through the timesheets_client_approve policy.
-    end_clients = await _end_clients(db, ts["tenant_id"], timesheet_id)
+    # the consultant approves first (its staff). The end client approves second: either
+    # in-app (its representative is a member of this workspace) or through a personal
+    # approval link sent to its own workspace's timesheet managers. Without any
+    # reachable end client, the placing company's approval is final.
+    chain = {r["cid"] for r in await db.all(
+        """select distinct p.end_client_company_id as cid
+             from timesheet_entries e join placements p on p.id = e.placement_id
+            where e.timesheet_id = :id and p.end_client_company_id is not null""", {"id": timesheet_id})}
+    own = await db.val("select company_id from mytrakin.tenants where id = :t", {"t": ts["tenant_id"]})
+    chain.discard(own)
+    recipients = await _end_client_recipients(db, ts["tenant_id"], chain)
+    end_clients = chain & {r["company_id"] for r in await db.all(
+        """select distinct m.company_id from mytrakin.memberships m
+            where m.tenant_id = :t and m.status = 'active' and m.company_id is not null""",
+        {"t": ts["tenant_id"]})}
     is_placed_by = db.ctx.tenant_id is not None and ts["tenant_id"] == db.ctx.tenant_id
     is_end_client = db.ctx.company_id is not None and db.ctx.company_id in end_clients
     if not is_placed_by and not is_end_client:
@@ -410,17 +462,18 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 
     new_pb = current["placed_by_approved"] or is_placed_by
     new_ec = current["end_client_approved"] or is_end_client
-    # Weeks without a represented external end client finalise on the placing company's approval alone.
-    new_status = "approved" if new_pb and (new_ec or not end_clients) else "submitted"
+    # Weeks with no reachable end client finalise on the placing company's approval alone.
+    new_status = "approved" if new_pb and (new_ec or not recipients) else "submitted"
 
     row = await db.one(
         """update timesheets set status = :s, placed_by_approved = :pb, end_client_approved = :ec,
             decided_by = :u, decided_at = now(), reject_reason = null
             where id = :id returning id, status, placed_by_approved, end_client_approved""",
         {"id": timesheet_id, "u": db.ctx.user_id, "s": new_status, "pb": new_pb, "ec": new_ec})
-    if new_status == "submitted" and end_clients:
-        # Placed-by approval is in — tell the end client's people it is their turn.
-        await _notify_end_client(db, ts["tenant_id"], end_clients, timesheet_id)
+    if new_status == "submitted" and new_pb and not current["placed_by_approved"] and recipients:
+        # The placed-by approval just landed — the week flows to the end client's
+        # timesheet managers (personal approval links, e-mailed).
+        await _send_client_approval(db, ts, recipients, timesheet_id)
     if new_status == "approved":
         # Final approval — this week's AR/AP invoices are generated automatically.
         asyncio.create_task(_auto_invoice(ts["week_start"], ts["tenant_id"], db.ctx.user_id))

@@ -644,6 +644,13 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-21 · timesheet client approval rollout · **B's approval now actually flows to A**: A's approval used
+  to require a representative inside B's workspace (nobody had one), so weeks finalised at B silently. Now the
+  placed-by approval e-mails the client's own-workspace people (or its invited representative) a personal,
+  expiring approval **link** (hashed token, `ts_approval_view` / `ts_client_decide` SECURITY DEFINER) — public
+  page `/approve/timesheet/{token}` — Approve finalises + auto-invoices, Return-with-note rejects back to the
+  consultant and alerts both sides. B-only shortcut only when A has no workspace people and no rep.
+  `20261021000400` applied to production; e2e tests added (approve→auto-invoice, return-with-note).
 - 2026-10-21 · AR-01 · **Auto-invoicing on final timesheet approval**: placed-by manager approves → end-client
   representative e-mailed and approves → `generate_invoices` runs automatically on a system connection
   (AR bill-rate × approved hours, AP pay-rate × hours, dedupe + MSA guards), drafts ready for finance.
