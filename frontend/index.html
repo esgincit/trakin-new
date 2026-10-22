@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VendorChain</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="auth" class="auth-wrap">
+  <div class="card auth-card">
+    <h2>VendorChain — Sign in</h2>
+    <div class="tabs">
+      <button id="tabPw" class="on" onclick="tab('pw')">Password</button>
+      <button id="tabOtp" onclick="tab('otp')">Email code</button>
+      <button id="tabReg" onclick="tab('reg')">Register</button>
+    </div>
+    <div id="fPw">
+      <label>Email<input id="liEmail" type="email" placeholder="you@company.com"></label>
+      <label>Password<input id="liPass" type="password" placeholder="••••••••"></label>
+      <button class="pri" onclick="doLogin()">Sign in</button>
+    </div>
+    <div id="fOtp" hidden>
+      <label>Email<input id="otEmail" type="email" placeholder="you@company.com"></label>
+      <div class="row"><button onclick="reqCode()">Send code</button></div>
+      <label>6-digit code<input id="otCode" inputmode="numeric" placeholder="123456"></label>
+      <button class="pri" onclick="verifyCode()">Verify & sign in</button>
+      <details style="margin-top:10px"><summary>Forgot password? Reset with code</summary>
+        <label>New password (8+ chars)<input id="otNewPass" type="password" placeholder="New password"></label>
+        <button onclick="resetPassword()">Set new password</button>
+      </details>
+      <p class="note">Code sent from Zoho SMTP, expires in 10 min. Already registered? Use Password or Email-code sign-in — Register is for new emails only.</p>
+    </div>
+    <div id="fReg" hidden>
+      <label>Full name<input id="rgName" placeholder="First Last"></label>
+      <label>Email<input id="rgEmail" type="email"></label>
+      <label>Password<input id="rgPass" type="password"></label>
+      <label>Company<input id="rgCo" placeholder="Staffing LLC"></label>
+      <button class="pri" onclick="doRegister()">Create account</button>
+    </div>
+    <p id="authErr" class="err"></p>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <aside><div class="logo">VC VendorChain</div><nav id="nav"></nav></aside>
+  <main>
+    <header><b id="who"></b><span class="grow"></span><button onclick="location.href='/mockup.html'">Full mockup UI</button><button onclick="health()">Health</button><button onclick="logout()">Sign out</button></header>
+    <div id="view" class="content"></div>
+  </main>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
