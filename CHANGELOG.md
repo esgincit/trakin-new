@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Approving from the client's link no longer 500s (2026-10-22):** `mytrakin.ts_client_decide` (the decision
+  function behind the e-mailed approval link and the in-app "Review & approve") selected the timesheet row only
+  and then read `ts.full_name` — plpgsql raises `record "ts" has no field "full_name"`, so every approve/return
+  decision failed with a 500 and the week stayed pending. Migration `20261022000400` recreates the function
+  joining the consultant with explicitly aliased columns (gates unchanged); both `approve` and `return-with-note`
+  verified against production data.
+
 - **Consultants can edit and resubmit a returned (rejected) week again (2026-10-22):** the deployed
   `timesheets_consultant_update` RLS policy's WITH CHECK had lost the `rejected` status (`draft` + `submitted`
   only), so any edit of a rejected week violated the policy and the API reported it as 403
