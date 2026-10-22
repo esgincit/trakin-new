@@ -644,6 +644,12 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-22 · QA · **Four fixes**: (1) timesheet review page crashed on first render for everyone ("This page
+  couldn't load") — a `ts.awaiting_end_client` dereference sat before the loading guard; (2) Add-SOW form's
+  "Supports client SOW" dropdown shows `SOW · PRJ-code – Project name` (API adds `pj.name as project_name`);
+  (3) My-timesheet history chips now show real Placed By / End Client state and Rejected when either side
+  returns the week (`/me/timesheets` now returns the flags — they were always missing, so chips stuck on
+  Pending); (4) My Work chain starts with "End client <name>", customer shown separately only when distinct.
 - 2026-10-21 · timesheet client approval (QA) · **A sees the pending weeks in its own Timesheets page**: a
   client queue card (`GET /timesheets/client-queue`, definer `ts_client_queue` keyed on the caller's acting
   companies) with an in-app Review & approve link (`ts_client_link`) reusing the public approval page, plus a

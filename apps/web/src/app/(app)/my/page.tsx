@@ -42,8 +42,9 @@ export default function MyWork() {
                   {p.pending_extension && <> · <b>Extension in progress:</b> {p.pending_extension}</>}
                 </div>
                 <div className="chain mt">
-                  {p.end_client && p.end_client !== p.customer && <><div className="node"><div className="t">End client</div><div className="n">{p.end_client}</div></div><div className="link"><div className="arr" /></div></>}
-                  <div className="node"><div className="t">Customer</div><div className="n">{p.customer}</div></div>
+                  <div className="node"><div className="t">End client</div><div className="n">{p.end_client ?? p.customer ?? "–"}</div></div>
+                  {p.customer && p.customer !== p.end_client && <><div className="link"><div className="arr" /></div>
+                    <div className="node"><div className="t">Customer (bills us)</div><div className="n">{p.customer}</div></div></>}
                   <div className="link"><div className="arr" /></div>
                   <div className="node esg"><div className="t">Placed by</div><div className="n">{workspace?.tenant.name ?? "Your staffing company"}</div></div>
                   {p.payee_company && <><div className="link"><div className="arr" /></div><div className="node"><div className="t">Your employer</div><div className="n">{p.payee_company}</div></div></>}

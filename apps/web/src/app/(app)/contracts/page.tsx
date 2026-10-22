@@ -166,7 +166,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
           <Field label="Start" name="start_date" type="date" required />
           <Field label="End" name="end_date" type="date" required />
           <Field label="Value ceiling ($)" name="value_cap" type="number" step="0.01" min="0" />
-          <Field label="Supports client SOW (vendor SOWs)" name="flows_from_sow_id" as="select" options={[["", "–"], ...(sows.data ?? []).map((s: any) => [s.id, s.code] as [string, string])]} />
+          <Field label="Supports client SOW (vendor SOWs)" name="flows_from_sow_id" as="select" options={[["", "–"], ...(sows.data ?? []).map((s: any) => [s.id, `${s.code}${s.project ? ` · ${s.project}` : ""}${s.project_name ? ` – ${s.project_name}` : ""}`] as [string, string])]} />
           <Field label="Invoiced before myTrakIn ($)" name="prior_invoiced" type="number" step="0.01" min="0" />
           <Field label="Collected / paid before myTrakIn ($)" name="prior_paid" type="number" step="0.01" min="0" />
         </div>

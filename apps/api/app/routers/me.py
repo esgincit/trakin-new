@@ -179,9 +179,10 @@ async def my_timesheet_history(
     """One line per week and project, newest first. Filter by project, status and dates."""
     cid = _require_consultant(db)
     return await db.all(
-        """select t.id as timesheet_id, t.week_start, t.status, e.placement_id,
-                  coalesce(pr.name, 'Internal / non-billable') as project, sum(e.hours) as hours, t.decided_at
-             from timesheets t
+        """select t.id as timesheet_id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
+                   e.placement_id,
+                   coalesce(pr.name, 'Internal / non-billable') as project, sum(e.hours) as hours, t.decided_at
+              from timesheets t
              join timesheet_entries e on e.timesheet_id = t.id
              left join placements p on p.id = e.placement_id
              left join projects pr on pr.id = p.project_id

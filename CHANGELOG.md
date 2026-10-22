@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Four QA fixes (2026-10-22):**
+  - **Timesheet review page loaded into an error screen for everyone** — a pre-loading dereference of the
+    timesheet object added last week crashed the page on first render ("This page couldn't load"), so the
+    View action never opened any week. The keys are now read after the loading guard only.
+  - **SOW / work order form**: the "Supports client SOW" dropdown now shows `SOW-code · PRJ-xx – Project name`
+    (the SOW list API returns the project's name, not just its code).
+  - **My Timesheet history statuses** now reflect the real approval state: Placed By / End Client chips come
+    from the timesheet's approval flags (previously always "Pending" — the API never returned them) and turn
+    "Rejected" when either party returns the week.
+  - **My Work chain**: the first node is now "End client" with the actual end-client company's name; the
+    customer appears separately (as "Customer (bills us)") only when it's a distinct company in the chain.
+
 - **A's own Timesheets page now lists the weeks waiting on its approval (2026-10-21):** besides the e-mail link,
   the end client's workspace shows a "Timesheets waiting for our approval (end client)" card with week,
   consultant, placing company and hours; "Review & approve" opens the same approval page in-app (`client-link`),

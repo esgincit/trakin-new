@@ -194,7 +194,7 @@ async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
         """select s.id, s.code, s.side, s.title, s.start_date, s.end_date, s.status, s.value_cap,
                   a.code as agreement, coalesce(co.name, mytrakin.company_public_name(s.company_id), c.full_name) as counterparty,
                   b.invoiced, b.collected_or_paid, b.burn_pct, (s.value_cap - b.invoiced) as remaining,
-                  (s.end_date - current_date) as days_left, fs.code as flows_from, s.project_id, pj.code as project,
+                  (s.end_date - current_date) as days_left, fs.code as flows_from, s.project_id, pj.code as project, pj.name as project_name,
                   (select string_agg(distinct k.full_name, ', ') from placements p join consultants k on k.id = p.consultant_id
                     where s.id in (p.ar_sow_id, p.ap_sow_id)) as consultants,
                   (select a2.code || ': ' || a2.status from sow_amendments a2 where a2.sow_id = s.id and a2.status <> 'void'

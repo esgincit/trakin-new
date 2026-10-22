@@ -15,13 +15,12 @@ export default function TimesheetReview() {
   const { data: ts, error, loading, reload } = useApi(`/timesheets/${id}`);
   const { run, busy } = useAction();
   const canApprove = allows(workspace, "approver", "account_manager", "hr", "finance");
+  if (loading) return <Loading rows={6} />;
+  if (error) return <ErrorBox error={error} retry={reload} />;
   // The end client's representative (invited into the placing workspace as a member of
   // their company) approves the second step, after the placing company has approved.
   const canEndApprove = !!ts.awaiting_end_client && !!workspace?.company_id &&
     (ts.end_client_companies ?? []).includes(workspace.company_id);
-
-  if (loading) return <Loading rows={6} />;
-  if (error) return <ErrorBox error={error} retry={reload} />;
   const days = dayLabels(ts.week_start);
   const total = ts.rows.reduce((s: number, r: any) => s + r.hours.reduce((a: number, h: any) => a + Number(h), 0), 0);
   const weekendHours = ts.rows.reduce((s: number, r: any) => s + Number(r.hours[5] ?? 0) + Number(r.hours[6] ?? 0), 0);
