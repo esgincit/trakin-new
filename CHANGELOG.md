@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Consultants can edit and resubmit a returned (rejected) week again (2026-10-22):** the deployed
+  `timesheets_consultant_update` RLS policy's WITH CHECK had lost the `rejected` status (`draft` + `submitted`
+  only), so any edit of a rejected week violated the policy and the API reported it as 403
+  "You don't have permission to do that" (SQLSTATE 42501). Migration `20261022000300` recreates the policy with
+  `draft`/`rejected` in USING and `draft`/`rejected`/`submitted` in WITH CHECK — applied and verified on
+  production.
+
 - **End client now actually receives the timesheet to approve (2026-10-22):** the placed-by approval appears to
   differ from the next step — `_end_client_recipients` discovered the end client's approvers by querying
   `mytrakin.tenants`/`memberships`/`profiles` directly, but RLS in the placing workspace only exposes its own
