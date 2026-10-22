@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Domain check no longer blocks companies whose e-mail was verified at creation (2026-10-22):** during company
+  creation any e-mail (including personal ones like Gmail) is accepted and OTP-verified, but the company page's
+  verification then failed the "Domain" check because `contact_email`'s domain didn't match `companies.domain` —
+  blocking activation for companies whose founder used a personal address. `_run_verification`
+  (`apps/api/app/routers/companies.py`) now treats a domain mismatch as advisory (`warn`, no blocker) when the
+  same e-mail was verified with a one-time code during company onboarding, or when it is a known free-mail
+  domain (mirroring the registration flow, which only flags free-mail domains). A genuinely unverified mismatch
+  on a business domain still fails. Tests: `test_domain_mismatch_warns_for_free_mail_after_verification`,
+  `test_domain_mismatch_warns_after_onboarding_email_verification` (`test_company_onboarding.py`).
+
 - **Four QA fixes (2026-10-22):**
   - **Timesheet review page loaded into an error screen for everyone** — a pre-loading dereference of the
     timesheet object added last week crashed the page on first render ("This page couldn't load"), so the

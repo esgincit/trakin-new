@@ -663,3 +663,55 @@ async def test_directory_spans_tenants(client, auth, user_ids):
             await conn.execute(text("delete from mytrakin.companies where id = :id"), {"id": other_co})
             await conn.execute(text("delete from mytrakin.memberships where tenant_id = :t"), {"t": other_tenant})
             await conn.execute(text("delete from mytrakin.tenants where id = :id"), {"id": other_tenant})
+
+
+async def test_domain_mismatch_warns_for_free_mail_after_verification(client, auth):
+    """The e-mail was accepted + OTP-verified during company creation; a personal
+    (free-mail) domain must not fail the later domain check."""
+    n = next(_counter)
+    company = (await client.post("/companies", headers=auth("admin"), json={
+        "name": f"Gmail Co {n} LLC", "kind": "vendor", "domain": f"gmailco{n}.example",
+        "business_type": "LLC", "dba": "Gmail Co", "address": "1 Main Street, Dallas, TX",
+        "state": "TX", "contact_name": "Gmail Founder", "contact_email": f"founder{n}@gmail.com",
+        "contact_phone": "555-0100"})).json()
+    result = await client.post(f"/companies/{company['id']}/verify", headers=auth("admin"))
+    assert result.status_code == 200, result.text
+    body = result.json()
+    d = body["checks"]["domain"]
+    assert d["status"] == "warn", body
+    assert "verified with a one-time code during company creation" in d["detail"], body
+    assert "Contact e-mail must be on the company domain" not in body["blockers"], body
+
+
+async def test_domain_mismatch_warns_after_onboarding_email_verification(client, auth, user_ids):
+    """Custom-domain mismatch is a fail when the e-mail wasn't verified during
+    company creation, and a warn (no blocker) when it was."""
+    n = next(_counter)
+    email = f"person{n}@brightaid.example"
+    company = (await client.post("/companies", headers=auth("admin"), json={
+        "name": f"Bright Aid {n} LLC", "kind": "vendor", "domain": f"otherbiz{n}.example",
+        "business_type": "LLC", "dba": "Bright Aid", "address": "2 Elm Street, Austin, TX",
+        "state": "TX", "contact_name": "P. Founder", "contact_email": email,
+        "contact_phone": "555-0100"})).json()
+
+    async def domain_check():
+        r = await client.post(f"/companies/{company['id']}/verify", headers=auth("admin"))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    before = await domain_check()
+    assert before["checks"]["domain"]["status"] == "fail", before
+    assert "Contact e-mail must be on the company domain" in before["blockers"], before
+
+    async with get_engine().begin() as conn:
+        tid = (await conn.execute(
+            text("select tenant_id from mytrakin.companies where id = :i"), {"i": company["id"]})).scalar()
+        await conn.execute(text(
+            "insert into mytrakin.onboarding_sessions "
+            "(tenant_id, country, created_by, status, email_verified_at, email_verified_for, company_id) "
+            "values (:t, 'US', :u, 'email_verified', now(), :e, :c)"),
+            {"t": tid, "u": user_ids["admin"], "e": email, "c": company["id"]})
+
+    after = await domain_check()
+    assert after["checks"]["domain"]["status"] == "warn", after
+    assert "Contact e-mail must be on the company domain" not in after["blockers"], after

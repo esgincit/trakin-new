@@ -426,6 +426,20 @@ def _email_domain(email: str | None) -> str | None:
     return email.split("@", 1)[1].lower()
 
 
+FREE_MAIL = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com", "icloud.com", "proton.me", "protonmail.com"}
+
+
+async def _onboarding_email_verified(db: TenantDb, company: dict) -> bool:
+    """True when the company's contact e-mail was OTP-verified during company creation."""
+    if not company.get("contact_email"):
+        return False
+    return bool(await db.val(
+        """select true from mytrakin.onboarding_sessions
+             where company_id = :c and email_verified_at is not null
+               and email_verified_for = :e limit 1""",
+        {"c": company["id"], "e": company.get("contact_email")}))
+
+
 async def _run_verification(db: TenantDb, company: dict) -> dict:
     """Recompute every check fresh and store the result. Returns {checks, blockers}."""
     checks: dict[str, dict] = {}
@@ -443,11 +457,21 @@ async def _run_verification(db: TenantDb, company: dict) -> dict:
     domain, email_domain = company.get("domain"), _email_domain(company.get("contact_email"))
     if domain and email_domain:
         ok = email_domain == domain or email_domain.endswith(f".{domain}")
-        checks["domain"] = {"status": "pass" if ok else "fail",
-                            "detail": f"Contact e-mail is on {email_domain}" if ok
-                            else f"Contact e-mail ({email_domain}) is not on {domain}"}
-        if not ok:
-            blockers.append("Contact e-mail must be on the company domain")
+        if ok:
+            checks["domain"] = {"status": "pass", "detail": f"Contact e-mail is on {email_domain}"}
+        else:
+            # Consistency rule: the same e-mail was accepted and OTP-verified during
+            # company creation, so it must not fail the checks afterwards. A free-mail
+            # domain is advisory-only in the registration flow (not a blocker) too.
+            verified = await _onboarding_email_verified(db, company)
+            if verified or email_domain in FREE_MAIL:
+                checks["domain"] = {"status": "warn", "detail":
+                    f"Contact e-mail ({email_domain}) is not on {domain} — it was accepted and verified "
+                    "with a one-time code during company creation, so a domain match is not required"}
+            else:
+                checks["domain"] = {"status": "fail",
+                                    "detail": f"Contact e-mail ({email_domain}) is not on {domain}"}
+                blockers.append("Contact e-mail must be on the company domain")
     else:
         checks["domain"] = {"status": "fail", "detail": "Company domain and contact e-mail are both required"}
         blockers.append("Add the company domain and a contact e-mail on it")
