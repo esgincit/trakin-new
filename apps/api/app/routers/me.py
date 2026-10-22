@@ -184,17 +184,22 @@ async def my_timesheet_history(
     return await db.all(
         """select t.id as timesheet_id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
                    e.placement_id,
-                   coalesce(pr.name, 'Internal / non-billable') as project, sum(e.hours) as hours, t.decided_at
+                   coalesce(pr.name, 'Internal / non-billable') as project, sum(e.hours) as hours, t.decided_at,
+                   tn.name as placed_by_name,
+                   (select string_agg(distinct mytrakin.company_public_name(p2.end_client_company_id), ', ')
+                      from timesheet_entries e2 left join placements p2 on p2.id = e2.placement_id
+                     where e2.timesheet_id = t.id and p2.end_client_company_id is not null) as end_client_names
               from timesheets t
              join timesheet_entries e on e.timesheet_id = t.id
              left join placements p on p.id = e.placement_id
              left join projects pr on pr.id = p.project_id
+             left join mytrakin.tenants tn on tn.id = t.tenant_id
             where t.consultant_id = :c
               and (cast(:pl as uuid) is null or e.placement_id = :pl)
               and (cast(:st as text) is null or t.status = :st)
               and (cast(:f as date) is null or t.week_start >= :f)
               and (cast(:u as date) is null or t.week_start <= :u)
-            group by t.id, e.placement_id, pr.name
+            group by t.id, e.placement_id, pr.name, tn.id
             order by t.week_start desc, project""",
         {"c": cid, "pl": placement_id, "st": status, "f": since, "u": until},
     )

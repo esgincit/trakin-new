@@ -26,6 +26,13 @@ export default function MyTimesheet() {
     setNoteError("");
   }, [data]);
 
+  // Keep the approval statuses fresh while the week is waiting for the companies.
+  useEffect(() => {
+    if (data?.status !== "submitted") return;
+    const iv = setInterval(reload, 15000);
+    return () => clearInterval(iv);
+  }, [data?.status, week, reload]);
+
   const locked = data && ["submitted", "approved"].includes(data.status);
   // Rejected timesheets are editable: the consultant can fix and resubmit.
   // Only submitted/approved weeks are locked.
@@ -68,11 +75,15 @@ export default function MyTimesheet() {
               <h3>Approval status</h3>
               <div className="row" style={{ gap: 12 }}>
                 <div className="card" style={{ flex: 1 }}>
-                  <div className="muted" style={{ fontSize: 12.5 }}>Placed By (placing company)</div>
+                  <div className="muted" style={{ fontSize: 12.5 }}>
+                    Placed By{data.placed_by_name ? ` — ${data.placed_by_name}` : " (placing company)"}
+                  </div>
                   <Chip status={data.placed_by_approved ? "accepted" : "pending"} />
                 </div>
                 <div className="card" style={{ flex: 1 }}>
-                  <div className="muted" style={{ fontSize: 12.5 }}>End Client</div>
+                  <div className="muted" style={{ fontSize: 12.5 }}>
+                    End Client{data.end_client_names?.length ? ` — ${data.end_client_names.join(", ")}` : ""}
+                  </div>
                   <Chip status={data.end_client_approved ? "accepted" : "pending"} />
                 </div>
               </div>
@@ -137,8 +148,10 @@ export default function MyTimesheet() {
             <tbody>{history.data.slice(0, 40).map((h, i) => (
               <tr key={i} className="click" onClick={() => setWeek(h.week_start)}>
                 <td>{date(h.week_start)}</td><td>{h.project}</td><td className="num">{num(h.hours, 2)}</td>
-                <td><Chip status={h.status === "rejected" ? "rejected" : h.placed_by_approved ? "accepted" : "pending"} /></td>
-                <td><Chip status={h.status === "rejected" ? "rejected" : h.end_client_approved ? "accepted" : "pending"} /></td>
+                <td><Chip status={h.status === "rejected" ? "rejected" : h.placed_by_approved ? "accepted" : "pending"} />
+                    {h.placed_by_name && <div className="muted" style={{ fontSize: 12 }}>{h.placed_by_name}</div>}</td>
+                <td><Chip status={h.status === "rejected" ? "rejected" : h.end_client_approved ? "accepted" : "pending"} />
+                    {h.end_client_names ? <div className="muted" style={{ fontSize: 12 }}>{h.end_client_names}</div> : null}</td>
               </tr>
             ))}</tbody>
           </table></div>

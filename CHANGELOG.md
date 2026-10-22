@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **My Timesheet's approval-status panel now shows the company names (2026-10-22):** the consultant's panel
+  previously showed only "Placed By / End Client — Pending". `GET /timesheets/mine` now returns the placing
+  company's name and the week's end-client company names (cross-tenant safe via `company_public_name`), and
+  `/me/timesheet` history rows carry both names next to their status chips. The panel auto-refreshes every
+  15 s while the week is waiting, so approvals made by either company appear without a manual reload.
+
 - **Approving from the client's link no longer 500s (2026-10-22):** `mytrakin.ts_client_decide` (the decision
   function behind the e-mailed approval link and the in-app "Review & approve") selected the timesheet row only
   and then read `ts.full_name` — plpgsql raises `record "ts" has no field "full_name"`, so every approve/return

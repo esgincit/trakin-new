@@ -314,10 +314,22 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
         """select starts_on, ends_on, kind from time_off where consultant_id = :c and status in ('approved', 'holiday')
             and starts_on <= cast(:ws as date) + 6 and ends_on >= :ws""", {"c": db.ctx.consultant_id, "ws": ws})
     time_off = [next((o["kind"] for o in off if o["starts_on"] <= ws + timedelta(days=i) <= o["ends_on"]), None) for i in range(7)]
+    # Company names for the approval-status panel: the placing workspace and the
+    # end client(s) on the weeks' placements (public names — cross-tenant safe).
+    placed_by = None
+    if db.ctx.tenant_id:
+        placed_by = await db.val("select name from mytrakin.tenants where id = :t", {"t": db.ctx.tenant_id})
+    end_clients = [r["name"] for r in await db.all(
+        """select distinct mytrakin.company_public_name(p.end_client_company_id) as name
+             from placements p
+            where p.consultant_id = :c and p.end_client_company_id is not null
+              and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws""",
+        {"c": db.ctx.consultant_id, "ws": ws}) if r["name"]]
     return {"week_start": ws, "status": ts["status"] if ts else "draft", "reject_reason": ts["reject_reason"] if ts else None,
             "note": ts["note"] if ts else None,
             "placed_by_approved": ts["placed_by_approved"] if ts else None,
             "end_client_approved": ts["end_client_approved"] if ts else None,
+            "placed_by_name": placed_by, "end_client_names": end_clients,
             "weekend_requested": bool(ts and ts["weekend_requested_at"]),
             "weekend_review_note": ts["weekend_review_note"] if ts else None,
             "weekend_confirmed": ts["weekend_confirmed"] if ts else None,
