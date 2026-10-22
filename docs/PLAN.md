@@ -644,6 +644,13 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-21 · timesheet client approval (QA) · **A sees the pending weeks in its own Timesheets page**: a
+  client queue card (`GET /timesheets/client-queue`, definer `ts_client_queue` keyed on the caller's acting
+  companies) with an in-app Review & approve link (`ts_client_link`) reusing the public approval page, plus a
+  direct decision endpoint (`POST /timesheets/{id}/client-decision`, `ts_client_decide_ts`) — approve finalises
+  + auto-invoices, return-with-note rejects with notices to both sides. No RLS relaxation (SECURITY DEFINER
+  only). `20261021000500` applied to production; missing table grant on `ts_approval_links` added. Verified
+  live in a rolled-back transaction (Steam → south cloud chain); in-app e2e test added.
 - 2026-10-21 · timesheet client approval rollout · **B's approval now actually flows to A**: A's approval used
   to require a representative inside B's workspace (nobody had one), so weeks finalised at B silently. Now the
   placed-by approval e-mails the client's own-workspace people (or its invited representative) a personal,

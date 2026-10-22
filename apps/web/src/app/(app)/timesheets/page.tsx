@@ -19,6 +19,7 @@ export default function Timesheets() {
   const history = useApi<any[]>(tab === "history" ? "/timesheets/history" : null);
   const { run, busy } = useAction();
   const canApprove = allows(workspace, "approver", "account_manager", "hr", "finance") && permits(workspace, "timesheets");
+  const clientQueue = useApi<any[]>("/timesheets/client-queue");
   const days = dayLabels(week);
 
   const columns: Column<any>[] = [
@@ -49,6 +50,26 @@ export default function Timesheets() {
       </div>
       {tab === "week" ? (
         <>
+          {!(clientQueue.data ?? []).length ? null : (
+            <div className="card mt" style={{ marginBottom: 16 }}>
+              <h3>Timesheets waiting for our approval (end client)</h3>
+              <div className="tw"><table>
+                <thead><tr><th>Week</th><th>Consultant</th><th>Placed by</th><th className="num">Hours</th><th /></tr></thead>
+                <tbody>{(clientQueue.data ?? []).map((q: any) => (
+                  <tr key={q.timesheet_id}>
+                    <td>{date(q.week_start)}</td>
+                    <td>{q.consultant}</td>
+                    <td>{q.placed_by}</td>
+                    <td className="num">{Number(q.total).toFixed(2)}</td>
+                    <td><button className="btn sm" disabled={busy} onClick={async () => {
+                      const r = await run(() => api(`/timesheets/${q.timesheet_id}/client-link`, { method: "POST" }));
+                      if (r?.token) router.push(`/approve/timesheet/${r.token}`);
+                    }}>Review &amp; approve</button></td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+          )}
           <div className="toolbar">
             <button className="btn sm" onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">←</button>
             <b>Week of {date(week)}</b>

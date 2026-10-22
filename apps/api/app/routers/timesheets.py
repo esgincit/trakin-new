@@ -7,6 +7,7 @@ and feed invoicing."""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 from collections import defaultdict
@@ -379,6 +380,96 @@ async def submit_my_week(body: Decision, db: TenantDb = Depends(tenant_db), week
 
 
 # ----------------------------------------------------------------------------- review
+def _client_approver(db: TenantDb) -> None:
+    """Internal staff, or a client_user representative acting for their company."""
+    if not (db.ctx.allows(*APPROVER_ROLES) or db.ctx.role == "client_user"):
+        raise ApiError(403, "forbidden", "This page is for timesheet approvers")
+
+
+@router.get("/client-queue")
+async def client_queue(db: TenantDb = Depends(tenant_db)):
+    """Weeks whose placed-by approval is in and are waiting on our end-client approval.
+    Visible from the end client's own workspace (and to its representatives)."""
+    _client_approver(db)
+    return await db.all("select * from mytrakin.ts_client_queue()")
+
+
+class ClientDecision(BaseModel):
+    decision: str = Field(pattern="^(approve|return)$")
+    note: str | None = Field(None, max_length=500)
+
+
+@router.post("/{timesheet_id}/client-decision")
+async def client_decision(timesheet_id: UUID, body: ClientDecision, db: TenantDb = Depends(tenant_db)):
+    """The end client's in-app decision on a week waiting for their approval."""
+    _client_approver(db)
+    res = await db.val("select mytrakin.ts_client_decide_ts(:ts, :d, :n)",
+                       {"ts": timesheet_id, "d": body.decision, "n": body.note})
+    res = json.loads(res)
+    err = res.get("error")
+    if err == "note_required":
+        raise bad_request("Add a short note so the consultant knows what to fix.")
+    if err == "not_ours":
+        raise ApiError(403, "forbidden", "Your company is not the end client on this timesheet")
+    if err == "not_ready":
+        raise ApiError(409, "not_ready", "This week isn't waiting for the end client's approval any more")
+    if err:
+        raise bad_request("That decision isn't recognised")
+    if res.get("status") == "approved":
+        asyncio.create_task(_auto_invoice(date.fromisoformat(res["week_start"]), res["tenant_id"], db.ctx.user_id))
+    await _client_decision_emails(db, res, note=body.note)
+    return res
+
+
+@router.post("/{timesheet_id}/client-link")
+async def client_link(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """Create a fresh approval link the end client's person can act on right away."""
+    _client_approver(db)
+    token = secrets.token_urlsafe(32)
+    res = await db.val("select mytrakin.ts_client_link(:ts, :h, :u)",
+                       {"ts": timesheet_id, "h": sha256_hex(token), "u": db.ctx.user_id})
+    res = json.loads(res)
+    if res.get("error") == "not_ours":
+        raise ApiError(403, "forbidden", "Your company is not the end client on this timesheet")
+    if res.get("error"):
+        raise ApiError(409, "not_ready", "This week isn't waiting for the end client's approval any more")
+    return {"token": token, "timesheet_id": timesheet_id}
+
+
+async def _client_decision_emails(db: TenantDb, res: dict, note: str | None = None) -> None:
+    """Tell the placing company (and on a return, the consultant) what the end client decided."""
+    settings = get_settings()
+    week = res.get("week_start")
+    who = res.get("company_name") or "The end client"
+    if res.get("status") == "approved" and res.get("creator_email"):
+        await send_email(db, to=res["creator_email"], subject=f"Timesheet approved by the client — week of {week}",
+                         kind="timesheet", tenant_id=res.get("tenant_id"), ref_type="timesheet",
+                         ref_id=res.get("timesheet_id"),
+                         html_body=render("Timesheet approved by the client",
+                                          [f"{who} approved {res.get('consultant')}'s timesheet for the week of {week}.",
+                                           "Invoices for the week will be generated automatically."],
+                                          button=("Open timesheets", f"{settings.web_origin.rstrip('/')}/timesheets")))
+    if res.get("status") == "rejected":
+        body = note or ""
+        if res.get("creator_email"):
+            await send_email(db, to=res["creator_email"], subject=f"Timesheet returned by the client — week of {week}",
+                             kind="timesheet", tenant_id=res.get("tenant_id"), ref_type="timesheet",
+                             ref_id=res.get("timesheet_id"),
+                             html_body=render("Timesheet returned by the client",
+                                              [f"{who} returned {res.get('consultant')}'s timesheet for the week of {week}.",
+                                               f"Reason: {body}",
+                                               "Please ask the consultant to fix it; it comes back to you for approval afterwards."],
+                                              button=("Open timesheets", f"{settings.web_origin.rstrip('/')}/timesheets")))
+        if res.get("consultant_email"):
+            await send_email(db, to=res["consultant_email"], subject=f"Your timesheet was returned — week of {week}",
+                             kind="timesheet", tenant_id=res.get("tenant_id"), ref_type="timesheet",
+                             ref_id=res.get("timesheet_id"),
+                             html_body=render("Timesheet returned for changes",
+                                              [f"Your timesheet for the week of {week} was returned by {who}.",
+                                               f"Reason: {body}"],
+                                              button=("Fix and resubmit", f"{settings.web_origin.rstrip('/')}/my/timesheet")))
+
+
 @router.get("/{timesheet_id}")
 async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     ts = await db.one(

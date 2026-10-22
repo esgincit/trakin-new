@@ -22,7 +22,7 @@ NEXT_WEEK = THIS_WEEK + timedelta(days=7)
 TOKEN = "client-approval-token-0123456789abcdefgh"
 
 
-async def _linkable_client() -> str:
+async def _linkable_client() -> tuple[str, str]:
     """A company with its own myTrakIn workspace, reachable as an end client."""
     async with get_engine().begin() as conn:
         tenant = (await conn.execute(text(
@@ -38,7 +38,7 @@ async def _linkable_client() -> str:
         await conn.execute(text(
             "update mytrakin.tenants set company_id = :c, owner_membership_id = :m where id = :t"),
             {"c": company, "m": member, "t": tenant})
-        return str(company)
+        return str(tenant), str(company)
 
 
 async def _esg_tenant() -> str:
@@ -139,3 +139,25 @@ async def test_the_end_client_can_also_return_the_week_with_a_note(client, auth)
             {"t": ts_id})).mappings().first()
     assert row["status"] == "rejected" and "Friday hours" in row["reject_reason"], row
     assert not row["placed_by_approved"] and not row["end_client_approved"], row
+
+
+async def test_the_client_sees_the_week_in_its_own_timesheets_page(client, auth):
+    """A's (the end client's) Timesheets page: the queue card shows weeks waiting on them,
+    and they can act on one from their own workspace — approve generates invoices."""
+    admin = auth("finance")
+    company_tenant, company = await _linkable_client()
+    ts_id, _pid = await _submitted_week(client, company, THIS_WEEK + timedelta(days=7))
+    assert (await client.post(f"/timesheets/{ts_id}/approve", headers=admin)).status_code == 200
+
+    client_admin = {**auth("admin"), "X-Tenant-Id": company_tenant}
+    queue = (await client.get("/timesheets/client-queue", headers=client_admin)).json()
+    mine = [q for q in queue if q["timesheet_id"] == ts_id]
+    assert mine and mine[0]["consultant"] == "Link Client Person", queue
+
+    decided = await client.post(f"/timesheets/{ts_id}/client-decision", headers=client_admin,
+                                json={"decision": "approve"})
+    assert decided.status_code == 200 and decided.json()["status"] == "approved", decided.text
+
+    # and the placements block others' workspaces from the queue / decisions
+    outsider = await client.get("/timesheets/client-queue", headers=auth("finance"))
+    assert all(q["timesheet_id"] != ts_id for q in (outsider.json() or []))

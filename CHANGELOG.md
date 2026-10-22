@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A's own Timesheets page now lists the weeks waiting on its approval (2026-10-21):** besides the e-mail link,
+  the end client's workspace shows a "Timesheets waiting for our approval (end client)" card with week,
+  consultant, placing company and hours; "Review & approve" opens the same approval page in-app (`client-link`),
+  and decisions can also be made directly (`/timesheets/{id}/client-decision`) — approve triggers automatic
+  invoicing, return-with-note goes back to the consultant with notices to both sides, same guards. Helpers:
+  `ts_client_queue / ts_client_view / ts_client_link / ts_client_decide_ts` (`20261021000500`) — apply to
+  production before deploying.
 - **The timesheet now flows to the end client's own approval (2026-10-21):** previously the second approval only
   worked if the client's representative had been invited into the placing workspace — otherwise Company B's
   approval silently finalised the week and nothing went to A. Now, when B's timesheet manager approves, the
