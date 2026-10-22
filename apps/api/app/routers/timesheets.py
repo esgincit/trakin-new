@@ -417,7 +417,9 @@ async def client_decision(timesheet_id: UUID, body: ClientDecision, db: TenantDb
     _client_approver(db)
     res = await db.val("select mytrakin.ts_client_decide_ts(:ts, :d, :n)",
                        {"ts": timesheet_id, "d": body.decision, "n": body.note})
-    res = json.loads(res)
+    # asyncpg (and SQLAlchemy above it) may hand back dict|str for a json result
+    # depending on the codec settings — accept both.
+    res = res if isinstance(res, dict) else json.loads(res)
     err = res.get("error")
     if err == "note_required":
         raise bad_request("Add a short note so the consultant knows what to fix.")
@@ -440,7 +442,7 @@ async def client_link(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     token = secrets.token_urlsafe(32)
     res = await db.val("select mytrakin.ts_client_link(:ts, :h, :u)",
                        {"ts": timesheet_id, "h": sha256_hex(token), "u": db.ctx.user_id})
-    res = json.loads(res)
+    res = res if isinstance(res, dict) else json.loads(res)
     if res.get("error") == "not_ours":
         raise ApiError(403, "forbidden", "Your company is not the end client on this timesheet")
     if res.get("error"):

@@ -370,7 +370,8 @@ async def ts_approval_db(token: str, request: Request) -> AsyncIterator[TenantDb
 
 @router.get("/ts-approvals/{token}")
 async def ts_view(token: str, db: TenantDb = Depends(ts_approval_db)):
-    return orjson.loads(await db.val("select mytrakin.ts_approval_view(:h)", {"h": sha256_hex(token)}))
+    v = await db.val("select mytrakin.ts_approval_view(:h)", {"h": sha256_hex(token)})
+    return v if isinstance(v, dict) else orjson.loads(v)
 
 
 @router.post("/ts-approvals/{token}/approve")
@@ -388,8 +389,9 @@ async def ts_return(body: TsReturnIn, request: Request, token: str, db: TenantDb
 
 
 async def _ts_decide(request: Request, db: TenantDb, token: str, decision: str, note: str | None) -> dict:
-    res = orjson.loads(await db.val("select mytrakin.ts_client_decide(:h, :d, :n)",
-                                    {"h": sha256_hex(token), "d": decision, "n": note}))
+    res = await db.val("select mytrakin.ts_client_decide(:h, :d, :n)",
+                       {"h": sha256_hex(token), "d": decision, "n": note})
+    res = res if isinstance(res, dict) else orjson.loads(res)
     if not isinstance(res, dict) or res.get("error"):
         if res.get("error") == "note_required":
             raise bad_request("Add a short note so the consultant knows what to fix.")

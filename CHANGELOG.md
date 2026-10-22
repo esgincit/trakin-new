@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **"Review & approve" / approve endpoints fixed end-to-end (2026-10-22):** beyond the `ts.full_name` DB fix,
+  the API itself 500'd on `POST /timesheets/{id}/client-link`, `client-decision` and the public
+  `/public/ts-approvals/{token}/view|decide` endpoints: `json.loads`/`orjson.loads` was applied to the SQL
+  json function result, which SQLAlchemy+asyncpg already deserialises to a dict (typo-class bug that was
+  worked around elsewhere in the codebase — `workflow.py`, `admin.py` — but not here). All four call sites
+  now accept either a dict or a JSON string. Verified by running the real API locally against the production
+  database with an emulated end-client session: both approvers get 200 + a token, and a non-chain user is
+  correctly 403'd.
+
 - **My Timesheet's approval-status panel now shows the company names (2026-10-22):** the consultant's panel
   previously showed only "Placed By / End Client — Pending". `GET /timesheets/mine` now returns the placing
   company's name and the week's end-client company names (cross-tenant safe via `company_public_name`), and
