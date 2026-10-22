@@ -644,6 +644,10 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-21 · AR-01 · **Auto-invoicing on final timesheet approval**: placed-by manager approves → end-client
+  representative e-mailed and approves → `generate_invoices` runs automatically on a system connection
+  (AR bill-rate × approved hours, AP pay-rate × hours, dedupe + MSA guards), drafts ready for finance.
+  Verified the generation pipeline in a rolled-back transaction (correctly skipped an already-invoiced week).
 - 2026-10-21 · RLS regression fix · **Timesheets 500 for every role**: the 20261021000200 client policies
   queried `timesheet_entries` inside a policy chain that `entries_read` loops back into `timesheets` →
   Postgres "infinite recursion detected in policy" at plan time → every timesheet query 500'd on production.

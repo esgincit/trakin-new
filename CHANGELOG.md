@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Invoices generate automatically on final timesheet approval (2026-10-21):** the full flow is now consultant
+  submits → placed-by (Company B) manager approves / returns with notes → the end client's (Company A's)
+  representative gets an e-mail and approves → **the week's AR invoice (bill rate × approved hours, to the
+  customer) and AP payable (pay rate × approved hours, to the consultant's payee) are created automatically**,
+  on system rights so any approver can trigger it, with the usual guards (skip if the period is already
+  invoiced, respect the no-MSA rule, pay-when-paid handling). Finance reviews the drafts on Invoices as before.
+
 - **Timesheets page returned 500 for everyone (2026-10-21, fixed on the live DB):** the end-client RLS policies
   from the previous fix queried `timesheet_entries` inside policies of a table that `entries_read` checks back
   against timesheets, so Postgres refused to plan any timesheet query ("infinite recursion detected in policy")

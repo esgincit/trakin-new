@@ -6,6 +6,8 @@ and feed invoicing."""
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -15,10 +17,11 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator
 
 from ..config import get_settings
-from ..deps import TenantDb, tenant_db
+from ..deps import TenantDb, open_system, tenant_db
 from ..errors import ApiError, bad_request, not_found
 from ..services import workflow
 from ..services.email import render, send_email
+from ..services.invoicing import generate_invoices
 from ..services.timesheet_checks import Entry, PlacementInfo, run_checks, summarize
 from ..utils import week_start
 
@@ -91,6 +94,33 @@ async def _end_clients(db: TenantDb, tenant_id, timesheet_id) -> set:
         """select distinct m.company_id as cid from mytrakin.memberships m
             where m.tenant_id = :t and m.status = 'active' and m.company_id is not null""", {"t": tenant_id})}
     return chain & reps
+
+
+async def _auto_invoice(week_start: date, tenant_id, user_id) -> None:
+    """After a final approval the week's invoices are generated automatically — AR for
+    the agreed bill rate to the customer, AP for the agreed pay rate to the consultant's
+    payee (RULE-01: only our own links, never a counterparty's money).
+
+    Runs on its own system connection (any approver role can trigger it, even the end
+    client's representative, who has no invoice rights in this workspace). The approval
+    commits when the request ends, so the small delay makes sure the week is approved
+    in the database before the generation reads it. Failures are logged, never surfaced
+    to the approving user, and finance can always generate the same invoices by hand."""
+    log = logging.getLogger("mytrakin.timesheets")
+    await asyncio.sleep(2)
+    try:
+        async for db in open_system(tenant_id):
+            created, blocked = await generate_invoices(
+                db, tenant_id=tenant_id, user_id=user_id,
+                period_start=week_start, period_end=week_start + timedelta(days=6))
+            if created:
+                log.info("auto-invoiced week of %s for tenant %s: %s", week_start, tenant_id,
+                         [(i["direction"], i["number"], str(i["amount"])) for i in created])
+            if blocked:
+                log.warning("auto-invoicing skipped some placements for week of %s (tenant %s): %s",
+                            week_start, tenant_id, blocked)
+    except Exception:       # noqa: BLE001 — never fail the approval because invoicing hiccuped
+        log.exception("auto-invoicing failed for tenant %s week of %s", tenant_id, week_start)
 
 
 async def _notify_end_client(db: TenantDb, tenant_id, end_clients: set, timesheet_id) -> None:
@@ -352,7 +382,7 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 
 @router.post("/{timesheet_id}/approve")
 async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
-    ts = await db.one("select id, status, weekend_confirmed, tenant_id from timesheets where id = :id", {"id": timesheet_id})
+    ts = await db.one("select id, status, week_start, weekend_confirmed, tenant_id from timesheets where id = :id", {"id": timesheet_id})
     if ts is None:
         raise not_found("Timesheet")
     if ts["status"] != "submitted":
@@ -391,6 +421,9 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     if new_status == "submitted" and end_clients:
         # Placed-by approval is in — tell the end client's people it is their turn.
         await _notify_end_client(db, ts["tenant_id"], end_clients, timesheet_id)
+    if new_status == "approved":
+        # Final approval — this week's AR/AP invoices are generated automatically.
+        asyncio.create_task(_auto_invoice(ts["week_start"], ts["tenant_id"], db.ctx.user_id))
     return row
 
 
