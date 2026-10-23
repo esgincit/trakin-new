@@ -425,12 +425,14 @@ async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True
         raise ApiError(403, "forbidden", "Staff only")
     rows = await db.all(
         """select ar.id as ar_id, ar.number as ar_number, ar.period_start, ar.period_end, ar.hours, ar.amount as ar_amount,
-                  ar.balance as ar_balance, ar.due_on as ar_due, ar.live_status as ar_status, cust.name as customer,
+                  ar.balance as ar_balance, ar.due_on as ar_due, ar.live_status as ar_status,
+                  coalesce(cust.name, mytrakin.company_public_name(ar.company_id)) as customer,
                   coalesce(ch.end_client, mytrakin.company_public_name(p.end_client_company_id)) as end_client,
                   ch.placed_by as placed_by,
                   c.full_name as consultant, c.engagement, pr.name as project,
                   ap.id as ap_id, ap.number as ap_number, ap.amount as ap_amount, ap.balance as ap_balance,
-                  coalesce(ap.scheduled_on, ap.due_on) as ap_due, ap.live_status as ap_status, coalesce(pco.name, pk.full_name) as payee
+                  coalesce(ap.scheduled_on, ap.due_on) as ap_due, ap.live_status as ap_status,
+                  coalesce(pco.name, mytrakin.company_public_name(ap.company_id), pk.full_name) as payee
              from invoice_balances ar
              join placements p on p.id = ar.placement_id
              join consultants c on c.id = p.consultant_id
@@ -442,6 +444,8 @@ async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True
              left join consultants pk on pk.id = ap.consultant_id
              cross join lateral mytrakin.chain_of(p.project_id) ch
             where ar.direction = 'ar' and ar.status <> 'void'
+              -- a placement whose own company is its AR customer is internal work — no payment flow
+              and ar.company_id is distinct from (select t.company_id from mytrakin.tenants t where t.id = mytrakin.ctx_tenant())
               and (not :open or ar.balance > 0 or coalesce(ap.balance, 0) > 0)
             order by ar.period_start desc, c.full_name""", {"open": only_open})
     if not db.ctx.allows("finance"):

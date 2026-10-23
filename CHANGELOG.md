@@ -7,6 +7,14 @@
   still shows a stored value, so existing data is unaffected). No replacement field was introduced; projects
   are created the same way as before.
 
+- **Payment-flow tiles now show the businesses you actually trade with (2026-10-23):** counterparty names on
+  every flow card resolve even when the company lives in another workspace (cross-tenant `company_public_name`
+  fallback for the AR customer "→ you" and the AP payee), self-billed placements (a placement whose AR
+  customer is the own tenant's company — internal work mis-configured as billable) no longer produce
+  nonsensical tiles (the "$360,000 Twitter → you" case), and the end client's mirrored card reads an un-sent
+  invoice as "open" instead of "Sent". Verified with Twitter Inc's real session: flow now shows
+  "south Cloud Technologies → you · AR-2026-0002" and "You → Bhargavi Urumadla · AP" with amounts and statuses.
+
 - **Payment flow shows the placement chain, end client and amounts per position (2026-10-23):** a SECURITY
   DEFINER helper `chain_of(project)` walks the source-project assignment chain (cross-tenant, names only) and
   returns the end client (root client) and "Placed by" ending with the logged-in company — e.g.
