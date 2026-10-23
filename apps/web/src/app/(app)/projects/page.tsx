@@ -97,7 +97,6 @@ function ProjectModal({ onClose, onDone }: { onClose: () => void; onDone: (p: an
           <Field label="End" name="end_date" type="date" />
           <Field label="Status" name="status" as="select"
                  options={[["active", "Active"], ["planned", "Planned (NDA / MSA not signed yet)"], ["internal", "Internal"]]} />
-          <Field label="Client timesheet approver" name="client_approver" full />
           <Field label="Description" name="description" as="textarea" full />
         </div>
         <button className="btn pri mt" disabled={busy}>Create project</button>

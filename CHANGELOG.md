@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **"Client timesheet approver" removed from the New Project form (2026-10-23):** the field is no longer part
+  of project creation or editing in the UI (the backend keeps the optional column and the project detail card
+  still shows a stored value, so existing data is unaffected). No replacement field was introduced; projects
+  are created the same way as before.
+
 - **Payment flow shows the placement chain, end client and amounts per position (2026-10-23):** a SECURITY
   DEFINER helper `chain_of(project)` walks the source-project assignment chain (cross-tenant, names only) and
   returns the end client (root client) and "Placed by" ending with the logged-in company — e.g.
