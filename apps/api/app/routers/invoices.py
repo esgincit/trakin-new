@@ -432,7 +432,9 @@ async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True
                   c.full_name as consultant, c.engagement, pr.name as project,
                   ap.id as ap_id, ap.number as ap_number, ap.amount as ap_amount, ap.balance as ap_balance,
                   coalesce(ap.scheduled_on, ap.due_on) as ap_due, ap.live_status as ap_status,
-                  coalesce(pco.name, mytrakin.company_public_name(ap.company_id), pk.full_name) as payee
+                  coalesce(pco.name, mytrakin.company_public_name(ap.company_id), pk.full_name) as payee,
+                  coalesce(mytrakin.company_public_name((select t.company_id from mytrakin.tenants t where t.id = mytrakin.ctx_tenant())),
+                           (select t2.name from mytrakin.tenants t2 where t2.id = mytrakin.ctx_tenant())) as own_company
              from invoice_balances ar
              join placements p on p.id = ar.placement_id
              join consultants c on c.id = p.consultant_id
@@ -452,4 +454,12 @@ async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True
         for r in rows:
             r["ap_amount"] = r["ap_balance"] = None
     mirror = await db.all("select * from mytrakin.client_payable_flow(:o)", {"o": only_open})
+    try:
+        own = (await db.all(
+            """select coalesce(mytrakin.company_public_name((select t.company_id from mytrakin.tenants t where t.id = mytrakin.ctx_tenant())),
+                              (select t2.name from mytrakin.tenants t2 where t2.id = mytrakin.ctx_tenant())) as own_company"""))[0]["own_company"]
+        for m in mirror:
+            m.setdefault("own_company", own)
+    except IndexError:
+        pass
     return mirror + rows

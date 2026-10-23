@@ -50,7 +50,7 @@ export default function PaymentFlow() {
               </div>
               <div className="pipe">
                 <div className={`hop ${tone(r.ap_status)}`}>
-                  <div className="who">You → {r.payee}</div>
+                  <div className="who">{r.own_company || "You"} → {r.payee}</div>
                   <div className="amt">{money(r.ap_amount)}</div>
                   <div className="st">{label(r.ap_status)}{Number(r.ap_balance) > 0 && r.ap_status !== "paid" ? ` · due ${date(r.ap_due)}` : ""}</div>
                 </div>
@@ -76,13 +76,13 @@ export default function PaymentFlow() {
                   </div>
                 )}
                 <Link href={`/invoices/${r.ar_id}`} className={`hop ${tone(r.ar_status)}`} style={{ color: "inherit", fontWeight: 400 }}>
-                  <div className="who">{r.customer} → you · AR {r.ar_number}</div>
+                  <div className="who">{r.customer} → {r.own_company || "you"} · AR {r.ar_number}</div>
                   <div className="amt">{money(r.ar_amount)}</div>
                   <div className="st">{label(r.ar_status)}{Number(r.ar_balance) > 0 && r.ar_status !== "paid" ? ` · due ${date(r.ar_due)}` : ""}</div>
                 </Link>
                 {r.ap_id ? (
                   <Link href={`/invoices/${r.ap_id}`} className={`hop ${tone(r.ap_status)}`} style={{ color: "inherit", fontWeight: 400 }}>
-                    <div className="who">You → {r.payee} · AP {r.ap_number}</div>
+                    <div className="who">{r.own_company || "You"} → {r.payee} · AP {r.ap_number}</div>
                     <div className="amt">{money(r.ap_amount)}</div>
                     <div className="st">{label(r.ap_status)}{r.ap_due ? ` · ${date(r.ap_due)}` : ""}</div>
                   </Link>

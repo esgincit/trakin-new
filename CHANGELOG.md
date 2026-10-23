@@ -7,6 +7,12 @@
   still shows a stored value, so existing data is unaffected). No replacement field was introduced; projects
   are created the same way as before.
 
+- **Payment-flow tiles name your company and show all content (2026-10-23):** the hop cards read the logged-in
+  workspace's company name instead of a bare "you" ("Twitter Inc → Velocity Workforce Solutions $280",
+  "south Cloud Technologies → Twitter Inc · AR …" — supplied as `own_company` on own and mirrored rows).
+  Tiles no longer truncate: company names wrap onto as many lines as needed (word break instead of ellipsis)
+  and the hop cards widen with the panel; amounts stay on one line.
+
 - **Payment-flow tiles now show the businesses you actually trade with (2026-10-23):** counterparty names on
   every flow card resolve even when the company lives in another workspace (cross-tenant `company_public_name`
   fallback for the AR customer "→ you" and the AP payee), self-billed placements (a placement whose AR
