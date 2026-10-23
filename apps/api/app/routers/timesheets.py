@@ -142,9 +142,10 @@ async def _end_client_recipients(db: TenantDb, tenant_id, chain: set) -> dict:
     ws_emails: dict = {}
     # The end client's own workspace lives in a different tenant — invisible to this
     # session under RLS — so discovery goes through the SECURITY DEFINER helper.
+    # asyncpg encodes a Python list for uuid[] (a string literal fails).
     for r in await db.all(
         """select * from mytrakin.ts_client_recipients(cast(:ids as uuid[]))""",
-            {"ids": "{" + ",".join(sorted(str(c) for c in chain)) + "}"}):
+            {"ids": sorted(str(c) for c in chain)}):
         ws_emails.setdefault(r["company_id"], []).append(r["email"])
     for cid in chain:
         seen: set = set()

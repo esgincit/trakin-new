@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`POST /timesheets/{id}/approve` 500 → fixed, step by step (2026-10-22):** reproducing the approve against
+  production data exposed three stacked failures in the placed-by approval path; each is fixed and verified in
+  a faithful API session:
+  1. `_end_client_recipients` passed the chain as a string for `cast(:ids as uuid[])` — asyncpg needs a Python
+     list for `uuid[]` (`DataError`) — fixed.
+  2. `_send_client_approval` inserts the approval link directly, but `ts_approval_links` had only a SELECT
+     policy, so the insert violated RLS (SQLSTATE 42501 → the 403 "You don't have permission to do that") —
+     migration `20261022000500` adds a staff INSERT policy (approver / account_manager / hr / finance), and it
+     (plus the definer-scoped in-app "Review & approve" link creation) is applied to production.
+
 - **Placements can now be edited after creation (2026-10-22):** the Placements table only offered creation —
   PATCH `/placements/{id}` existed in the API (role/contractor, dates, hours/week, status, bill/pay rates,
   AR/AP terms, pay-when-paid) but had no UI. The placements table now has an Edit action per row (account
