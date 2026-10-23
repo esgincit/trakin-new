@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Placements can now be edited after creation (2026-10-22):** the Placements table only offered creation —
+  PATCH `/placements/{id}` existed in the API (role/contractor, dates, hours/week, status, bill/pay rates,
+  AR/AP terms, pay-when-paid) but had no UI. The placements table now has an Edit action per row (account
+  managers with the projects permission), and the placement modal opens pre-filled in edit mode, sending only
+  the fields the API accepts; empty inputs keep the stored values. Consultant/project/payee linkage stays
+  fixed after creation (money and people can't be silently re-pointed).
+
 - **Every timesheet-approval (and e-signature) link page 500'd — `Ctx(ua=…)` typo (2026-10-22):**
   `open_ts_approver` and `open_signer` constructed the request context with the keyword `ua=` instead of
   `user_agent=`, so `GET /public/ts-approvals/{token}` (the page the approval e-mail opens) and e-signature
