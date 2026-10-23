@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Payment flow shows the placement chain, end client and amounts per position (2026-10-23):** a SECURITY
+  DEFINER helper `chain_of(project)` walks the source-project assignment chain (cross-tenant, names only) and
+  returns the end client (root client) and "Placed by" ending with the logged-in company — e.g.
+  `Profin AI Solutions → Preview IT → TCS → South Cloud → Twitter` placements render as
+  "Preview IT" (B), "Preview IT → TCS" (C), "TCS → South Cloud" (D), "South Cloud → Twitter" (E). Every
+  payment-flow card (own AR/AP links and the end client's mirrored "You → {placing company}" card) now shows
+  the end-client and placed-by names; amounts + status (Paid / Open / On hold / Overdue) stay on each hop
+  card exactly as the existing RULE-01 calculations decide them.
+
 - **The end client sees the invoices it is being billed (2026-10-23):** a client invoice (AR) the placing
   company issues lives only in that company's workspace (RULE-01), so Company A's workspace showed nothing —
   no AP rows, no payment flow. Two SECURITY DEFINER helpers (`client_payables`, `client_payable_flow`) expose
