@@ -105,7 +105,22 @@ async def list_invoices(db: TenantDb = Depends(tenant_db), direction: str = Quer
                          and (cast(:s as text) is null or b.live_status = :s or (:s = 'open' and b.balance > 0))
                          order by (b.balance > 0) desc, b.due_on nulls last, b.number""",
                         {"d": direction, "s": status})
-    return [_hide(r, db.ctx) for r in rows]
+    out = [_hide(r, db.ctx) for r in rows]
+    if direction == "ap" and db.ctx.tenant_id is not None:
+        # What other workspaces (e.g. our placing company/vendor-chain) invoice US for —
+        # read-only mirror; this tenant is the billed party, so the amount is ours to see.
+        out.extend({**m, "party": m["placed_by"], "direction": "ap"}
+                   for m in await db.all("select * from mytrakin.client_payables()"))
+    return out
+
+
+@router.get("/invoices/client-payable")
+async def client_payable(db: TenantDb = Depends(tenant_db)):
+    """Read-only: invoices other workspaces sent to the company we act for.
+    Shown under the AP tab and the payment flow; no editing or payments here."""
+    if db.ctx.tenant_id is None or db.ctx.role in ("public", "anonymous"):
+        raise ApiError(403, "forbidden", "Open a workspace to see its payables")
+    return await db.all("select * from mytrakin.client_payables()")
 
 
 @router.get("/invoices/{invoice_id}")
@@ -403,8 +418,10 @@ async def ledger(db: TenantDb = Depends(tenant_db), since: date | None = Query(N
 
 @router.get("/payment-flow")
 async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True):
-    """One row per placement and period: the AR card and the AP card side by side."""
-    if not db.ctx.internal:
+    """One row per placement and period: the AR card and the AP card side by side.
+    From an end client's workspace it also shows what that client owes the placing
+    company (read-only, mirrored through the SECURITY DEFINER helper)."""
+    if db.ctx.tenant_id is None or db.ctx.role in ("public", "anonymous", "signer"):
         raise ApiError(403, "forbidden", "Staff only")
     rows = await db.all(
         """select ar.id as ar_id, ar.number as ar_number, ar.period_start, ar.period_end, ar.hours, ar.amount as ar_amount,
@@ -428,4 +445,5 @@ async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True
     if not db.ctx.allows("finance"):
         for r in rows:
             r["ap_amount"] = r["ap_balance"] = None
-    return rows
+    mirror = await db.all("select * from mytrakin.client_payable_flow(:o)", {"o": only_open})
+    return mirror + rows

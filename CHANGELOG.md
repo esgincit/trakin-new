@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **The end client sees the invoices it is being billed (2026-10-23):** a client invoice (AR) the placing
+  company issues lives only in that company's workspace (RULE-01), so Company A's workspace showed nothing —
+  no AP rows, no payment flow. Two SECURITY DEFINER helpers (`client_payables`, `client_payable_flow`) expose
+  exactly the non-void AR invoices where the caller's company is the billed party from other workspaces
+  (amounts A is party to). The AP tab of Invoices now merges those rows (view-only, labelled with the billed
+  workspace's name; no navigation into the other tenant's invoice page) and Payment flow shows a mirrored
+  "You → {placing company}" card per period. Verified with Tip A's (Profin AI solutions) real session: the
+  AR-2026-0001 issued by Preview IT now appears in both views.
+
 - **`POST /timesheets/{id}/approve` 500 → fixed, step by step (2026-10-22):** reproducing the approve against
   production data exposed three stacked failures in the placed-by approval path; each is fixed and verified in
   a faithful API session:

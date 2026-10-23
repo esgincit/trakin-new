@@ -37,7 +37,22 @@ export default function PaymentFlow() {
       {loading ? <Loading /> : (
         <div className="card" style={{ padding: 0 }}>
           {rows.length === 0 && <p className="empty">Nothing open. Every invoice in the chain is settled.</p>}
-          {rows.map((r) => (
+          {rows.map((r) => r.is_client_flow ? (
+            <div key={r.flow_key} className="cyc">
+              <div>
+                <b>{r.consultant}</b>
+                <div className="muted" style={{ fontSize: 12.5 }}>{r.project} · {date(r.period_start)} – {date(r.period_end)}</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>{Number(r.hours)} h · {label(r.engagement)}</div>
+              </div>
+              <div className="pipe">
+                <div className={`hop ${tone(r.ap_status)}`}>
+                  <div className="who">You → {r.payee}</div>
+                  <div className="amt">{money(r.ap_amount)}</div>
+                  <div className="st">{label(r.ap_status)}{Number(r.ap_balance) > 0 && r.ap_status !== "paid" ? ` · due ${date(r.ap_due)}` : ""}</div>
+                </div>
+              </div>
+            </div>
+          ) : (
             <div key={r.ar_id} className="cyc">
               <div>
                 <b>{r.consultant}</b>

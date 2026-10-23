@@ -67,8 +67,13 @@ function Invoices() {
         <DataTable id="invoices-credits" rows={data} columns={creditColumns} onRowClick={(r) => router.push(`/invoices/${r.invoice_id}`)}
                    empty="No credit notes. Issue one from a client invoice when the customer was over-billed." />
       ) : (
-        <DataTable id={`invoices-${direction}`} rows={data} columns={columns} onRowClick={(r) => router.push(`/invoices/${r.id}`)}
-                   empty={direction === "ar" ? "No client invoices yet. Approve timesheets, then create invoices from them." : "No vendor invoices yet."} />
+        <><DataTable id={`invoices-${direction}`} rows={data} columns={columns}
+                     onRowClick={(r) => { if (!r.is_client_payable) router.push(`/invoices/${r.id}`); }}
+                     empty={direction === "ar" ? "No client invoices yet. Approve timesheets, then create invoices from them." : "No vendor invoices yet."} />
+          {direction === "ap" && (data ?? []).some((r: any) => r.is_client_payable) && (
+            <p className="note">Note: rows whose party is another workspace are invoices that company sent us — view only, they're payable in that company's payment flow.</p>
+          )}
+        </>
       )}
       {modal === "generate" && <GenerateModal onClose={() => setModal(null)} onDone={reload} />}
       {modal === "manual" && <ManualInvoiceModal onClose={() => setModal(null)} onDone={(id) => router.push(`/invoices/${id}`)} />}
