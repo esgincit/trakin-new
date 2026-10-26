@@ -1,8 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { ApiError } from "@/lib/api";
 import { label, tone } from "@/lib/format";
+
+/** Jumps to Import & export with the entity pre-selected (template download included there). */
+export function ImportButton({ entity, label: l = "Import" }: { entity: string; label?: string }) {
+  return <Link className="btn" href={`/data?entity=${entity}`} aria-label={`Import ${label(entity)}`}>{l}</Link>;
+}
 
 export function Chip({ status, children }: { status?: string | null; children?: ReactNode }) {
   return <span className={`chip ${tone(status)}`}>{children ?? label(status)}</span>;

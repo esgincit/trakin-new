@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataTable, type Column } from "@/components/DataTable";
-import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
+import { ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { allows, isStaff, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -52,6 +52,7 @@ function Invoices() {
       <PageHead title="Invoices" sub="AR: what customers owe you. AP: what you owe vendors and 1099 contractors."
         actions={finance && permits(workspace, "invoices") && (
           <>
+            <ImportButton entity={direction === "ap" ? "ap_invoices" : "ar_invoices"} />
             <button className="btn" onClick={() => setModal("manual")}>New client invoice</button>
             <button className="btn" onClick={() => setModal("run")}>Payment run</button>
             <button className="btn pri" onClick={() => setModal("generate")}>Create invoices from timesheets</button>

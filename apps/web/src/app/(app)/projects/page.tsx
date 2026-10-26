@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
+import { ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -44,6 +44,7 @@ export default function Projects() {
     <>
       <PageHead title="Projects & placements" sub="A placement puts one consultant on one project with your AR and AP terms. A consultant can have any number of placements."
         actions={canEdit && <>
+          <ImportButton entity={tab === "placements" ? "placements" : "projects"} />
           <button className="btn" onClick={() => setModal("project")}>New project</button>
           <button className="btn pri" onClick={() => setModal("placement")}>New placement</button>
         </>} />

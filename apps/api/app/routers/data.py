@@ -136,7 +136,7 @@ _ENG_LABEL = ("case c.engagement when 'w2_fulltime' then 'W-2 full-time' when 'w
 
 EXPORTS: dict[str, tuple[tuple[str, ...], str]] = {
     "companies": (("tenant_admin", "finance", "account_manager", "legal", "hr", "viewer"), f"""
-        select c.name as "Legal name", {_KIND_LABEL} as "Type", c.ein as "EIN", c.state as "State",
+        select c.business_code as "Business ID", c.name as "Legal name", {_KIND_LABEL} as "Type", c.ein as "EIN", c.state as "State",
                c.contact_name as "Contact name", c.contact_email as "Contact email", c.default_terms as "Default payment terms",
                a.code as "Existing MSA ID", a.effective_on as "MSA effective date", a.expires_on as "MSA expiry date",
                initcap(c.status) as "Status", c.inactive_since as "Inactive since", c.inactive_reason as "Inactive reason"
@@ -145,11 +145,13 @@ EXPORTS: dict[str, tuple[tuple[str, ...], str]] = {
                               where company_id = c.id and kind in ('msa', 'subcontract') order by effective_on desc limit 1) a on true
          order by c.status, c.name"""),
     "consultants": (("tenant_admin", "hr", "account_manager", "legal", "viewer"), f"""
-        select c.full_name as "Full name", c.email as "Email", c.phone as "Mobile", {_ENG_LABEL} as "Engagement type",
+        select uc.code as "Consultant ID", c.full_name as "Full name", c.email as "Email", c.phone as "Mobile", {_ENG_LABEL} as "Engagement type",
                e.name as "Employer (C2C only)", c.title as "Job title", c.start_date as "Start date", c.location as "Work location",
                initcap(c.status) as "Status", c.end_date as "End date (former only)", c.leave_reason as "Reason for leaving",
                case c.rehire_eligible when true then 'Y' when false then 'N' end as "Eligible for rehire (Y/N)"
-          from consultants c left join companies e on e.id = c.employer_company_id order by c.status, c.full_name"""),
+          from consultants c left join companies e on e.id = c.employer_company_id
+          left join mytrakin.user_codes uc on uc.user_id = c.user_id
+         order by c.status, c.full_name"""),
     "projects": (("tenant_admin", "account_manager", "finance", "viewer"), """
         select p.code as "Project code", p.name as "Project name", cl.name as "Client", pm.name as "Prime vendor (if any)",
                p.start_date as "Start date", p.end_date as "End date", p.client_approver as "Client timesheet approver",

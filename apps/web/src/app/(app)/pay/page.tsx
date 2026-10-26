@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label, money } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
@@ -50,7 +50,7 @@ function Payroll() {
         { key: "hours", label: "Hours", type: "number" }, { key: "gross", label: "Gross", type: "money" },
         { key: "employer_taxes", label: "Employer taxes", type: "money", hideSm: true }, { key: "benefits", label: "Benefits", type: "money", hideSm: true },
         { key: "total_cost", label: "Total cost", type: "money" }, { key: "source", label: "Source", filter: true, hideSm: true },
-      ]} toolbar={<><button className="btn sm pri" onClick={() => setAdding(true)}>Add pay run line</button><DataButtons entity="payroll" label="payroll" /></>} />
+      ]} toolbar={<><ImportButton entity="payroll" /><button className="btn sm pri" onClick={() => setAdding(true)}>Add pay run line</button><DataButtons entity="payroll" label="payroll" /></>} />
       {adding && (
         <Modal title="Add a payroll line" onClose={() => setAdding(false)}>
           <form className="form" onSubmit={async (e) => {

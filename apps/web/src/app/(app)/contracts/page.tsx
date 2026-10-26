@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Bar, Chip, ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { api } from "@/lib/api";
 import { AGREEMENT_TERMS, daysLeft, label } from "@/lib/format";
@@ -51,6 +51,7 @@ function Contracts() {
     <>
       <PageHead title="MSAs & SOWs" sub="Master agreements, subcontracts, NDAs, offers and contractor agreements, with the SOWs and work orders under them."
         actions={canEdit && <>
+          <ImportButton entity="agreements" label="Import agreement" />
           <button className="btn" onClick={() => setModal("sow")}>Add SOW</button>
           <button className="btn pri" onClick={() => setModal("agreement")}>Add agreement</button>
         </>} />

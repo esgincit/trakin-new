@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, Drawer, ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, Drawer, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, dateTime, daysLeft, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
@@ -54,7 +54,7 @@ function Documents() {
     <>
       <ErrorBox error={error} retry={reload} />
       <DataTable id="tracked-docs" rows={data} columns={cols} onRowClick={canEdit ? setRenewing : undefined}
-        toolbar={<>{canEdit && <button className="btn sm pri" onClick={() => setAdding(true)}>Track a document</button>}<DataButtons entity="tracked_documents" label="documents" /></>} />
+        toolbar={<>{canEdit && <ImportButton entity="tracked_documents" />}{canEdit && <button className="btn sm pri" onClick={() => setAdding(true)}>Track a document</button>}<DataButtons entity="tracked_documents" label="documents" /></>} />
       <p className="note">E-mails go to the person, HR and any extra recipients 120, 90, 60, 30, 14 and 7 days before expiry, on the day, and weekly after until renewed. I-9 reminders include the Supplement B (reverification) step.</p>
       {adding && (
         <Modal title="Track an expiring document" onClose={() => setAdding(false)}>

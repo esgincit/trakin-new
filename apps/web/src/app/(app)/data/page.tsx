@@ -43,6 +43,7 @@ function Data() {
     <>
       <PageHead title="Import & export" sub="Bring in existing clients, vendors (active and inactive), consultants (current and former), MSAs, SOWs, rates and invoice history. Export anything as CSV." />
       <ErrorBox error={templates.error} />
+      <p className="note" style={{ marginTop: -6 }}>Where a row references a company or a consultant, prefer the stable ID — companies by their Business ID (<code>C-0006</code>) and people by their ID (<code>U000123</code>) — over names; both are accepted in every such column, and exports lead with the ID.</p>
       <div className="grid c2">
         <div className="card">
           <h3>Import</h3>

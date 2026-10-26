@@ -22,6 +22,12 @@ from ..db import Db
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Sensitive rows are tagged by stable IDs, not names, so imports never mis-match:
+# companies carry Business IDs (C-0006, assigned by the onboarding trigger) and
+# people carry system user codes (U000123). Both are accepted anywhere a company
+# or consultant is referenced.
+ID_COMPANY_RE = re.compile(r"^C-\d{3,6}$", re.I)
+ID_USER_RE = re.compile(r"^U\d{6}$", re.I)
 
 
 @dataclass
@@ -134,17 +140,26 @@ def _bool(value: str | None) -> bool | None:
     return value.lower() in {"y", "yes", "true"}
 
 
-async def _company_id(db: Db, name: str | None) -> Any:
-    if not name:
+async def _company_id(db: Db, name_or_id: str | None) -> Any:
+    """Match a company by Business ID first (C-0006), then by exact legal name."""
+    if not name_or_id:
         return None
-    return await db.val("select id from companies where lower(name) = lower(:n)", {"n": name})
+    key = name_or_id.strip()
+    if ID_COMPANY_RE.match(key):
+        return await db.val("select id from companies where upper(business_code) = upper(:k)", {"k": key})
+    return await db.val("select id from companies where lower(name) = lower(:n)", {"n": key})
 
 
 async def _consultant_id(db: Db, key: str | None) -> Any:
+    """Match a consultant by system user code (U000123) first, then e-mail, then name.
+    The U-code lookup goes through the SECURITY DEFINER helper (RLS hides user_codes)."""
     if not key:
         return None
+    k = key.strip()
+    if ID_USER_RE.match(k):
+        return await db.val("select mytrakin.consultant_by_code(:k)", {"k": k})
     return await db.val("select id from consultants where lower(email::text) = lower(:k) or lower(full_name) = lower(:k) "
-                        "order by status = 'active' desc limit 1", {"k": key})
+                        "order by status = 'active' desc limit 1", {"k": k})
 
 
 ENGAGEMENTS = {"w-2 full-time": "w2_fulltime", "w2_fulltime": "w2_fulltime", "w-2 contract": "w2_contract",
@@ -158,7 +173,8 @@ COMPANY_KINDS = {"client": "client", "prime vendor": "prime_vendor", "prime_vend
 async def import_company(db: Db, tenant: Any, r: dict[str, str]) -> str:
     kind = COMPANY_KINDS[r["Type"].lower()]
     inactive = (r.get("Status") or "").lower() == "inactive"
-    existing = await _company_id(db, r["Legal name"])
+    # Sensitive identity: match by Business ID (C-0006) when given, name otherwise.
+    existing = await _company_id(db, r.get("Business ID") or r["Legal name"])
     params = {"t": tenant, "name": r["Legal name"], "kind": kind, "ein": r.get("EIN") or None, "state": r.get("State") or None,
               "cn": r.get("Contact name") or None, "ce": r.get("Contact email") or None,
               "terms": r.get("Default payment terms") or "Net 30", "status": "inactive" if inactive else "active",
@@ -191,7 +207,8 @@ async def import_consultant(db: Db, tenant: Any, r: dict[str, str]) -> str:
     engagement = ENGAGEMENTS[r["Engagement type"].lower()]
     status = {"active": "active", "former": "former"}.get((r.get("Status") or "").lower(), "onboarding")
     employer = await _company_id(db, r.get("Employer (C2C only)")) if engagement in VENDOR_EMPLOYED else None
-    existing = await _consultant_id(db, r.get("Email") or r["Full name"])
+    # Sensitive identity: match by system user code (U000123) when given.
+    existing = await _consultant_id(db, r.get("Consultant ID") or r.get("Email") or r["Full name"])
     params = {"t": tenant, "name": r["Full name"], "email": r.get("Email") or None, "phone": r.get("Mobile") or None,
               "eng": engagement, "emp": employer, "title": r.get("Job title") or None, "loc": r.get("Work location") or None,
               "status": status, "start": _date(r.get("Start date")), "end": _date(r.get("End date (former only)")),
@@ -380,26 +397,27 @@ def _register(t: Template) -> None:
 
 
 _register(Template("companies", "Clients & vendors (active and inactive)", [
-    Column("Legal name", True), Column("Type", True, "choice", ("Client", "Prime vendor", "Vendor", "End client")),
+    Column("Business ID", False, "text"), Column("Legal name", True),
+    Column("Type", True, "choice", ("Client", "Prime vendor", "Vendor", "End client")),
     Column("EIN"), Column("State"), Column("Contact name"), Column("Contact email", False, "email"),
     Column("Default payment terms"), Column("Existing MSA ID"), Column("MSA effective date", kind="date"),
     Column("MSA expiry date", kind="date"), Column("Status", kind="choice", choices=("Active", "Inactive")),
     Column("Inactive since", kind="date"), Column("Inactive reason")],
-    [["Nova Analytics Inc.", "Client", "XX-XXX7781", "MA", "R. Hughes", "ap@nova.example", "Net 30", "MSA-NOVA-01",
+    [["C-0001", "Nova Analytics Inc.", "Client", "XX-XXX7781", "MA", "R. Hughes", "ap@nova.example", "Net 30", "MSA-NOVA-01",
       "2026-11-01", "2028-10-31", "Active", "", ""],
-     ["Pinewood Tech LLC", "Vendor", "XX-XXX2264", "NC", "G. Ellis", "ap@pinewood.example", "Net 30", "MSA-PW-01",
+     ["C-0002", "Pinewood Tech LLC", "Vendor", "XX-XXX2264", "NC", "G. Ellis", "ap@pinewood.example", "Net 30", "MSA-PW-01",
       "2023-01-01", "2025-12-31", "Inactive", "2025-12-31", "No active placements"]],
     import_company, ("tenant_admin", "finance", "account_manager", "legal")))
 
 _register(Template("consultants", "Consultants (current, onboarding and former)", [
-    Column("Full name", True), Column("Email", True, "email"), Column("Mobile"),
+    Column("Consultant ID"), Column("Full name", True), Column("Email", True, "email"), Column("Mobile"),
     Column("Engagement type", True, "choice", ("W-2 full-time", "W-2 contract", "C2C", "E2E", "1099")),
     Column("Employer (C2C only)"), Column("Job title"), Column("Start date", True, "date"), Column("Work location"),
     Column("Status", kind="choice", choices=("Onboarding", "Active", "Former")), Column("End date (former only)", kind="date"),
     Column("Reason for leaving"), Column("Eligible for rehire (Y/N)", kind="bool")],
-    [["Kavya Rao", "kavya.rao@example.com", "+1 555 010 2030", "W-2 full-time", "", "SAP FICO Consultant", "2026-10-26",
+    [["", "Kavya Rao", "kavya.rao@example.com", "+1 555 010 2030", "W-2 full-time", "", "SAP FICO Consultant", "2026-10-26",
       "McKinney, TX", "Onboarding", "", "", ""],
-     ["Sanjay Mehta", "sanjay.m@example.com", "", "W-2 contract", "", "SAP SD Consultant", "2024-06-03", "Plano, TX",
+     ["U000042", "Sanjay Mehta", "sanjay.m@example.com", "", "W-2 contract", "", "SAP SD Consultant", "2024-06-03", "Plano, TX",
       "Former", "2026-05-15", "Resigned - relocated", "Y"]],
     import_consultant, ("tenant_admin", "hr", "account_manager")))
 

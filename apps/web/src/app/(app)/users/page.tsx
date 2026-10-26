@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable } from "@/components/DataTable";
-import { Avatar, Chip, Drawer, ErrorBox, Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
+import { Avatar, Chip, Drawer, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { dateTime, label } from "@/lib/format";
 import { canEdit, isOwner, isStaff, useSession, type Level } from "@/lib/session";
@@ -36,6 +36,7 @@ export default function Users() {
     <>
       <PageHead title="Users & roles" sub="Who can sign in, what they can see, and who reports to whom. Every change is in the audit log."
         actions={<>
+          {editable && <ImportButton entity="users" />}
           {owner && <a className="btn" href="/settings/roles">Roles &amp; permissions</a>}
           {editable && <button className="btn pri" onClick={() => setInviting(true)}>Invite user</button>}
         </>} />
