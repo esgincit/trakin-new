@@ -80,7 +80,8 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
   // NDAs are signed with companies (Verify → NDA → MSA) or with consultants.
   const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
   const personal = ["offer_letter", "ica"].includes(kind) || (kind === "nda" && ndaWith === "consultant");
-  const consultantName = (c: any) => (c.user_code ? c.full_name + " · " + c.user_code : c.full_name);
+  const consultantName = (c: any) =>
+    (c.user_code ? c.full_name + " · " + c.user_code : c.full_name) + (c.email ? " · " + c.email : "");
   return (
     <Modal title="Add agreement" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>

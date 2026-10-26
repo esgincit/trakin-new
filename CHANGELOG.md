@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Consultant pickers show name, ID and e-mail; Send-for-signature hidden once active (2026-10-26):**
+  - The Add-agreement Consultant dropdown now shows Name · ID · e-mail (same for the company page's New MSA),
+    and the New placement Consultant dropdown shows Name · ID · e-mail · employment type — same-name
+    consultants are distinguishable.
+  - On an agreement detail page, "Send for signature" renders only for `draft` agreements (SOW/MSA/NDA/Offer
+    alike); an active agreement no longer offers it.
+
 - **Assigned projects are visible to the receiving company; end-client option consistent for every user (2026-10-26):**
   - The New project form's Client / Prime vendor options no longer depend on the user's role-scoped agreement
     visibility: `GET /projects/counterparties` now serves the same active-MSA peer list to every workspace

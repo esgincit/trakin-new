@@ -113,7 +113,7 @@ export default function AgreementDetail() {
       <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{shared ? `Received from ${a.sent_by_company ?? "the other company"}` : a.counterparty} · <Chip status={a.status} /> · {shared ? "Sent to your company" : a.source === "myTrakIn" ? "Created in myTrakIn" : `Recorded (${a.source})`}</>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
-          {canEdit && ["draft", "active"].includes(a.status) && <Link className="btn pri" href={`/esign/new?agreement_id=${id}&title=${encodeURIComponent(`${label(a.kind)} ${a.code}`)}`}>Send for signature</Link>}
+          {canEdit && a.status === "draft" && <Link className="btn pri" href={`/esign/new?agreement_id=${id}&title=${encodeURIComponent(`${label(a.kind)} ${a.code}`)}`}>Send for signature</Link>}
         </>} />
       <div className="grid c2">
         <div className="card">

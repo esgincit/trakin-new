@@ -152,7 +152,8 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
       }}>
         <div className="fields">
           {!placement && <Field label="Consultant" name="consultant_id" as="select" required value={consultantId} onChange={(e: any) => setConsultantId(e.target.value)}
-                  options={pick(consultants.data, (c) => c.status !== "former", (c) => `${c.full_name} (${label(c.engagement)})`)} />}
+                  options={pick(consultants.data, (c) => c.status !== "former",
+                                (c) => `${c.full_name}${c.user_code ? " · " + c.user_code : ""}${c.email ? " · " + c.email : ""} (${label(c.engagement)})`)} />}
           {!placement && <Field label="Project" name="project_id" as="select" required value={projectId} onChange={(e: any) => setProjectId(e.target.value)}
                   options={[...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
                     ...(shared.data ?? []).filter((p) => !p.local_project_id).map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string])]} />}
