@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Company Tax & W-9 wording (2026-10-26):** "TIN type" → "Identification type" and "TIN" →
+  "Identification number" in the details and the tax form (stored field names unchanged).
+
 - **"Add agreement" defaults to a new draft (send for signature) (2026-10-26):** the modal's toggle now shows
   "New draft (send for signature)" first and selected by default, with "Already signed (record it)" second —
   same for the company page's New MSA modal. SOWs already behaved this way.

@@ -148,7 +148,7 @@ export default function CompanyDetail() {
           <dl className="dl">
             <dt>Legal name</dt><dd>{c.w9_data?.legal_name ?? "–"}</dd>
             <dt>Classification</dt><dd>{c.tax_classification ?? c.w9_data?.tax_classification ?? "–"}</dd>
-            <dt>TIN</dt><dd>{c.tin ?? c.w9_data?.tin ?? "–"}</dd>
+            <dt>Identification number</dt><dd>{c.tin ?? c.w9_data?.tin ?? "–"}</dd>
             <dt>Tax address</dt><dd>{c.tax_address ?? ([c.w9_data?.address, c.w9_data?.city, c.w9_data?.state, c.w9_data?.zip].filter(Boolean).join(", ") || "–")}</dd>
             {c.w9_note && <><dt>Review note</dt><dd>{c.w9_note}</dd></>}
           </dl>
@@ -269,8 +269,8 @@ function TaxForm({ id, c, reload }: { id: string; c: any; reload: () => void }) 
       <div className="fields">
         <Field label="DBA" name="dba" defaultValue={c.dba ?? c.w9_data?.dba ?? ""} />
         <Field label="Tax classification" name="tax_classification" defaultValue={c.tax_classification ?? c.w9_data?.tax_classification ?? ""} />
-        <Field label="TIN type" name="tin_type" as="select" defaultValue="ein" options={[["ein", "EIN"], ["ssn", "SSN"]]} />
-        <Field label="TIN" name="tin" defaultValue={c.tin ?? ""} placeholder="12-3456789" />
+        <Field label="Identification type" name="tin_type" as="select" defaultValue="ein" options={[["ein", "EIN"], ["ssn", "SSN"]]} />
+        <Field label="Identification number" name="tin" defaultValue={c.tin ?? ""} placeholder="12-3456789" />
         <Field label="EIN (company record)" name="ein" defaultValue={c.ein ?? ""} />
         <Field label="Tax address" name="tax_address" defaultValue={c.tax_address ?? ""} full />
       </div>
