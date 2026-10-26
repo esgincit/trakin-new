@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -21,7 +21,9 @@ export default function Projects() {
   const canEdit = allows(workspace, "account_manager") && permits(workspace, "projects");
 
   const projectCols: Column<any>[] = [
-    { key: "code", label: "Code" }, { key: "name", label: "Project" },
+    { key: "code", label: "Code" },
+    { key: "name", label: "Project",
+      render: (r) => <><b>{r.name}</b>{r.assigned_from && <>{" "}<Chip status="pending">assigned by {r.assigned_from}</Chip></>}</> },
     { key: "client", label: "Client", filter: true }, { key: "prime", label: "Prime vendor", hideSm: true },
     { key: "team_size", label: "Team", type: "number" }, { key: "team", label: "Consultants", hideSm: true },
     { key: "end_date", label: "Ends", type: "date" }, { key: "status", label: "Status", type: "status", filter: true },
@@ -54,7 +56,8 @@ export default function Projects() {
       </div>
       {tab === "projects" ? (
         <><ErrorBox error={projects.error} retry={projects.reload} />
-          <DataTable id="projects" rows={projects.data} columns={projectCols} onRowClick={(r) => router.push(`/projects/${r.id}`)} toolbar={<DataButtons entity="projects" label="projects" />} /></>
+          <DataTable id="projects" rows={projects.data} columns={projectCols}
+                     onRowClick={(r) => { if (!r.assigned_from) router.push(`/projects/${r.id}`); }} toolbar={<DataButtons entity="projects" label="projects" />} /></>
       ) : (
         <><ErrorBox error={placements.error} retry={placements.reload} />
           <DataTable id="placements" rows={placements.data} columns={placementCols} onRowClick={(r) => router.push(`/projects/${r.project_id}`)} toolbar={<DataButtons entity="placements" label="placements" />} />

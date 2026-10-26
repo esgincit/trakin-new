@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Assigned projects are visible to the receiving company; end-client option consistent for every user (2026-10-26):**
+  - The New project form's Client / Prime vendor options no longer depend on the user's role-scoped agreement
+    visibility: `GET /projects/counterparties` now serves the same active-MSA peer list to every workspace
+    member through the SECURITY DEFINER helper `project_peer_companies()` (migration `20261022001100`,
+    applied to production) — the end client can't vanish for some users any more.
+  - Projects another company assigned to **us** by an accepted SOW now appear in Projects & placements with
+    an "assigned by {company}" chip (before the first placement makes our local copy) and stay in the New
+    placement Project dropdown; empty rows are skipped once the local copy exists.
+
 - **Business type is a dropdown in the manual W-9 entry (2026-10-26):** the US company wizard's manual-entry
   "Business type" field was free text; it's now a dropdown (Individual / sole proprietorship, LLC,
   Partnership, Corporation, S Corporation, Trust / estate) with the parsed value selected when a W-9 document

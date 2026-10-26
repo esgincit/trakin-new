@@ -90,15 +90,7 @@ async def project_counterparties(db: TenantDb = Depends(tenant_db)):
     """Companies we have an MSA in force with, whichever side sent it (T011303-1049). They live in their own
     workspace, so they are not in our company list — the New project form offers them as client or prime."""
     return await db.all(
-        """select x.id, mytrakin.company_public_name(x.id) as name
-             from (select a.company_id as id from agreements a
-                    where a.status in ('active', 'accepted') and a.kind = any(:kinds)
-                   union
-                   select mytrakin.agreement_peer_company(s.id) from mytrakin.shared_agreements() s
-                    where s.status in ('active', 'accepted') and s.kind = any(:kinds)) x
-            where x.id is not null and not x.id = any (mytrakin.my_company_ids())
-              and mytrakin.company_public_name(x.id) is not null
-            order by 2""", {"kinds": list(workflow.MASTER_KINDS)})
+        """select * from mytrakin.project_peer_companies() order by name""")
 
 
 @router.get("/projects/shared")
@@ -131,6 +123,18 @@ async def list_projects(db: TenantDb = Depends(tenant_db)):
     if not show_money:
         for r in rows:
             r.pop("invoiced")
+    # Projects another company assigned to us by SOW (no local copy yet) — so they show in
+    # Projects & placements and can be picked. Placing someone creates our own copy.
+    locals_ = {r["source_project_id"] for r in await db.all(
+        "select source_project_id from projects where source_project_id is not null")}
+    for s in await db.all("select * from mytrakin.shared_projects() order by name"):
+        if s["id"] in locals_ or any(r.get("name") == s["name"] for r in rows):
+            continue
+        rows.append({"id": s["id"], "code": s["code"], "name": s["name"], "status": s["status"],
+                     "start_date": s["start_date"], "end_date": s["end_date"], "description": s["description"],
+                     "client": s["client"], "prime": s["assigned_by"], "team_size": 0, "team": None,
+                     "invoiced": 0, "assigned_from": s["assigned_by"]})
+    rows.sort(key=lambda r: (r["status"] == "completed", r.get("assigned_from") is not None, r["name"]))
     return rows
 
 
