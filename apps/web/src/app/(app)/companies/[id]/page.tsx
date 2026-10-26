@@ -226,14 +226,14 @@ export default function CompanyDetail() {
 }
 
 function CompanyMsaModal({ company, onClose, onDone }: { company: any; onClose: () => void; onDone: () => void }) {
-  const [existing, setExisting] = useState(true);
+  const [existing, setExisting] = useState(false);
   const [counterparty, setCounterparty] = useState("");
   const { run, busy } = useAction();
   return (
     <Modal title={`New MSA — ${company.name}`} onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
+        <button type="button" className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (send for signature)</button>
         <button type="button" className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
-        <button type="button" className={!existing ? "on" : ""} onClick={() => setExisting(false)}>Request new MSA</button>
       </div>
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();

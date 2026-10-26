@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **"Add agreement" defaults to a new draft (send for signature) (2026-10-26):** the modal's toggle now shows
+  "New draft (send for signature)" first and selected by default, with "Already signed (record it)" second —
+  same for the company page's New MSA modal. SOWs already behaved this way.
+
 - **"Client timesheet approver" removed from the New Project form (2026-10-23):** the field is no longer part
   of project creation or editing in the UI (the backend keeps the optional column and the project detail card
   still shows a stored value, so existing data is unaffected). No replacement field was introduced; projects

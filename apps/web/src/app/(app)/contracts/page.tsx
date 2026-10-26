@@ -74,7 +74,7 @@ function Contracts() {
 function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: any) => void }) {
   const consultants = useApi<any[]>("/consultants");
   const [kind, setKind] = useState("msa");
-  const [existing, setExisting] = useState(true);
+  const [existing, setExisting] = useState(false);
   const { run, busy } = useAction();
   // NDAs are signed with companies (Verify → NDA → MSA) or with consultants.
   const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
@@ -83,8 +83,8 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
   return (
     <Modal title="Add agreement" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
-        <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
         <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (send for signature)</button>
+        <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
       </div>
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();
