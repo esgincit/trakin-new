@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Business type is a dropdown in the manual W-9 entry (2026-10-26):** the US company wizard's manual-entry
+  "Business type" field was free text; it's now a dropdown (Individual / sole proprietorship, LLC,
+  Partnership, Corporation, S Corporation, Trust / estate) with the parsed value selected when a W-9 document
+  was uploaded.
+
 - **Import option on every section + sample files + bulk updates by stable ID (2026-10-26):**
   - Every section that has bulk data got an Import button in its header - Companies, Consultants, Contracts
     (agreements; projects tab imports projects or placements; invoices import AR or AP depending on the open

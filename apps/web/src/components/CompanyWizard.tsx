@@ -156,7 +156,8 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
           <p className="muted">{manual ? "Type the W-9 details exactly as they appear on the form." : `Read from the W-9${parsed.engine === "ocr" ? " (scan)" : parsed.engine === "form-fields" ? " (form fields)" : ""} — correct anything misread.`}</p>
           <div className="fields">
             <Field label="Legal name" name="legal_name" required defaultValue={parsed.legal_name ?? ""} full />
-            <Field label="Business type" name="business_type" defaultValue={parsed.tax_classification ?? ""} />
+            <Field label="Business type" name="business_type" as="select" defaultValue={parsed.tax_classification ?? ""}
+                   options={[["", "Choose…"], ["Individual / sole proprietorship", "Individual / sole proprietorship"], ["LLC", "LLC"], ["Partnership", "Partnership"], ["Corporation", "Corporation"], ["S Corporation", "S Corporation"], ["Trust / estate", "Trust / estate"]]} />
             <Field label="ID type" name="tin_type" as="select" defaultValue={parsed.tin_type ?? "ein"} options={[["ein", "EIN"], ["ssn", "SSN (sole proprietor)"]]} />
             <Field label="EIN / SSN" name="ein" required defaultValue={parsed.tin ?? ""} />
             <Field label="Address" name="address" defaultValue={parsed.address ?? ""} full />
