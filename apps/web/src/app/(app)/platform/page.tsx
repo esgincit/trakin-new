@@ -160,7 +160,7 @@ function TenantDrawer({ tenant, onClose, onSaved }: { tenant: any; onClose: () =
             if (await run(() => api(`/platform/tenants/${tenant.id}`, { method: "PATCH", body: formValues(e.currentTarget) }), "Saved")) onSaved();
           }}>
             <Field label="Plan" name="plan" as="select" defaultValue={tenant.plan} options={["starter", "growth", "enterprise"]} />
-            <Field label="Status" name="status" as="select" defaultValue={tenant.status} options={[["onboarding", "Waiting for activation"], ["active", "Active"], ["suspended", "Suspended (no sign-in)"], ["closed", "Closed"]]} />
+            <Field label="Status" name="status" as="select" defaultValue={tenant.status} options={[["onboarding", "Waiting for activation"], ["active", "Active"], ["suspended", "Suspended (no sign-in)"], ["rejected", "Rejected (owner can fix and resubmit)"], ["closed", "Closed"]]} />
             <Field label="Trial ends" name="trial_ends_on" type="date" defaultValue={tenant.trial_ends_on ?? ""} />
             <button className="btn pri mt" disabled={busy}>Save</button>
           </form>

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Recoverable company rejections and smoother company setup (2026-10-26, Strike T011303-1084…1089):**
+  a company the myTrakIn team rejects is now `rejected` (not `closed`) — its owner can still sign in, sees
+  the reason on My companies and the company profile, fixes the details and resubmits, or creates another
+  company. The setup wizard keeps entered W-9 and company details when going Back, and Resume setup continues
+  from the saved step. Your own company waiting for activation shows a persistent "Waiting for the myTrakIn
+  team" notice (no failing Activate button) and a one-time toast once activated. Company logos show on My
+  companies. A turned-down SOW shows the other company's reason to the sender and can be sent again; SOWs
+  raised under the other side's MSA stay visible to their creator. Migration `20261026000100_rejections.sql`.
+
 - **Active NDA / MSA now satisfy the project-creation gate even when they were recorded differently (2026-10-26):**
   the gate (_activation_gate) matched the counterpart only by the exact company id — an NDA/MSA recorded
   against a same-named company record (how it sits in your own directory vs their own account) plus the

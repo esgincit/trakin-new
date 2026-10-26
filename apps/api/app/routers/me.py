@@ -40,14 +40,17 @@ async def me(db: TenantDb = Depends(user_db)):
 async def my_businesses(db: TenantDb = Depends(user_db)):
     """Every business the caller created or belongs to — any role, any workspace.
     Company data itself stays shielded; open a profile to see what your role allows."""
-    return await db.all("select * from mytrakin.my_businesses(:u)", {"u": db.ctx.user_id})
+    rows = await db.all("select * from mytrakin.my_businesses(:u)", {"u": db.ctx.user_id})
+    for r in rows:
+        r["logo_url"] = storage.public_url("avatars", r["logo_path"]) if r.get("logo_path") else None
+    return rows
 
 
 @router.get("/session")
 async def session(db: TenantDb = Depends(tenant_db)):
     """The caller's role in the selected workspace (drives navigation in the web app)."""
     ctx = db.ctx
-    tenant = await db.one("select id, name, plan, status, company_id from tenants where id = :t", {"t": ctx.tenant_id})
+    tenant = await db.one("select id, name, plan, status, company_id, decision_note from tenants where id = :t", {"t": ctx.tenant_id})
     return {
         "tenant": tenant,
         "role": ctx.role,

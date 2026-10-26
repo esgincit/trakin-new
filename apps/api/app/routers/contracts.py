@@ -192,7 +192,7 @@ async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
     show_value = db.ctx.allows("finance", "legal", "account_manager")
     rows = await db.all(
         """select s.id, s.code, s.side, s.title, s.start_date, s.end_date, s.status, s.value_cap,
-                  a.code as agreement, coalesce(co.name, mytrakin.company_public_name(s.company_id), c.full_name) as counterparty,
+                  s.sent_on, s.decided_on, s.decision_note, coalesce(a.code, sa.code) as agreement, coalesce(co.name, mytrakin.company_public_name(s.company_id), c.full_name) as counterparty,
                   b.invoiced, b.collected_or_paid, b.burn_pct, (s.value_cap - b.invoiced) as remaining,
                   (s.end_date - current_date) as days_left, fs.code as flows_from, s.project_id, pj.code as project, pj.name as project_name,
                   (select string_agg(distinct k.full_name, ', ') from placements p join consultants k on k.id = p.consultant_id
@@ -200,7 +200,9 @@ async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
                   (select a2.code || ': ' || a2.status from sow_amendments a2 where a2.sow_id = s.id and a2.status <> 'void'
                     order by a2.created_at desc limit 1) as latest_amendment
              from sows s
-             join agreements a on a.id = s.agreement_id
+             -- our SOW may sit under the other workspace's MSA (hidden by RLS): read its code via the shared view
+             left join agreements a on a.id = s.agreement_id
+             left join mytrakin.shared_agreements() sa on a.id is null and sa.id = s.agreement_id
              left join companies co on co.id = s.company_id
              left join consultants c on c.id = s.consultant_id
              left join sow_burn b on b.sow_id = s.id
@@ -217,6 +219,7 @@ where (cast(:side as text) is null or s.side = :side)
         {"side": side})
     for r in incoming:
         r["shared"] = True
+        r["agreement"] = r["agreement_code"]   # the page reads "agreement" ("Under agreement" was blank)
         for k in ("value_cap", "invoiced", "collected_or_paid", "remaining", "burn_pct"):
             r[k] = None
     rows += incoming

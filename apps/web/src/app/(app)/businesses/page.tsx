@@ -16,7 +16,7 @@ export default function Businesses() {
   const { run } = useAction();
   const { data, error, loading, reload } = useApi<any[]>("/my/businesses");
   const [creating, setCreating] = useState(false);
-  const [resuming, setResuming] = useState<string | null>(null);
+  const [resuming, setResuming] = useState<any>(null);
 
   const open = async (b: any) => {
     const cid = b.company_id ?? b.id;
@@ -39,7 +39,7 @@ export default function Businesses() {
       await switchTenant(b.tenant_id);
       clearCache();
     }
-    setResuming(b.tenant_id);
+    setResuming(b);
   };
 
   const discard = async (b: any) => {
@@ -77,20 +77,28 @@ export default function Businesses() {
           ) : (
             <div key={`${b.tenant_id}:${b.company_id}`} className="card click" onClick={() => open(b)}>
               <div className="row" style={{ justifyContent: "space-between" }}>
-                <b>{b.company_name}</b><code>{b.business_code}</code>
+                <b className="row" style={{ gap: 8, alignItems: "center", minWidth: 0 }}>
+                  {b.logo_url && <img src={b.logo_url} alt="" style={{ height: 26, maxWidth: 80, objectFit: "contain", borderRadius: 6 }} />}
+                  {b.company_name}
+                </b><code>{b.business_code}</code>
               </div>
               <div className="muted" style={{ fontSize: 12.5 }}>{b.tenant_name} · {roleList(b)}</div>
               <div className="row mt">
                 <Chip status={b.company_role ?? b.tenant_role ?? "member"} />
-                <Chip status={b.status} />
+                <Chip status={b.tenant_status === "rejected" ? "rejected" : b.status} />
               </div>
+              {b.tenant_status === "rejected" && (
+                <p className="err" style={{ fontSize: 12.5, marginBottom: 0 }}>
+                  Rejected by the myTrakIn team{b.decision_note ? `: “${b.decision_note}”` : ""}. Open it to fix the details and resubmit.
+                </p>
+              )}
             </div>
           )))}
         </div>
       )}
       {creating && <CompanyWizard account onClose={() => { setCreating(false); reload(); refresh(); }}
         onDone={async (c) => { await refresh(); open(c); }} />}
-      {resuming && <CompanyWizard key={resuming} onClose={() => { setResuming(null); reload(); refresh(); }}
+      {resuming && <CompanyWizard key={resuming.tenant_id} resumeId={resuming.session_id} onClose={() => { setResuming(null); reload(); refresh(); }}
         onDone={async (c) => { setResuming(null); await refresh(); open(c); }} />}
     </>
   );

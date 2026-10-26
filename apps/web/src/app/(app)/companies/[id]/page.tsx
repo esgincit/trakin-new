@@ -37,6 +37,9 @@ export default function CompanyDetail() {
   const canGrantOwner = canGrantSuper || myRole === "owner";
   const taxFull = allows(workspace, "finance", "legal") || ownerLike;
   const canCompliance = ownerLike;   // restricted gov documents: only super admin/owner (+ platform, seen in its own console)
+  // Our own company is activated by the myTrakIn team, never from here (T011303-1084, 1089).
+  const own = !!workspace && workspace.tenant.company_id === id;
+  const tenantStatus = own ? workspace!.tenant.status : null;
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
@@ -59,6 +62,24 @@ export default function CompanyDetail() {
           ))}
         </>} />
 
+      {tenantStatus === "rejected" && (
+        <div className="alert" role="alert" style={{ marginBottom: 12 }}>
+          <Chip status="rejected" />
+          <div style={{ flex: 1 }}><b>The myTrakIn team rejected this company</b>
+            <div className="muted" style={{ fontSize: 12.5 }}>{workspace?.tenant.decision_note ? `Reason: ${workspace.tenant.decision_note}. ` : ""}
+              Correct the details below, then resubmit it for activation — or create another company from My companies.</div></div>
+          {workspace?.is_owner && <button className="btn sm pri" disabled={busy} onClick={async () => {
+            if (await run(() => api("/onboarding/resubmit", { method: "POST", body: {} }), "Resubmitted — waiting for the myTrakIn team")) { await refresh(); reload(); }
+          }}>Resubmit for activation</button>}
+        </div>
+      )}
+      {tenantStatus === "onboarding" && (
+        <div className="alert" role="status" style={{ marginBottom: 12 }}>
+          <Chip status="pending" />
+          <div><b>Waiting for the myTrakIn team to activate your company</b>
+            <div className="muted" style={{ fontSize: 12.5 }}>Your company has been submitted for review. We&apos;ll e-mail you as soon as it&apos;s active; meanwhile you can complete its profile.</div></div>
+        </div>
+      )}
       <div className="card">
         <h3>Onboarding</h3>
         <div className="steps">
@@ -131,7 +152,9 @@ export default function CompanyDetail() {
             : <p className="muted">Not checked yet. Activation needs every check to pass: details complete, e-mail on the company domain, verified W-9 with matching TIN, and an assigned owner.</p>}
           <div className="row mt">
             {canManage && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/verify`, { method: "POST", body: {} }), "Verification re-run")) reload(); }}>Re-check</button>}
-            {canEdit && <button className="btn sm pri" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/activate`, { method: "POST", body: {} }), `Activated as ${c.business_code}`)) reload(); }}>Activate company</button>}
+            {own
+              ? tenantStatus === "onboarding" && <button className="btn sm" disabled>Pending activation</button>
+              : canEdit && <button className="btn sm pri" disabled={busy} onClick={async () => { if (await run(() => api(`/companies/${id}/activate`, { method: "POST", body: {} }), `Activated as ${c.business_code}`)) reload(); }}>Activate company</button>}
           </div>
         </div>
       )}

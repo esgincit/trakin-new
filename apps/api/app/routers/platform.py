@@ -50,7 +50,7 @@ async def metrics(db: TenantDb = Depends(platform_db)):
     trend = await db.all("select * from mytrakin.platform_money_trend()")
     pending = await db.val(
         "select count(*) from mytrakin.platform_companies() where status = 'onboarding' and company_id is not null")
-    by = {s: sum(1 for t in tenants if t["status"] == s) for s in ("onboarding", "active", "suspended", "closed")}
+    by = {s: sum(1 for t in tenants if t["status"] == s) for s in ("onboarding", "active", "suspended", "rejected", "closed")}
     paying = [t for t in tenants if t["mrr"] > 0]
     mrr = sum((t["mrr"] for t in tenants), Decimal(0))
 
@@ -62,7 +62,7 @@ async def metrics(db: TenantDb = Depends(platform_db)):
         "users": {"total": o["total_users"], "new_30d": o["new_users_30d"], "active_30d": o["active_users_30d"],
                   "active_in_companies": sum(t["active_users"] for t in tenants)},
         "companies": {"total": len(tenants), "active": by["active"], "pending_activation": pending,
-                      "suspended": by["suspended"], "closed": by["closed"],
+                      "suspended": by["suspended"], "rejected": by["rejected"], "closed": by["closed"],
                       "new_30d": sum(1 for t in tenants if t["created_at"].date() >= month_ago),
                       "inactive_14_days": [t["name"] for t in tenants if t["status"] == "active" and
                                            (t["last_user_activity"] is None or t["last_user_activity"].date() < two_weeks_ago)]},
@@ -92,7 +92,7 @@ async def tenants(db: TenantDb = Depends(platform_db)):
 
 class TenantPatch(BaseModel):
     plan: str | None = Field(None, pattern="^(starter|growth|enterprise)$")
-    status: str | None = Field(None, pattern="^(onboarding|active|suspended|closed)$")
+    status: str | None = Field(None, pattern="^(onboarding|active|suspended|rejected|closed)$")
     trial_ends_on: date | None = None
 
 
@@ -203,7 +203,7 @@ async def restrict_doc(tenant_id: UUID, body: RestrictDocIn, db: TenantDb = Depe
 
 @router.post("/companies/{tenant_id}/decision")
 async def decide_company(tenant_id: UUID, body: CompanyDecision, db: TenantDb = Depends(platform_db)):
-    """Activate a new company, ask its owner for more, or reject it (closed). The owner is e-mailed."""
+    """Activate a new company, ask its owner for more, or reject it (the owner can fix and resubmit). The owner is e-mailed."""
     tenant = await db.one("select * from tenants where id = :id for update", {"id": tenant_id})
     if tenant is None or tenant["company_id"] is None:
         raise not_found("Company")
@@ -227,7 +227,7 @@ async def decide_company(tenant_id: UUID, body: CompanyDecision, db: TenantDb = 
         await db.run("update companies set status = 'active', onboarding_stage = 8, verified_at = now() where id = :c",
                      {"c": tenant["company_id"]})
         await _leave(db)
-    new_status = {"activate": "active", "needs_info": "onboarding", "reject": "closed"}[body.decision]
+    new_status = {"activate": "active", "needs_info": "onboarding", "reject": "rejected"}[body.decision]
     await db.run(
         """update tenants set status = :s, decision_note = :n,
                   activated_at = case when :s = 'active' then now() end,

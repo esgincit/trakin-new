@@ -30,7 +30,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from ..config import get_settings
-from ..deps import TenantDb, onboarding_db, user_db
+from ..deps import TenantDb, onboarding_db, tenant_db, user_db
 from ..errors import ApiError, bad_request, conflict, forbidden, not_found
 from ..services import storage
 from ..services import w9 as w9svc
@@ -165,6 +165,18 @@ async def discard_account(tenant_id: UUID, db: TenantDb = Depends(user_db)):
     if not gone:
         raise not_found("Draft company")
     return {"id": tenant_id, "discarded": True}
+
+
+@router.post("/resubmit")
+async def resubmit_company(db: TenantDb = Depends(tenant_db)):
+    """The owner of a rejected company fixed its details: send it back to the myTrakIn team (T011303-1084)."""
+    if not db.ctx.is_owner:
+        raise forbidden("Only the company's owner can resubmit it")
+    row = await db.one("""update tenants set status = 'onboarding' where id = :t and status = 'rejected'
+                           returning id, status""", {"t": db.ctx.tenant_id})
+    if row is None:
+        raise conflict("Only a rejected company can be resubmitted")
+    return row
 
 
 @router.get("/sessions")

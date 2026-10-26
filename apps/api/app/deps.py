@@ -132,6 +132,9 @@ def _gate(request: Request, state) -> None:
         raise ApiError(403, "pending_activation",
                        "Your company is waiting for activation by the myTrakIn team. "
                        "You can finish your company profile meanwhile.")
+    if state["status"] == "rejected" and not request.url.path.startswith(PENDING_OK):
+        raise ApiError(403, "company_rejected",
+                       "The myTrakIn team rejected this company. Fix its profile and resubmit it from My companies.")
 
 
 async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) -> AsyncIterator[TenantDb]:

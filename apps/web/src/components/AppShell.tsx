@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { allows, isOwner, isStaff, perm, useRequireSession, type Role, type Workspace } from "@/lib/session";
-import { Avatar, Loading } from "./ui";
+import { Avatar, Loading, useToast } from "./ui";
 
 type Item = { href: string; label: string; show?: (ws: Workspace) => boolean; module?: string };
 type Section = { title?: string; items: Item[] };
@@ -86,6 +86,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark" | "">("");
+  const toast = useToast();
+  // T011303-1089: once the myTrakIn team activates a company its owner was waiting on, say so once.
+  useEffect(() => {
+    const t = workspace?.tenant;
+    if (!t?.company_id) return;
+    const key = `mytrakin.waiting.${t.id}`;
+    try {
+      if (t.status === "onboarding") localStorage.setItem(key, "1");
+      else if (t.status === "active" && localStorage.getItem(key)) {
+        localStorage.removeItem(key);
+        toast(`${t.name} has been activated successfully`);
+      }
+    } catch { /* storage blocked: no toast */ }
+  }, [workspace, toast]);
 
   useEffect(() => {
     try { setTheme((localStorage.getItem("mytrakin.theme") as any) ?? ""); } catch { /* default */ }
@@ -118,7 +132,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
   if (noWorkspace && !inMemberArea(path)) return <div className="content"><Loading /></div>;
   // T011303-1037: a company still being set up (or waiting for activation) grants no admin role or menus yet.
-  const settingUp = workspace?.tenant.status === "onboarding";
+  // T011303-1084: a rejected company is treated the same way until its owner fixes and resubmits it.
+  const settingUp = workspace?.tenant.status === "onboarding" || workspace?.tenant.status === "rejected";
   const pending = settingUp && !inPendingArea(path);
 
   const name = me?.profile?.full_name ?? me?.profile?.email;
@@ -191,7 +206,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <div className="content">{pending && workspace ? (
           <div className="card">
-            {workspace.tenant.company_id ? <>
+            {workspace.tenant.status === "rejected" ? <>
+              <h2>{workspace.tenant.name} was not activated</h2>
+              <p className="muted">The myTrakIn team rejected it{workspace.tenant.decision_note ? <>: “{workspace.tenant.decision_note}”</> : ""}.
+                Fix the company profile and resubmit it, or create another company from My companies.</p>
+            </> : workspace.tenant.company_id ? <>
               <h2>Waiting for activation</h2>
               <p className="muted">The myTrakIn team is reviewing {workspace.tenant.name}. We&apos;ll e-mail you as soon as it&apos;s active.
                 Meanwhile you can complete your company profile.</p>

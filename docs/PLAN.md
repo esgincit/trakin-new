@@ -644,6 +644,17 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
 
+- 2026-10-26 · Strike T011303-1084…1089 · **Company setup + SOW rejection fixes**: platform reject now sets the
+  company to new status `rejected` (was `closed`, which locked the owner out with "You don't have access");
+  owner sees the reason on My companies / profile, edits and resubmits (`POST /onboarding/resubmit`), or
+  creates another company; `my_tenants`/`my_businesses` hide closed companies. Wizard keeps W-9 + step-2
+  answers on Back (1088) and Resume setup reopens the saved session at its step (1085). Own pending company
+  shows a persistent "Waiting for the myTrakIn team" + disabled Pending activation instead of the failing
+  Activate button, and a one-time "activated successfully" toast (1089). Logo on My companies cards (1087).
+  SOW turned down: the sender now sees the reason, "Send again" works on rejected SOWs, a SOW raised under the
+  other side's MSA no longer vanishes from its creator's list, and "Under agreement" is filled (1086).
+  Migration `20261026000100_rejections.sql` must be applied to prod BEFORE deploying. Note: seed workspace has
+  no company_id, so 3 test_sow_two_way tests still fail on a fresh seed (pre-existing).
 - 2026-10-22 · QA · **Four fixes**: (1) timesheet review page crashed on first render for everyone ("This page
   couldn't load") — a `ts.awaiting_end_client` dereference sat before the loading guard; (2) Add-SOW form's
   "Supports client SOW" dropdown shows `SOW · PRJ-code – Project name` (API adds `pj.name as project_name`);

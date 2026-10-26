@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Chip, Field, formValues, Modal, useAction, useToast } from "./ui";
 import { api, ApiError, setTenant } from "@/lib/api";
 
@@ -10,13 +10,23 @@ type Country = "US" | "IN";
  *  on the company profile if ever needed. */
 const ALL_KINDS = ["client", "prime_vendor", "vendor", "end_client"];
 
+/** The W-9 answers saved on the session, in the shape the step-1 form reads (T011303-1088). */
+const savedW9 = (s: any) => s?.w9?.legal_name
+  ? { ...s.w9, tax_classification: s.w9.business_type ?? s.w9.tax_classification, tin: s.w9.ein ?? s.w9.tin }
+  : null;
+
+/** Where a saved session left off: first step whose answers aren't saved yet (T011303-1085). */
+const resumeStep = (s: any) => s.email_verified ? 4
+  : s.company_email && s.details?.domain ? 3
+  : (s.country === "US" ? s.w9?.legal_name : s.details?.cin && s.details?.legal_name) ? 2 : 1;
+
 /** Country-first business creation.
  *  US: W-9 upload (parsed + validated) → domain/e-mail/DBA → OTP → authorize → created.
  *  IN: manual details + mandatory MOA → domain/e-mail/DBA → OTP → authorize → created.
  *  Nothing is created until every gate passes; the creator becomes its owner.
  *  account: registering your own company — it gets its own account and waits for platform activation.
  *  Otherwise a client/vendor record is added inside the current company. */
-export function CompanyWizard({ onClose, onDone, account = false }: { onClose: () => void; onDone: (c: any) => void; account?: boolean }) {
+export function CompanyWizard({ onClose, onDone, account = false, resumeId }: { onClose: () => void; onDone: (c: any) => void; account?: boolean; resumeId?: string | null }) {
   const { run, busy } = useAction();
   const toast = useToast();
   const [country, setCountry] = useState<Country | null>(null);
@@ -27,8 +37,27 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
   const [otpSent, setOtpSent] = useState(false);
   const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [details2, setDetails2] = useState<any>(null);   // step-2 answers kept when going Back unsaved
+  const [restoring, setRestoring] = useState(!!resumeId);
   const w9file = useRef<HTMLInputElement>(null);
   const moafile = useRef<HTMLInputElement>(null);
+
+  // Resume setup: reopen the saved session where it left off instead of starting over.
+  useEffect(() => {
+    if (!resumeId) return;
+    api<any[]>("/onboarding/sessions")
+      .then((rows) => {
+        const s = rows.find((r) => r.id === resumeId);
+        if (!s) return;
+        setSession(s);
+        setCountry(s.country);
+        setParsed(savedW9(s));
+        setManual(!!s.w9?.manual_entry);
+        setStep(resumeStep(s));
+      })
+      .catch(() => { /* expired or gone: start from the country choice */ })
+      .finally(() => setRestoring(false));
+  }, [resumeId]);
 
   const start = async (c: Country) => {
     setError(null);
@@ -72,6 +101,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
     try {
       const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: { ...formValues(e.currentTarget), kinds: ALL_KINDS, kind: ALL_KINDS[0], step: 2 } });
       setSession(s);
+      setDetails2(null);
       setStep(3);
     } catch (e) { fail(e); }
   };
@@ -103,6 +133,8 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
     } catch (e) { fail(e); }
   };
 
+  if (restoring) return <Modal title="Resume company setup" onClose={onClose}><p className="muted">Loading your saved details…</p></Modal>;
+
   if (!country || !session) {
     return (
       <Modal title="New company" onClose={onClose}>
@@ -115,6 +147,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
     );
   }
 
+  const d2 = details2 ?? { ...session.details, company_email: session.company_email ?? session.details?.company_email };
   const steps = country === "US" ? ["W-9 upload", "Company details", "E-mail verification", "Authorize & create"] : ["Details & MOA", "Company details", "E-mail verification", "Authorize & create"];
 
   return (
@@ -150,7 +183,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
             delete v.engine; delete v.needs_review; delete v.needs_manual; delete v.note;
             if (manual) v.manual = true;
             const s = await api(`/onboarding/sessions/${session.id}`, { method: "PATCH", body: v });
-            setSession(s); setStep(2);
+            setSession(s); setParsed({ ...parsed, ...savedW9(s) }); setStep(2);
           } catch (e) { fail(e); }
         }}>
           <p className="muted">{manual ? "Type the W-9 details exactly as they appear on the form." : `Read from the W-9${parsed.engine === "ocr" ? " (scan)" : parsed.engine === "form-fields" ? " (form fields)" : ""} — correct anything misread.`}</p>
@@ -166,7 +199,7 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
             <Field label="ZIP" name="zip" defaultValue={parsed.zip ?? ""} />
           </div>
           <div className="row mt">
-            <button className="btn" disabled={busy} onClick={() => setParsed(null)}>Re-upload</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => setParsed(null)}>Re-upload</button>
             <button className="btn pri" disabled={busy}>Confirm & continue</button>
           </div>
         </form>
@@ -186,12 +219,12 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
         }}>
           <p className="muted">Enter the business details as per the MCA records, and attach the Memorandum of Association (mandatory, stored as-is in Phase 1).</p>
           <div className="fields">
-            <Field label="Legal name (as per MCA)" name="legal_name" required full />
-            <Field label="CIN" name="cin" required placeholder="L12345MH2020PLC123456" full />
-            <Field label="Street address" name="street" required full />
-            <Field label="City" name="city" required />
-            <Field label="State" name="state" required />
-            <Field label="PIN code" name="pin" required placeholder="400001" />
+            <Field label="Legal name (as per MCA)" name="legal_name" required full defaultValue={session.details?.legal_name ?? ""} />
+            <Field label="CIN" name="cin" required placeholder="L12345MH2020PLC123456" full defaultValue={session.details?.cin ?? ""} />
+            <Field label="Street address" name="street" required full defaultValue={session.details?.street ?? ""} />
+            <Field label="City" name="city" required defaultValue={session.details?.city ?? ""} />
+            <Field label="State" name="state" required defaultValue={session.details?.state ?? ""} />
+            <Field label="PIN code" name="pin" required placeholder="400001" defaultValue={session.details?.pin ?? ""} />
           </div>
           <input ref={moafile} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadMoa(e.target.files?.[0])} />
           <div className="row mt">
@@ -208,14 +241,15 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
         <form className="form" onSubmit={saveDetails}>
           <div className="fields">
             {country === "IN" && <p className="muted" style={{ gridColumn: "1 / -1" }}>CIN verified{session.details?.cin ? ` (${session.details.cin})` : ""}. Now the online identity.</p>}
-            <Field label="Company domain" name="domain" required placeholder={country === "US" ? "acme.com" : "acme.in"} />
-            <Field label="Company e-mail" name="company_email" type="email" required defaultValue={session.company_email ?? ""} />
-            <Field label="DBA (if different)" name="dba" defaultValue={session.details?.dba ?? ""} full />
-            <Field label="Contact person" name="contact_name" />
-            <Field label="Contact phone" name="contact_phone" />
+            <Field label="Company domain" name="domain" required placeholder={country === "US" ? "acme.com" : "acme.in"} defaultValue={d2.domain ?? ""} />
+            <Field label="Company e-mail" name="company_email" type="email" required defaultValue={d2.company_email ?? ""} />
+            <Field label="DBA (if different)" name="dba" defaultValue={d2.dba ?? ""} full />
+            <Field label="Contact person" name="contact_name" defaultValue={d2.contact_name ?? ""} />
+            <Field label="Contact phone" name="contact_phone" defaultValue={d2.contact_phone ?? ""} />
           </div>
           <div className="row mt">
-            <button className="btn" disabled={busy} onClick={() => setStep(1)}>Back</button>
+            <button type="button" className="btn" disabled={busy}
+                    onClick={(e) => { setDetails2(formValues(e.currentTarget.form!)); setStep(1); }}>Back</button>
             <button className="btn pri" disabled={busy}>Save & continue</button>
           </div>
         </form>

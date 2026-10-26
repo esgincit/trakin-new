@@ -15,7 +15,7 @@ export type Role =
 export type Level = "none" | "read" | "write";
 
 export type Workspace = {
-  tenant: { id: string; name: string; plan: string; status: string; company_id: string | null };
+  tenant: { id: string; name: string; plan: string; status: string; company_id: string | null; decision_note?: string | null };
   is_owner: boolean;
   permissions: Record<string, Level>;
   custom_role: string | null;

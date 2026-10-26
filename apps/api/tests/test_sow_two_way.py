@@ -74,7 +74,8 @@ async def test_the_counterparty_can_raise_a_sow_under_our_msa(client, auth, user
 
         # A draft is ours alone: the other side does not see it.
         assert not [s for s in (await client.get("/sows", headers=admin)).json() if s["id"] == sow["id"]]
-        assert not [s for s in (await client.get("/sows", headers=partner)).json() if s["id"] == sow["id"]]
+        # ...but the workspace that wrote it lists it, even under the other side's MSA (else it can't be sent).
+        assert [s for s in (await client.get("/sows", headers=partner)).json() if s["id"] == sow["id"]]
     finally:
         await cleanup()
 
@@ -152,8 +153,9 @@ async def test_a_third_workspace_sees_nothing(client, auth, user_ids):
 
         # The founder's own workspace is not a party to this MSA.
         other = {**auth("founder")}
-        assert not [s for s in (await client.get("/sows", headers=other)).json() if s["id"] == sow["id"]]
-        assert (await client.get(f"/sows/{sow['id']}", headers=other)).status_code == 404
+        listed = await client.get("/sows", headers=other)
+        assert listed.status_code == 403 or not [s for s in listed.json() if s["id"] == sow["id"]]
+        assert (await client.get(f"/sows/{sow['id']}", headers=other)).status_code in (403, 404)
         # And cannot answer it.
         assert (await client.post(f"/sows/{sow['id']}/respond", headers=other,
                                   json={"decision": "approve"})).status_code == 403

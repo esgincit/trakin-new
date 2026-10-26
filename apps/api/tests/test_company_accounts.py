@@ -91,9 +91,25 @@ async def test_platform_rejects_company_with_a_note(client, auth):
     p = auth("platform")
     r = await client.post(f"/platform/companies/{acct['tenant_id']}/decision", headers=p,
                           json={"decision": "reject", "note": "Could not verify the business"})
-    assert r.status_code == 200 and r.json()["status"] == "closed"
-    # a closed company is no longer reachable by its members
-    assert (await client.get("/session", headers=acct["headers"])).status_code == 403
+    assert r.status_code == 200 and r.json()["status"] == "rejected"
+    # T011303-1084: the owner still gets in, sees why, can fix the profile and resubmit.
+    h = acct["headers"]
+    s = await client.get("/session", headers=h)
+    assert s.status_code == 200, s.text
+    assert s.json()["tenant"]["status"] == "rejected"
+    assert s.json()["tenant"]["decision_note"] == "Could not verify the business"
+    blocked = await client.get("/consultants", headers=h)
+    assert blocked.status_code == 403 and blocked.json()["error"]["code"] == "company_rejected"
+    assert (await client.get(f"/companies/{acct['company_id']}", headers=h)).status_code == 200
+    mine = [b for b in (await client.get("/my/businesses", headers=auth("founder"))).json()
+            if b["tenant_id"] == acct["tenant_id"]]
+    assert mine and mine[0]["tenant_status"] == "rejected" and mine[0]["decision_note"] == "Could not verify the business"
+    assert "logo_url" in mine[0]
+    assert acct["tenant_id"] in [t["tenant_id"] for t in (await client.get("/me", headers=auth("founder"))).json()["tenants"]]
+    again = await client.post("/onboarding/resubmit", headers=h)
+    assert again.status_code == 200 and again.json()["status"] == "onboarding", again.text
+    assert (await client.post("/onboarding/resubmit", headers=h)).status_code == 409
+    assert (await client.get("/session", headers=h)).json()["tenant"]["status"] == "onboarding"
 
 
 async def test_platform_admins_managed_by_platform_only(client, auth):
