@@ -36,6 +36,7 @@ export default function CompanyDetail() {
   const canGrantSuper = myRole === "super_admin" || isTenantAdmin;
   const canGrantOwner = canGrantSuper || myRole === "owner";
   const taxFull = allows(workspace, "finance", "legal") || ownerLike;
+  const canCompliance = ownerLike;   // restricted gov documents: only super admin/owner (+ platform, seen in its own console)
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
@@ -217,6 +218,7 @@ export default function CompanyDetail() {
         </div>
       )}
       <Attachments ownerType="company" ownerId={id} canEdit={canEdit} />
+      {canCompliance && <ComplianceDocsCard c={c} reload={reload} />}
       {editing && <Modal title={`Edit ${c.name}`} onClose={() => setEditing(false)}><CompanyForm initial={c} onSaved={() => { setEditing(false); reload(); }} /></Modal>}
       {msaOpen && <CompanyMsaModal company={c} onClose={() => setMsaOpen(false)} onDone={() => { setMsaOpen(false); reload(); }} />}
     </>
@@ -274,5 +276,51 @@ function TaxForm({ id, c, reload }: { id: string; c: any; reload: () => void }) 
       </div>
       <button className="btn sm mt" disabled={busy}>Save tax details</button>
     </form>
+  );
+}
+
+const COMPLIANCE_OPTIONS: [string, string][] = [
+  ["tax_certificate", "Tax certificate"],
+  ["good_standing", "Certificate of good standing"],
+  ["govt_cert", "Other government-issued certificate"],
+];
+
+function ComplianceDocsCard({ c, reload }: { c: any; reload: () => void }) {
+  const docs = (c.files ?? []).filter((f: any) => f.restricted);
+  const kindfile = useRef<HTMLInputElement>(null);
+  const [kind, setKind] = useState("tax_certificate");
+  const { run, busy } = useAction();
+  return (
+    <div className="card mt" style={{ borderColor: "var(--warn)" }}>
+      <h3>Government documents (restricted)</h3>
+      <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
+        W-9, tax certificate, certificate of good standing or any government-authorised certificate.
+        Only this company's super admin / owners and the myTrakIn platform team can view these.
+        {c.w9_status !== "verified" && " Uploading a W-9 here submits it for the platform's verification before activation."}
+      </p>
+      {docs.map((f: any) => (
+        <div key={f.id} className="alert">
+          <Chip status="verified" />
+          <div style={{ flex: 1, minWidth: 0 }}><b>{f.name}</b><div className="muted" style={{ fontSize: 12 }}>Restricted · {date(f.created_at)}</div></div>
+          <button className="btn sm" onClick={async () => { const r = await run(() => api(`/files/${f.id}/link`)); if (r?.url) window.open(r.url, "_blank"); }}>Open</button>
+        </div>
+      ))}
+      {!docs.length && <p className="muted">No government documents yet.</p>}
+      <div className="row mt" style={{ alignItems: "center" }}>
+        <select className="ctl" style={{ maxWidth: 260 }} value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Document type">
+          {COMPLIANCE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          <option value="w9">Form W-9</option>
+        </select>
+        <input ref={kindfile} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={async (e) => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          const form = new FormData();
+          form.set("kind", kind);
+          form.set("file", f);
+          if (await run(() => api(`/companies/${c.id}/compliance-docs`, { form }), "Uploaded — visible to super admins and the platform only")) reload();
+        }} />
+        <button className="btn sm pri" disabled={busy} onClick={() => kindfile.current?.click()}>Upload document</button>
+      </div>
+    </div>
   );
 }

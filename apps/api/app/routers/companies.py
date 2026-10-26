@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime
 from uuid import UUID
 
 import orjson
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import IntegrityError
 
@@ -232,7 +232,7 @@ async def get_company(company_id: UUID, db: TenantDb = Depends(tenant_db)):
     company["documents"] = await db.all(
         "select id, label, doc_type, expires_on, status, blocks from tracked_documents where company_id = :id and active", {"id": company_id})
     company["files"] = await db.all(
-        "select id, name, size_bytes, mime_type, created_at from documents where owner_type = 'company' and owner_id = :id "
+        "select id, name, size_bytes, mime_type, created_at, restricted from documents where owner_type = 'company' and owner_id = :id "
         "and deleted_at is null order by created_at desc", {"id": company_id})
     if db.ctx.allows("finance"):
         company["balances"] = await db.one(
@@ -424,6 +424,82 @@ def _email_domain(email: str | None) -> str | None:
     if not email or "@" not in email:
         return None
     return email.split("@", 1)[1].lower()
+
+
+# Restricted compliance documents: uploaded by the platform team or the company's
+# own owner/super admin, viewable by exactly the same people (documents.restricted).
+COMPLIANCE_KINDS = {
+    "tax_certificate": "Tax certificate",
+    "good_standing": "Certificate of good standing",
+    "govt_cert": "Government-issued certificate",
+    "w9": "Form W-9",
+}
+
+
+async def _restricted_doc_owners_ok(db: TenantDb, company_id: UUID) -> bool:
+    """Only the platform and the company's own super admin (owners) may upload or see restricted docs."""
+    if db.ctx.is_platform_admin or db.ctx.role in ("platform_admin", "system"):
+        return True
+    return (await db.val("select mytrakin.company_role(:c)", {"c": company_id})) in ("super_admin", "owner")
+
+
+async def _store_restricted_doc(db: TenantDb, company_id: UUID, kind: str, uploaded_by: UUID | None,
+                                data: bytes, content_type: str, filename: str) -> dict:
+    label = COMPLIANCE_KINDS[kind]
+    ext = {"application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[content_type]
+    path = f"{db.ctx.tenant_id or 'platform'}/company/{company_id}/{kind}-{secrets.token_hex(6)}.{ext}"
+    await storage.upload("documents", path, data, content_type)
+    name = f"{label} — {(filename or f'{label}.{ext}').replace('/', '_')[-120:]}"
+    return await db.one(
+        """insert into documents (tenant_id, owner_type, owner_id, name, storage_path, mime_type, size_bytes, sha256,
+                                  restricted, uploaded_by)
+           values (:t, 'company', :o, :n, :p, :m, :s, :h, true, :u) returning id, name, restricted""",
+        {"t": db.ctx.tenant_id, "o": company_id, "n": name, "p": path,
+         "m": content_type, "s": len(data), "h": hashlib.sha256(data).hexdigest(), "u": uploaded_by})
+
+
+@router.post("/{company_id}/compliance-docs")
+async def upload_compliance_doc(company_id: UUID, kind: str = Form(pattern=rf"^({'|'.join(COMPLIANCE_KINDS)})$"),
+                                file: UploadFile = File(), db: TenantDb = Depends(tenant_db)):
+    """Restricted government documents: W-9 (after a manual-entry company is created),
+    tax certificate, certificate of good standing or another government-authorised
+    certificate. Uploaded by the platform team or the company's super admin / owner;
+    only they can see them. A W-9 here counts as the company's W-9 submission for
+    the platform's pre-activation review."""
+    company = await _company_or_404(db, company_id)
+    if not await _restricted_doc_owners_ok(db, company_id):
+        raise forbidden()
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in {"application/pdf", "image/jpeg", "image/png", "image/webp"}:
+        raise bad_request(f"Upload the {COMPLIANCE_KINDS[kind]} as a PDF, JPEG, PNG or WebP file")
+    data = await file.read()
+    if len(data) > MAX_W9_BYTES:
+        raise bad_request("The file is larger than 4 MB")
+    if content_type == "application/pdf" and not data.startswith(b"%PDF"):
+        raise bad_request("That file isn't a valid PDF")
+
+    doc = await _store_restricted_doc(db, company_id, kind, db.ctx.user_id, data, content_type,
+                                      file.filename or "")
+    out: dict = {"document_id": doc["id"], "name": doc["name"]}
+    if kind == "w9":
+        # The W-9 is now with the platform / owners for the pre-activation review.
+        try:
+            parsed = await w9svc.extract_w9(data, content_type)
+        except Exception:
+            parsed = {}
+        fields = {k: parsed.get(k) for k in ("legal_name", "dba", "tax_classification", "tin", "tin_type",
+                                             "address", "city", "state", "zip")}
+        await db.run(
+            """update companies set w9_data = cast(:d as jsonb), w9_status = 'submitted', w9_document_id = :doc,
+                   w9_decided_at = null, w9_decided_by = null, w9_note = null where id = :id""",
+            {"d": orjson.dumps(fields).decode(), "doc": doc["id"], "id": company_id})
+        await db.run(
+            """insert into tracked_documents (tenant_id, company_id, doc_type, label, status)
+               values (:t, :c, 'w9', 'Form W-9', 'valid') on conflict do nothing""",
+            {"t": company["tenant_id"], "c": company_id})
+        out["w9_status"] = "submitted"
+        out["extraction"] = parsed
+    return out
 
 
 FREE_MAIL = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "aol.com", "icloud.com", "proton.me", "protonmail.com"}

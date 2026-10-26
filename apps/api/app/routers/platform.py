@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, EmailStr, Field
 
 from ..config import get_settings
@@ -141,17 +141,64 @@ async def company_review(tenant_id: UUID, db: TenantDb = Depends(platform_db)):
     checks = await companies_router._run_verification(db, company)
     path = company.get("w9_document_id") and await db.val(
         "select storage_path from documents where id = :d", {"d": company["w9_document_id"]})
+    # Every attached file (restricted compliance docs included — the platform may see them).
+    drows = await db.all(
+        """select id, name, storage_path, restricted from documents
+            where owner_type = 'company' and owner_id = :o and deleted_at is null
+            order by created_at desc limit 50""", {"o": company["id"]})
     await _leave(db)
     w9_url = await storage.signed_url("documents", path) if path else None
+    files = [{"id": str(r["id"]), "name": r["name"], "restricted": r["restricted"],
+              "url": await storage.signed_url("documents", r["storage_path"])} for r in drows]
     keep = ("id", "business_code", "name", "kind", "country", "state", "address", "domain", "dba", "business_type",
             "contact_name", "contact_email", "tin", "cin", "tax_classification", "tax_address", "w9_data",
             "w9_status", "w9_document_id", "status", "created_at")
-    return {"tenant": tenant, "company": {k: company.get(k) for k in keep}, "w9_url": w9_url, **checks}
+    return {"tenant": tenant, "company": {k: company.get(k) for k in keep}, "w9_url": w9_url, "files": files, **checks}
 
 
 class CompanyDecision(BaseModel):
     decision: str = Field(pattern="^(activate|needs_info|reject)$")
     note: str | None = Field(None, max_length=1000)
+
+
+@router.post("/companies/{tenant_id}/compliance-docs", status_code=201)
+async def upload_compliance_doc(tenant_id: UUID, file: UploadFile = File(),
+                                kind: str = Form(), db: TenantDb = Depends(platform_db)):
+    """Platform upload of a restricted government document for a company:
+    the W-9 (so a manually-onboarded company can add it before activation),
+    tax certificate, certificate of good standing or another government-authorised
+    certificate. Only the platform and that company's super admin can view it."""
+    tenant = await db.one("select company_id from tenants where id = :id", {"id": tenant_id})
+    if tenant is None or tenant["company_id"] is None:
+        raise not_found("Company")
+    await _enter(db, tenant_id)
+    try:
+        return await companies_router.upload_compliance_doc(tenant["company_id"], kind=kind, file=file, db=db)
+    finally:
+        await _leave(db)
+
+
+class RestrictDocIn(BaseModel):
+    file_id: UUID
+
+
+@router.post("/companies/{tenant_id}/restrict-doc")
+async def restrict_doc(tenant_id: UUID, body: RestrictDocIn, db: TenantDb = Depends(platform_db)):
+    """Mark an existing company attachment as restricted (a government document) so
+    only the platform and that company's super admin / owners can view it."""
+    tenant = await db.one("select company_id from tenants where id = :id", {"id": tenant_id})
+    if tenant is None or tenant["company_id"] is None:
+        raise not_found("Company")
+    await _enter(db, tenant_id)
+    try:
+        if await db.run(
+                """update documents set restricted = true
+                    where id = :f and owner_type = 'company' and owner_id = :o and deleted_at is null""",
+                {"f": body.file_id, "o": tenant["company_id"]}) == 0:
+            raise not_found("File")
+        return {"id": body.file_id, "restricted": True}
+    finally:
+        await _leave(db)
 
 
 @router.post("/companies/{tenant_id}/decision")

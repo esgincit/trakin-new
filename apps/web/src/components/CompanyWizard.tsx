@@ -130,12 +130,13 @@ export function CompanyWizard({ onClose, onDone, account = false }: { onClose: (
 
       {step === 1 && country === "US" && !parsed && (
         <>
-          <p className="muted">First, the signed W-9 (PDF or photo). Legal name, business type, EIN and address are read automatically and the EIN is checked for duplicates.</p>
+          <p className="muted">Upload the signed W-9 (PDF or photo) — legal name, business type, EIN and address are read automatically and the EIN is checked for duplicates — or enter the details manually. With a manual entry you can upload the W-9 after the company is created; the platform verifies it before activation.</p>
           <input ref={w9file} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={(e) => uploadW9(e.target.files?.[0])} />
-          <button className="btn pri mt" disabled={busy} onClick={() => w9file.current?.click()}>Upload W-9</button>
-          {error && /couldn't find|manually/.test(error) && (
-            <p className="mt"><button className="btn" disabled={busy} onClick={() => { setError(null); setManual(true); setParsed({}); }}>Enter details manually instead</button></p>
-          )}
+          <div className="row mt">
+            <button className="btn pri" disabled={busy} onClick={() => w9file.current?.click()}>Upload W-9</button>
+            <button className="btn" disabled={busy} onClick={() => { setError(null); setManual(true); setParsed({}); }}>Fill details manually</button>
+          </div>
+          {error && <p className="mt"><button className="btn" disabled={busy} onClick={() => { setError(null); setManual(true); setParsed({}); }}>Enter details manually instead</button></p>}
         </>
       )}
 

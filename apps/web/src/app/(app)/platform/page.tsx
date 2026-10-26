@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Chip, Drawer, ErrorBox, Field, formValues, Kpi, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -183,6 +183,8 @@ function Review({ row, onClose, onDone }: { row: any; onClose: () => void; onDon
   const detail = useApi<any>(`/platform/companies/${row.tenant_id}`);
   const { run, busy } = useAction();
   const [note, setNote] = useState("");
+  const docfile = useRef<HTMLInputElement>(null);
+  const [docKind, setDocKind] = useState("tax_certificate");
   const decide = async (decision: "activate" | "needs_info" | "reject", msg: string) => {
     if (await run(() => api(`/platform/companies/${row.tenant_id}/decision`, { body: { decision, note: note || null } }), msg)) onDone();
   };
@@ -208,6 +210,41 @@ function Review({ row, onClose, onDone }: { row: any; onClose: () => void; onDon
             <div key={k} className="alert"><Chip status={v.status === "pass" ? "active" : v.status === "warn" ? "pending" : "overdue"}>{v.status}</Chip>
               <b>{label(k)}</b><span className="muted">{v.detail}</span></div>
           ))}
+          <h3 className="mt">Company documents</h3>
+          {(detail.data.files ?? []).map((f: any) => (
+            <div key={f.id} className="alert">
+              <Chip status={f.restricted ? "pending" : "active"} />
+              <div style={{ flex: 1, minWidth: 0 }}><b>{f.name}</b><div className="muted" style={{ fontSize: 12 }}>{f.restricted ? "Restricted — government document" : "Attachment"}</div></div>
+              <div className="row" style={{ gap: 6 }}>
+                <a className="btn sm" href={f.url} target="_blank" rel="noreferrer">Open</a>
+                {!f.restricted && (
+                  <button className="btn sm" disabled={busy} onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm(`Restrict ${f.name}? Only the platform and the company's super admins will see it.`) &&
+                        await run(() => api(`/platform/companies/${row.tenant_id}/restrict-doc`, { body: { file_id: f.id } }), "Marked restricted")) detail.reload();
+                  }}>Restrict</button>
+                )}
+              </div>
+            </div>
+          ))}
+          {!((detail.data.files ?? []).length) && <p className="muted">No files attached yet.</p>}
+          <div className="row mt" style={{ alignItems: "center" }}>
+            <select className="ctl" style={{ maxWidth: 250 }} value={docKind} onChange={(e) => setDocKind(e.target.value)} aria-label="Document type">
+              <option value="tax_certificate">Tax certificate</option>
+              <option value="good_standing">Certificate of good standing</option>
+              <option value="govt_cert">Other government-issued certificate</option>
+              <option value="w9">Form W-9</option>
+            </select>
+            <input ref={docfile} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" hidden onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              const form = new FormData();
+              form.set("kind", docKind);
+              form.set("file", f);
+              if (await run(() => api(`/platform/companies/${row.tenant_id}/compliance-docs`, { form }), "Uploaded — restricted to the platform and the company's super admins")) detail.reload();
+            }} />
+            <button className="btn sm pri" disabled={busy} onClick={() => docfile.current?.click()}>Upload gov document</button>
+          </div>
           {detail.data.blockers?.length > 0 && <p className="note">Still blocking: {detail.data.blockers.join("; ")}. Activating verifies the W-9 you reviewed here.</p>}
           <label className="mt" style={{ display: "block" }}>Note to the owner (needed to ask for more or to reject)
             <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} style={{ width: "100%" }} />
