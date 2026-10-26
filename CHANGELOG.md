@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Active NDA / MSA now satisfy the project-creation gate even when they were recorded differently (2026-10-26):**
+  the gate (_activation_gate) matched the counterpart only by the exact company id — an NDA/MSA recorded
+  against a same-named company record (how it sits in your own directory vs their own account) plus the
+  shared-agreement branch were missed, and owners were told to switch OFF 'Require NDA/MSA' to escape.
+  `has_active_agreement` now brute-falls back on the counterparty NAME (both in-tenant agreements and shared
+  ones) after the exact-id branches, strictly as a fallback; message says "The counterparty has no signed
+  NDA" when the name doesn't resolve. Valid paths keep operating unchanged (verified both directions on the
+  production data).
+
 - **Consultant pickers show name, ID and e-mail; Send-for-signature hidden once active (2026-10-26):**
   - The Add-agreement Consultant dropdown now shows Name · ID · e-mail (same for the company page's New MSA),
     and the New placement Consultant dropdown shows Name · ID · e-mail · employment type — same-name

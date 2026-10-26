@@ -52,7 +52,9 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
                                on: date | None = None) -> bool:
     """An agreement in force (accepted, or active) of one of these kinds with the party covers the date.
     Pending and rejected MSAs don't count: the other company hasn't accepted them.
-    An MSA lives in the workspace that sent it, so one the other company sent us counts too (shared_agreements)."""
+    An MSA lives in the workspace that sent it, so one the other company sent us counts too (shared_agreements).
+    Matched by the company id first; a same-name company (how the counterparty was recorded here vs their own
+    account) also matches — strictly a fallback under the exact branches, never a replacement for them."""
     return bool(await db.val(
         """select exists (select 1 from agreements
                            where status in ('active', 'accepted') and kind = any(:kinds)
@@ -64,5 +66,22 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
                       where s.status in ('active', 'accepted') and s.kind = any(:kinds)
                         and mytrakin.agreement_peer_company(s.id) = cast(:co as uuid)
                         and coalesce(s.effective_on, cast(:d as date)) <= :d
-                        and coalesce(s.expires_on, cast(:d as date)) >= :d))""",
+                        and coalesce(s.expires_on, cast(:d as date)) >= :d))
+               or (cast(:co as uuid) is not null and exists (
+                     select 1 from companies me
+                      join companies oc on lower(oc.name) = lower(me.name)
+                     join agreements a2 on a2.company_id = oc.id
+                                       and a2.tenant_id = mytrakin.ctx_tenant()
+                                       and a2.status in ('active', 'accepted') and a2.kind = any(:kinds)
+                                       and coalesce(a2.effective_on, cast(:d as date)) <= :d
+                                       and coalesce(a2.expires_on, cast(:d as date)) >= :d
+                      where me.id = :co))
+               or (cast(:co as uuid) is not null and exists (
+                     select 1 from companies me
+                     join mytrakin.shared_agreements() s
+                       on lower(coalesce(s.counterparty, '')) = lower(me.name)
+                      and s.status in ('active', 'accepted') and s.kind = any(:kinds)
+                      and coalesce(s.effective_on, cast(:d as date)) <= :d
+                      and coalesce(s.expires_on, cast(:d as date)) >= :d
+                      where me.id = :co))""",
         {"kinds": list(kinds), "co": company_id, "con": consultant_id, "d": on or date.today()}))
