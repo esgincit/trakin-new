@@ -66,7 +66,14 @@ function Contracts() {
         { key: "tone", label: "", render: (r) => <Chip status={r.tone === "bad" ? "missing" : "pending"}>{r.tone === "bad" ? "Missing" : "Soon"}</Chip> },
         { key: "category", label: "Area", type: "label", filter: true }, { key: "who", label: "Who" }, { key: "what", label: "What" },
       ]} empty="Nothing missing. Every company has an MSA and every consultant has their agreements and policies." />}
-      {modal === "agreement" && <AgreementModal onClose={() => setModal(null)} onDone={(a) => router.push(`/contracts/agreements/${a.id}`)} />}
+      {modal === "agreement" && <AgreementModal onClose={() => setModal(null)} onDone={(a) => {
+        // A new draft is sent straight to e-signature; an already-signed record goes to its detail page.
+        if (a.status === "draft") {
+          router.push(`/esign/new?agreement_id=${a.id}&title=${encodeURIComponent(`${label(a.kind)} ${a.code}`)}`);
+        } else {
+          router.push(`/contracts/agreements/${a.id}`);
+        }
+      }} />}
       {modal === "sow" && <SowModal onClose={() => setModal(null)} onDone={(s) => router.push(`/contracts/sows/${s.id}`)} />}
     </>
   );
@@ -116,7 +123,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
           <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} />
           {existing && <Field label="Signed by" name="signed_by" full />}
         </div>
-        <p className="note">The agreement number is assigned automatically. {existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, send it for e-signature from the agreement page."}</p>
+        <p className="note">The agreement number is assigned automatically. {existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, it opens for e-signature."}</p>
         <button className="btn pri mt" disabled={busy}>Save agreement</button>
       </form>
     </Modal>
