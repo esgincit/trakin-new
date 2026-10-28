@@ -66,9 +66,11 @@ function Contracts() {
         { key: "tone", label: "", render: (r) => <Chip status={r.tone === "bad" ? "missing" : "pending"}>{r.tone === "bad" ? "Missing" : "Soon"}</Chip> },
         { key: "category", label: "Area", type: "label", filter: true }, { key: "who", label: "Who" }, { key: "what", label: "What" },
       ]} empty="Nothing missing. Every company has an MSA and every consultant has their agreements and policies." />}
-      {modal === "agreement" && <AgreementModal onClose={() => setModal(null)} onDone={(a) => {
+      {modal === "agreement" && <AgreementModal onClose={() => setModal(null)} onDone={(a, existing) => {
         // A new draft is sent straight to e-signature; an already-signed record goes to its detail page.
-        if (a.status === "draft") {
+        // Note: the backend sets MSA/subcontract status to "pending" (needs counterparty acceptance),
+        // so we must not key off the returned status — use the user's choice instead.
+        if (!existing) {
           router.push(`/esign/new?agreement_id=${a.id}&title=${encodeURIComponent(`${label(a.kind)} ${a.code}`)}`);
         } else {
           router.push(`/contracts/agreements/${a.id}`);
@@ -79,7 +81,7 @@ function Contracts() {
   );
 }
 
-function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: any) => void }) {
+function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: any, existing: boolean) => void }) {
   const consultants = useApi<any[]>("/consultants");
   const [kind, setKind] = useState("msa");
   const [existing, setExisting] = useState(false);
@@ -100,7 +102,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
         const v: any = formValues(e.currentTarget);
         v.kind = kind; v.status = existing ? "active" : "draft"; v.source = existing ? "manual" : "myTrakIn";
         const r = await run(() => api("/agreements", { body: v }), "Agreement saved");
-        if (r) onDone(r);
+        if (r) onDone(r, existing);
       }}>
         <div className="fields">
           <Field label="Type" name="kind_select" as="select" value={kind} onChange={(e: any) => setKind(e.target.value)}
