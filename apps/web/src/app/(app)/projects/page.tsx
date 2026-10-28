@@ -130,6 +130,14 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
     .filter((c) => placement || true);
   // On edit the backend PATCH accepts only these fields, so send only these.
   const PATCH_FIELDS = ["role_title", "end_date", "hours_per_week", "status", "bill_rate", "pay_rate", "ar_terms", "ap_terms", "pay_when_paid"];
+  // Project options: local projects plus shared ones not already present locally (avoid duplicates).
+  const localProjectIds = new Set((projects.data ?? []).map((p) => p.id));
+  const projectOptions = [
+    ...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
+    ...(shared.data ?? [])
+      .filter((p) => !p.local_project_id && !localProjectIds.has(p.id))
+      .map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string]),
+  ];
 
   return (
     <Modal title={placement ? "Edit placement" : "New placement"} onClose={onClose}>
@@ -155,8 +163,7 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
                   options={pick(consultants.data, (c) => c.status !== "former",
                                 (c) => `${c.full_name}${c.user_code ? " · " + c.user_code : ""}${c.email ? " · " + c.email : ""} (${label(c.engagement)})`)} />}
           {!placement && <Field label="Project" name="project_id" as="select" required value={projectId} onChange={(e: any) => setProjectId(e.target.value)}
-                  options={[...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
-                    ...(shared.data ?? []).filter((p) => !p.local_project_id).map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string])]} />}
+                  options={projectOptions} />}
           {!placement && projectId && (
             <div className="full"><label>End client</label><div className="ctl">{projClient ?? "—"}</div></div>
           )}

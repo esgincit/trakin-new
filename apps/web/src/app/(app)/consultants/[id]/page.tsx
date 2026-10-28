@@ -22,6 +22,16 @@ export default function ConsultantDetail() {
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const done = c.onboarding_checklist.filter((x: any) => x.done).length;
+  const allDone = c.onboarding_checklist.length > 0 && done === c.onboarding_checklist.length;
+
+  const toggleAll = async () => {
+    if (!canEdit || busy) return;
+    const target = !allDone;
+    await Promise.all((c.onboarding_checklist ?? []).map((_item: any, i: number) =>
+      run(() => api(`/consultants/${id}/checklist`, { body: { index: i, done: target } }))
+    ));
+    reload();
+  };
 
   return (
     <>
@@ -37,6 +47,14 @@ export default function ConsultantDetail() {
       <div className="grid c2">
         <div className="card">
           <h3>Onboarding checklist · {done}/{c.onboarding_checklist.length}</h3>
+          {canEdit && !busy && (
+            <div className="row mt" style={{ marginBottom: 8 }}>
+              <input type="checkbox" checked={allDone} onChange={toggleAll} />
+              <span className="muted" style={{ marginLeft: 6, cursor: "pointer" }} onClick={toggleAll}>
+                {allDone ? "Select none" : "Select all"}
+              </span>
+            </div>
+          )}
           {c.onboarding_checklist.map((item: any, i: number) => (
             <label key={i} className="row" style={{ padding: "6px 0", color: "var(--ink)", borderBottom: "1px solid var(--line)" }}>
               <input type="checkbox" checked={item.done} disabled={!canEdit || busy}
