@@ -278,6 +278,16 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
     """
     if not db.ctx.internal and db.ctx.role not in ("vendor_admin", "client_user"):
         raise ApiError(403, "forbidden", "Use My timesheet for your own history")
+
+    company_id = db.ctx.company_id
+    # For client_user, fall back to looking up the company from active memberships
+    # if it isn't already on the request context.
+    if db.ctx.role == "client_user" and company_id is None and db.ctx.user_id is not None:
+        company_id = await db.val(
+            "select company_id from mytrakin.company_members"
+            " where user_id = :uid and status = 'active' order by created_at desc limit 1",
+            {"uid": db.ctx.user_id})
+
     return await db.all(
         """select t.id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
                   c.full_name, c.id as consultant_id, coalesce(pr.name, 'Internal') as project,
@@ -294,7 +304,7 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
              group by t.id, c.id, pr.name, t.placed_by_approved, t.end_client_approved
              order by t.week_start desc, c.full_name, project
              limit 2000""",
-        {"c": consultant_id, "f": since, "u": until, "role": db.ctx.role, "co": db.ctx.company_id})
+        {"c": consultant_id, "f": since, "u": until, "role": db.ctx.role, "co": company_id})
 
 
 # ----------------------------------------------------------------------------- consultant
