@@ -4,9 +4,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction, useToast } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { AGREEMENT_TERMS, daysLeft, label } from "@/lib/format";
 import { linkFor } from "@/lib/links";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -85,7 +85,9 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
   const consultants = useApi<any[]>("/consultants");
   const [kind, setKind] = useState("msa");
   const [existing, setExisting] = useState(false);
-  const { run, busy } = useAction();
+  const [error, setError] = useState<ApiError | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
   // NDAs are signed with companies (Verify → NDA → MSA) or with consultants.
   const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
   const personal = ["offer_letter", "ica"].includes(kind) || (kind === "nda" && ndaWith === "consultant");
@@ -93,6 +95,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
     (c.user_code ? c.full_name + " · " + c.user_code : c.full_name) + (c.email ? " · " + c.email : "");
   return (
     <Modal title="Add agreement" onClose={onClose}>
+      {error && <ErrorBox error={error} />}
       <div className="seg" style={{ marginBottom: 8 }}>
         <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (send for signature)</button>
         <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
@@ -101,8 +104,17 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
         e.preventDefault();
         const v: any = formValues(e.currentTarget);
         v.kind = kind; v.status = existing ? "active" : "draft"; v.source = existing ? "manual" : "myTrakIn";
-        const r = await run(() => api("/agreements", { body: v }), "Agreement saved");
-        if (r) onDone(r, existing);
+        setError(null);
+        setBusy(true);
+        try {
+          const r = await api("/agreements", { body: v });
+          toast("Agreement saved");
+          if (r) onDone(r, existing);
+        } catch (e) {
+          setError(e as ApiError);
+        } finally {
+          setBusy(false);
+        }
       }}>
         <div className="fields">
           <Field label="Type" name="kind_select" as="select" value={kind} onChange={(e: any) => setKind(e.target.value)}
