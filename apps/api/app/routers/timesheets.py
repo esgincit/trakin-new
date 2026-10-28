@@ -280,13 +280,22 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
         raise ApiError(403, "forbidden", "Use My timesheet for your own history")
 
     company_id = db.ctx.company_id
-    # For client_user, fall back to looking up the company from active memberships
-    # if it isn't already on the request context.
-    if db.ctx.role == "client_user" and company_id is None and db.ctx.user_id is not None:
+    # For client_user, resolve the company if it isn't already on the request
+    # context (e.g. when only a company membership exists without a workspace row).
+    if db.ctx.role == "client_user" and company_id is None:
         company_id = await db.val(
-            "select company_id from mytrakin.company_members"
-            " where user_id = :uid and status = 'active' order by created_at desc limit 1",
-            {"uid": db.ctx.user_id})
+            "select company_id from mytrakin.memberships where id = :m",
+            {"m": db.ctx.membership_id})
+        if company_id is None and db.ctx.user_id is not None:
+            company_id = await db.val(
+                "select company_id from mytrakin.company_members"
+                " where user_id = :uid and status = 'active' order by created_at desc limit 1",
+                {"uid": db.ctx.user_id})
+    # Make sure ctx_company() reflects the resolved company so RLS policies that
+    # read ctx_company() (e.g. timesheets_client_read) work correctly in this session.
+    if db.ctx.role == "client_user" and company_id is not None:
+        await db.run("select set_config('app.company_id', :cid, true)",
+                     {"cid": str(company_id)})
 
     return await db.all(
         """select t.id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
