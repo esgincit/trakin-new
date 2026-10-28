@@ -270,8 +270,13 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
 @router.get("/history")
 async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None = None,
                   since: date | None = Query(None, alias="from"), until: date | None = Query(None, alias="to")):
-    """All weeks, one line per consultant, week and project."""
-    if not db.ctx.internal and db.ctx.role != "vendor_admin":
+    """All weeks, one line per consultant, week and project.
+
+    Internal staff and vendor admins see everything. A client_user (end client
+    representative) only sees weeks where their company is the end client on at
+    least one placement in the timesheet.
+    """
+    if not db.ctx.internal and db.ctx.role not in ("vendor_admin", "client_user"):
         raise ApiError(403, "forbidden", "Use My timesheet for your own history")
     return await db.all(
         """select t.id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
@@ -282,10 +287,14 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
               left join placements p on p.id = e.placement_id left join projects pr on pr.id = p.project_id
              where (cast(:c as uuid) is null or t.consultant_id = :c)
                and (cast(:f as date) is null or t.week_start >= :f) and (cast(:u as date) is null or t.week_start <= :u)
+               and (:role <> 'client_user' or exists (
+                     select 1 from timesheet_entries e2
+                     join placements p2 on p2.id = e2.placement_id
+                    where e2.timesheet_id = t.id and p2.end_client_company_id = :co))
              group by t.id, c.id, pr.name, t.placed_by_approved, t.end_client_approved
              order by t.week_start desc, c.full_name, project
              limit 2000""",
-        {"c": consultant_id, "f": since, "u": until})
+        {"c": consultant_id, "f": since, "u": until, "role": db.ctx.role, "co": db.ctx.company_id})
 
 
 # ----------------------------------------------------------------------------- consultant

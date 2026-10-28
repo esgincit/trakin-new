@@ -119,10 +119,14 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
           <Field label="You are the" name="tenant_side" as="select" options={personal ? [["employer", "Employer / buyer"], ["buyer", "Buyer"]] : [["supplier", "Supplier (you bill them)"], ["buyer", "Buyer (you pay them)"]]} />
           <Field label="Effective" name="effective_on" type="date" required />
           <Field label="Expires" name="expires_on" type="date" />
-          <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} />
-          <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} />
-          <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} />
-          <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} />
+          {kind !== "nda" && (
+            <>
+              <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} />
+              <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} />
+              <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} />
+              <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} />
+            </>
+          )}
           {existing && <Field label="Signed by" name="signed_by" full />}
         </div>
         <p className="note">The agreement number is assigned automatically. {existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, it opens for e-signature."}</p>
