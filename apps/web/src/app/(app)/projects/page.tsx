@@ -5,7 +5,7 @@ import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
 import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -118,6 +118,7 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
   const sows = useApi<any[]>("/sows");
   const [consultantId, setConsultantId] = useState(placement?.consultant_id ?? "");
   const { run, busy } = useAction();
+  const [placementError, setPlacementError] = useState("");
   const consultant = consultants.data?.find((c) => c.id === consultantId) ?? (placement ? { engagement: placement.engagement } : null) ?? null;
   const [projectId, setProjectId] = useState(placement?.project_id ?? "");
   const projClient = projects.data?.find((p) => p.id === projectId)?.client
@@ -141,8 +142,13 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
 
   return (
     <Modal title={placement ? "Edit placement" : "New placement"} onClose={onClose}>
+      {placementError && <div className="card mt" style={{ borderColor: "var(--bad)" }}>
+        <b style={{ color: "var(--bad)" }}>Placement cannot be created</b>
+        <p className="muted" style={{ margin: "6px 0 0" }}>{placementError}</p>
+      </div>}
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();
+        setPlacementError("");
         const v: any = formValues(e.currentTarget);
         for (const k of ["bill_rate", "pay_rate", "hours_per_week"]) if (v[k]) v[k] = Number(v[k]);
         v.pay_when_paid = v.pay_when_paid === "yes";
@@ -155,7 +161,12 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
           }
           if (await run(() => api(`/placements/${placement.id}`, { method: "PATCH", body }), "Placement updated")) onDone();
         } else {
-          if (await run(() => api("/placements", { body: v }), "Placement created")) onDone();
+          try {
+            await api("/placements", { body: v });
+            onDone();
+          } catch (err) {
+            setPlacementError((err as ApiError).message);
+          }
         }
       }}>
         <div className="fields">
