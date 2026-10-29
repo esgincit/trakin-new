@@ -187,6 +187,36 @@ async def get_agreement(agreement_id: UUID, db: TenantDb = Depends(tenant_db)):
     return row
 
 
+class AgreementPatch(BaseModel):
+    effective_on: date | None = None
+    expires_on: date | None = None
+    payment_terms: str | None = None
+    renewal: str | None = None
+    notice_period: str | None = None
+    insurance_required: str | None = None
+    tenant_side: str | None = Field(None, pattern="^(supplier|buyer|employer)$")
+
+
+@router.patch("/agreements/{agreement_id}")
+async def edit_agreement(agreement_id: UUID, body: AgreementPatch, db: TenantDb = Depends(tenant_db)):
+    """Edit a draft agreement before it is sent for signature. Only drafts can be edited."""
+    db.ctx.require("legal", "account_manager", "finance", "hr")
+    row = await db.one(
+        "select status, kind from agreements where id = :id", {"id": agreement_id})
+    if row is None:
+        raise not_found("Agreement")
+    if row["status"] != "draft":
+        raise bad_request("Only draft agreements can be edited")
+    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    if not updates:
+        raise bad_request("No fields to update")
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    updates["id"] = agreement_id
+    await db.run(
+        f"""update agreements set {set_clause} where id = :id""", updates)
+    return await get_agreement(agreement_id, db)
+
+
 @router.get("/sows")
 async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
     show_value = db.ctx.allows("finance", "legal", "account_manager")

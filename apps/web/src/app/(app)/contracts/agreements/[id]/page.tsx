@@ -7,7 +7,7 @@ import { Acceptance } from "@/components/Acceptance";
 import { Attachments } from "@/components/Attachments";
 import { Bar, Chip, ErrorBox, Field, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { date, label } from "@/lib/format";
+import { date, label, AGREEMENT_TERMS } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -96,7 +96,19 @@ export default function AgreementDetail() {
   const router = useRouter();
   const { workspace } = useSession();
   const { data: a, error, loading, reload } = useApi(`/agreements/${id}`);
-  const { run } = useAction();
+  const { run, busy } = useAction();
+  const [editing, setEditing] = useState(false);
+  const editValues: any = {};
+  const startEditing = () => {
+    setEditing(true);
+    editValues.effective_on = a.effective_on;
+    editValues.expires_on = a.expires_on;
+    editValues.payment_terms = a.payment_terms ?? "";
+    editValues.renewal = a.renewal ?? "";
+    editValues.notice_period = a.notice_period ?? "";
+    editValues.insurance_required = a.insurance_required ?? "";
+    editValues.tenant_side = a.tenant_side;
+  };
   // A document sent for signature lives with its envelope, not in this agreement's
   // files — open it from there rather than duplicating the upload.
   const openDocument = async (envelopeId: string, doc: any) => {
@@ -111,56 +123,94 @@ export default function AgreementDetail() {
   return (
     <>
       <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{shared ? `Received from ${a.sent_by_company ?? "the other company"}` : a.counterparty} · <Chip status={a.status} /> · {shared ? "Sent to your company" : a.source === "myTrakIn" ? "Created in myTrakIn" : `Recorded (${a.source})`}</>}
-        actions={<>
+        actions={<> 
           <button className="btn" onClick={() => router.back()}>Back</button>
+          {canEdit && a.status === "draft" && <button className="btn" onClick={startEditing}>Edit</button>}
           {canEdit && a.status === "draft" && <Link className="btn pri" href={`/esign/new?agreement_id=${id}&title=${encodeURIComponent(`${label(a.kind)} ${a.code}`)}`}>Send for signature</Link>}
         </>} />
-      <div className="grid c2">
-        <div className="card">
-          <dl className="dl">
-            <dt>With</dt><dd>{a.counterparty}</dd>
-            <dt>You are</dt><dd>{label(a.tenant_side)}</dd>
-            <dt>Effective</dt><dd>{date(a.effective_on)}</dd>
-            <dt>Expires</dt><dd>{date(a.expires_on)}</dd>
-            <dt>Payment terms</dt><dd>{a.payment_terms ?? "–"}</dd>
-            <dt>Renewal</dt><dd>{a.renewal ?? "–"}</dd>
-            <dt>Notice</dt><dd>{a.notice_period ?? "–"}</dd>
-            <dt>Insurance</dt><dd>{a.insurance_required ?? "–"}</dd>
-            <dt>Signed by</dt><dd>{a.signed_by ?? "–"}</dd>
-          </dl>
-        </div>
-        <div className="card">
-          <h3>SOWs under this agreement</h3>
-          {a.sows.map((s: any) => (
-            <div key={s.id} className="alert click" onClick={() => router.push(`/contracts/sows/${s.id}`)}>
-              <div style={{ flex: 1 }}><b>{s.code}</b> {s.title}<div className="muted" style={{ fontSize: 12.5 }}>Ends {date(s.end_date)}</div></div>
-              <div style={{ width: 90 }}><Bar pct={s.burn_pct} /></div>
-            </div>
-          ))}
-          {!a.sows.length && <p className="muted">None yet.</p>}
-          <h3 className="mt">Signatures</h3>
-          {a.envelopes.map((e: any) => (
-            <div key={e.id} className="alert">
-              <div className="alert click" onClick={() => router.push(`/esign/${e.id}`)}>
-                <Chip status={e.status} />{e.number} · {e.title}
+      {editing ? (
+        <div className="grid c2">
+          <div className="card">
+            <h3>Edit agreement</h3>
+            <form className="form" onSubmit={async (e) => {
+              e.preventDefault();
+              const updates: any = {};
+              for (const k of ["effective_on", "expires_on", "payment_terms", "renewal", "notice_period", "insurance_required", "tenant_side"]) {
+                if (editValues[k] !== undefined && editValues[k] !== null && editValues[k] !== "") updates[k] = editValues[k];
+              }
+              if (Object.keys(updates).length === 0) {
+                setEditing(false);
+                return;
+              }
+              if (await run(() => api(`/agreements/${id}`, { method: "PATCH", body: updates }), "Agreement updated")) {
+                setEditing(false);
+                reload();
+              }
+            }}>
+              <div className="fields">
+                <Field label="Effective" name="effective_on" type="date" required defaultValue={editValues.effective_on} onChange={(e: any) => editValues.effective_on = e.target.value} />
+                <Field label="Expires" name="expires_on" type="date" defaultValue={editValues.expires_on} onChange={(e: any) => editValues.expires_on = e.target.value} />
+                <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} defaultValue={editValues.payment_terms || ""} onChange={(e: any) => editValues.payment_terms = e.target.value} />
+                <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} defaultValue={editValues.renewal || ""} onChange={(e: any) => editValues.renewal = e.target.value} />
+                <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} defaultValue={editValues.notice_period || ""} onChange={(e: any) => editValues.notice_period = e.target.value} />
+                <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} defaultValue={editValues.insurance_required || ""} onChange={(e: any) => editValues.insurance_required = e.target.value} />
+                <Field label="You are the" name="tenant_side" as="select" options={[["supplier", "Supplier"], ["buyer", "Buyer"], ["employer", "Employer"]]} defaultValue={editValues.tenant_side} onChange={(e: any) => editValues.tenant_side = e.target.value} />
               </div>
-              {e.documents?.length > 0 && (
-                <div className="mt" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  <span className="muted" style={{ fontSize: 12.5, alignSelf: "center" }}>
-                    {e.documents.length > 1 ? `${e.documents.length} documents:` : "Document:"}
-                  </span>
-                  {e.documents.map((d: any) => (
-                    <button key={d.id} className="btn sm" onClick={() => openDocument(e.id, d)}>
-                      📄 {d.name}{d.size_bytes != null ? ` · ${Math.ceil(d.size_bytes / 1024)} KB` : ""}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
+              <div className="row mt">
+                <button className="btn pri" disabled={busy}>Save</button>
+                <button className="btn" onClick={() => setEditing(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid c2">
+          <div className="card">
+            <dl className="dl">
+              <dt>With</dt><dd>{a.counterparty}</dd>
+              <dt>You are</dt><dd>{label(a.tenant_side)}</dd>
+              <dt>Effective</dt><dd>{date(a.effective_on)}</dd>
+              <dt>Expires</dt><dd>{date(a.expires_on)}</dd>
+              <dt>Payment terms</dt><dd>{a.payment_terms ?? "–"}</dd>
+              <dt>Renewal</dt><dd>{a.renewal ?? "–"}</dd>
+              <dt>Notice</dt><dd>{a.notice_period ?? "–"}</dd>
+              <dt>Insurance</dt><dd>{a.insurance_required ?? "–"}</dd>
+              <dt>Signed by</dt><dd>{a.signed_by ?? "–"}</dd>
+            </dl>
+          </div>
+          <div className="card">
+            <h3>SOWs under this agreement</h3>
+            {a.sows.map((s: any) => (
+              <div key={s.id} className="alert click" onClick={() => router.push(`/contracts/sows/${s.id}`)}>
+                <div style={{ flex: 1 }}><b>{s.code}</b> {s.title}<div className="muted" style={{ fontSize: 12.5 }}>Ends {date(s.end_date)}</div></div>
+                <div style={{ width: 90 }}><Bar pct={s.burn_pct} /></div>
+              </div>
+            ))}
+            {!a.sows.length && <p className="muted">None yet.</p>}
+            <h3 className="mt">Signatures</h3>
+            {a.envelopes.map((e: any) => (
+              <div key={e.id} className="alert">
+                <div className="alert click" onClick={() => router.push(`/esign/${e.id}`)}>
+                  <Chip status={e.status} />{e.number} · {e.title}
+                </div>
+                {e.documents?.length > 0 && (
+                  <div className="mt" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <span className="muted" style={{ fontSize: 12.5, alignSelf: "center" }}>
+                      {e.documents.length > 1 ? `${e.documents.length} documents:` : "Document:"}
+                    </span>
+                    {e.documents.map((d: any) => (
+                      <button key={d.id} className="btn sm" onClick={() => openDocument(e.id, d)}>
+                        📄 {d.name}{d.size_bytes != null ? ` · ${Math.ceil(d.size_bytes / 1024)} KB` : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
+          </div>
+        </div>
+      )}
       {MASTER.includes(a.kind) && a.status === "rejected" && (
         <p className="err" role="alert">Rejected{a.decision_note ? <>: “{a.decision_note}”</> : ""}. Send a corrected MSA to reopen it.</p>
       )}

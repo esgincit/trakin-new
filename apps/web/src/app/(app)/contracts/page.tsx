@@ -163,7 +163,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   return (
     <Modal title="Add SOW / work order" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
-        <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (needs approval)</button>
+        <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (send for signature)</button>
         <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
       </div>
       <form className="form" onSubmit={async (e) => {
