@@ -359,7 +359,6 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
     if db.ctx.role != "consultant":
         raise ApiError(403, "forbidden", "Only consultants have a personal timesheet")
     ws = _sunday(week) if week else week_start(date.today())
-    ts = await db.one("select * from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
     projects = await db.all(
         """select p.id as placement_id, pr.name as project, p.role_title, p.hours_per_week
              from placements p join projects pr on pr.id = p.project_id
@@ -367,10 +366,15 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
               and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws
             order by pr.name""",
         {"c": db.ctx.consultant_id, "ws": ws})
+    # One timesheet per placement after the per-placement split; aggregate entries
+    # and approval state across all of them for a single consolidated view.
+    tss = await db.all("select id, status, note, placed_by_approved, end_client_approved, reject_reason, weekend_requested_at, weekend_review_note, weekend_confirmed from timesheets where consultant_id = :c and week_start = :ws",
+                       {"c": db.ctx.consultant_id, "ws": ws})
     grid: dict[str | None, list[Decimal]] = defaultdict(lambda: [Decimal(0)] * 7)
-    if ts:
+    for ts in tss:
         for e in await db.all("select placement_id, work_date, hours from timesheet_entries where timesheet_id = :id", {"id": ts["id"]}):
-            grid[str(e["placement_id"]) if e["placement_id"] else None][(e["work_date"] - ws).days] += Decimal(e["hours"])
+            pid = str(e["placement_id"]) if e["placement_id"] else None
+            grid[pid][(e["work_date"] - ws).days] += Decimal(e["hours"])
     rows = [{"placement_id": p["placement_id"], "project": p["project"], "hours": grid.get(str(p["placement_id"]), [Decimal(0)] * 7)}
             for p in projects]
     if None in grid:
@@ -380,8 +384,16 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
         """select starts_on, ends_on, kind from time_off where consultant_id = :c and status in ('approved', 'holiday')
             and starts_on <= cast(:ws as date) + 6 and ends_on >= :ws""", {"c": db.ctx.consultant_id, "ws": ws})
     time_off = [next((o["kind"] for o in off if o["starts_on"] <= ws + timedelta(days=i) <= o["ends_on"]), None) for i in range(7)]
+    # Aggregate approval state across all timesheets for this week.
+    any_submitted = any(t["status"] == "submitted" for t in tss)
+    any_approved = any(t["status"] == "approved" for t in tss)
+    status = "approved" if any_approved else ("submitted" if any_submitted else ("draft" if tss else "not_submitted"))
+    placed_by_approved = any(t["placed_by_approved"] for t in tss)
+    end_client_approved = any(t["end_client_approved"] for t in tss)
+    reject_reason = next((t["reject_reason"] for t in tss if t["reject_reason"]), None)
+    note = next((t["note"] for t in tss if t["note"]), "")
     # Company names for the approval-status panel: the placing workspace and the
-    # end client(s) on the weeks' placements (public names â€” cross-tenant safe).
+    # end client(s) on the weeks' placements (public names — cross-tenant safe).
     placed_by = None
     if db.ctx.tenant_id:
         placed_by = await db.val("select name from mytrakin.tenants where id = :t", {"t": db.ctx.tenant_id})
@@ -391,16 +403,17 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
             where p.consultant_id = :c and p.end_client_company_id is not null
               and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws""",
         {"c": db.ctx.consultant_id, "ws": ws}) if r["name"]]
-    return {"week_start": ws, "status": ts["status"] if ts else "draft", "reject_reason": ts["reject_reason"] if ts else None,
-            "note": ts["note"] if ts else None,
-            "placed_by_approved": ts["placed_by_approved"] if ts else None,
-            "end_client_approved": ts["end_client_approved"] if ts else None,
+    # Weekend state from the most recent timesheet.
+    weekend_ts = max(tss, key=lambda t: t["id"]) if tss else None
+    return {"week_start": ws, "status": status, "reject_reason": reject_reason,
+            "note": note,
+            "placed_by_approved": placed_by_approved,
+            "end_client_approved": end_client_approved,
             "placed_by_name": placed_by, "end_client_names": end_clients,
-            "weekend_requested": bool(ts and ts["weekend_requested_at"]),
-            "weekend_review_note": ts["weekend_review_note"] if ts else None,
-            "weekend_confirmed": ts["weekend_confirmed"] if ts else None,
+            "weekend_requested": bool(weekend_ts and weekend_ts["weekend_requested_at"]),
+            "weekend_review_note": weekend_ts["weekend_review_note"] if weekend_ts else None,
+            "weekend_confirmed": weekend_ts["weekend_confirmed"] if weekend_ts else None,
             "rows": rows, "projects": projects, "time_off": time_off}
-
 
 @router.put("/mine")
 async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
