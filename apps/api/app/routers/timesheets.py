@@ -366,19 +366,37 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
               and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws
             order by pr.name""",
         {"c": db.ctx.consultant_id, "ws": ws})
-    # One timesheet per placement after the per-placement split; aggregate entries
-    # and approval state across all of them for a single consolidated view.
+    # One timesheet per placement after the per-placement split. Return per-timesheet
+    # details so the frontend can show independent submit buttons per project.
     tss = await db.all("select id, status, note, placed_by_approved, end_client_approved, reject_reason, weekend_requested_at, weekend_review_note, weekend_confirmed from timesheets where consultant_id = :c and week_start = :ws",
                        {"c": db.ctx.consultant_id, "ws": ws})
+    ts_by_placement: dict[str, dict] = {}
+    for ts in tss:
+        for e in await db.all("select placement_id from timesheet_entries where timesheet_id = :id", {"id": ts["id"]}):
+            pid = str(e["placement_id"]) if e["placement_id"] else None
+            ts_by_placement[pid] = ts
     grid: dict[str | None, list[Decimal]] = defaultdict(lambda: [Decimal(0)] * 7)
     for ts in tss:
         for e in await db.all("select placement_id, work_date, hours from timesheet_entries where timesheet_id = :id", {"id": ts["id"]}):
             pid = str(e["placement_id"]) if e["placement_id"] else None
             grid[pid][(e["work_date"] - ws).days] += Decimal(e["hours"])
-    rows = [{"placement_id": p["placement_id"], "project": p["project"], "hours": grid.get(str(p["placement_id"]), [Decimal(0)] * 7)}
-            for p in projects]
+    rows = []
+    for p in projects:
+        pid = str(p["placement_id"])
+        ts = ts_by_placement.get(pid)
+        rows.append({"placement_id": p["placement_id"], "project": p["project"],
+                     "hours": grid.get(pid, [Decimal(0)] * 7),
+                     "timesheet_id": ts["id"] if ts else None,
+                     "ts_status": ts["status"] if ts else "draft",
+                     "ts_placed_by_approved": bool(ts["placed_by_approved"]) if ts else False,
+                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False})
     if None in grid:
-        rows.append({"placement_id": None, "project": "Internal / non-billable", "hours": grid[None]})
+        ts = ts_by_placement.get(None)
+        rows.append({"placement_id": None, "project": "Internal / non-billable", "hours": grid[None],
+                     "timesheet_id": ts["id"] if ts else None,
+                     "ts_status": ts["status"] if ts else "draft",
+                     "ts_placed_by_approved": bool(ts["placed_by_approved"]) if ts else False,
+                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False})
     # TS-10: approved time off shown per day (read-only, never saved as hours or billed).
     off = await db.all(
         """select starts_on, ends_on, kind from time_off where consultant_id = :c and status in ('approved', 'holiday')

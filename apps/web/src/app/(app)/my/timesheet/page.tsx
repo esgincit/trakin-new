@@ -8,7 +8,15 @@ import { date, label, num } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
 import { addDays, dayLabels, sundayOf } from "@/lib/weeks";
 
-type Row = { placement_id: string | null; project: string; hours: number[] };
+type Row = {
+  placement_id: string | null;
+  project: string;
+  hours: number[];
+  timesheet_id: string | null;
+  ts_status: string;
+  ts_placed_by_approved: boolean;
+  ts_end_client_approved: boolean;
+};
 
 export default function MyTimesheet() {
   const [week, setWeek] = useState(sundayOf());
@@ -26,89 +34,178 @@ export default function MyTimesheet() {
     setNoteError("");
   }, [data]);
 
-  // Keep the approval statuses fresh while the week is waiting for the companies.
+  // Keep the approval statuses fresh while any timesheet is waiting for the companies.
   useEffect(() => {
-    if (data?.status !== "submitted") return;
+    if (!data || data.status !== "submitted") return;
     const iv = setInterval(reload, 15000);
     return () => clearInterval(iv);
   }, [data?.status, week, reload]);
 
-  const locked = data && ["submitted", "approved"].includes(data.status);
-  // Rejected timesheets are editable: the consultant can fix and resubmit.
-  // Only submitted/approved weeks are locked.
   const days = dayLabels(week);
-  const set = (ri: number, di: number, v: string) =>
-    setRows((rs) => rs.map((r, i) => i !== ri ? r : { ...r, hours: r.hours.map((h, j) => (j === di ? Math.max(0, Math.min(24, Number(v) || 0)) : h)) }));
+  const setHours = (ri: number, di: number, v: string) => {
+    setRows((rs) =>
+      rs.map((r, i) => {
+        if (i !== ri) return r;
+        const newHours = [...r.hours];
+        newHours[di] = Math.max(0, Math.min(24, Number(v) || 0));
+        return { ...r, hours: newHours };
+      })
+    );
+  };
   const dayTotal = (di: number) => rows.reduce((s, r) => s + (r.hours[di] ?? 0), 0);
   const total = rows.reduce((s, r) => s + r.hours.reduce((a, h) => a + h, 0), 0);
   const weekendHours = rows.reduce((s, r) => s + (r.hours[5] ?? 0) + (r.hours[6] ?? 0), 0);
-  const save = () => api("/timesheets/mine", { method: "PUT", body: { week_start: week, note, rows: rows.map((r) => ({ placement_id: r.placement_id, hours: r.hours })) } });
+
+  const addInternalTime = () => {
+    setRows((rs) => [
+      ...rs,
+      {
+        placement_id: null,
+        project: "Internal / non-billable",
+        hours: [0, 0, 0, 0, 0, 0, 0],
+        timesheet_id: null,
+        ts_status: "draft",
+        ts_placed_by_approved: false,
+        ts_end_client_approved: false,
+      },
+    ]);
+  };
+
+  const saveDraft = async () => {
+    const body = {
+      week_start: week,
+      note,
+      rows: rows.map((r) => ({ placement_id: r.placement_id, hours: r.hours })),
+    };
+    if (await api("/timesheets/mine", { method: "PUT", body })) reload();
+  };
+
+  const saveAndSubmit = async (ri: number) => {
+    const r = rows[ri];
+    if (!r.timesheet_id) return;
+    const body = { week_start: week, note, rows: [{ placement_id: r.placement_id, hours: r.hours }] };
+    const saved = await api("/timesheets/mine", { method: "PUT", body });
+    if (!saved) {
+      setNoteError("Save failed. Check the message above and try again.");
+      return;
+    }
+    const ok = await api(`/timesheets/${r.timesheet_id}/submit`, { method: "POST", body: {}, query: { week } });
+    if (!ok) {
+      setNoteError("Submitting failed. Check the message above and try again.");
+      return;
+    }
+    reload();
+    history.reload();
+  };
 
   return (
     <>
-      <PageHead title="My timesheet" sub="One timesheet per week covers every project you work on." />
+      <PageHead title="My timesheet" sub="One timesheet per project per week. Submit each project independently." />
       <div className="toolbar">
-        <button className="btn sm" onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">←</button>
+        <button className="btn sm" onClick={() => setWeek(addDays(week, -7))} aria-label="Previous week">
+          ←
+        </button>
         <b>Week of {date(week)}</b>
-        <button className="btn sm" onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">→</button>
+        <button className="btn sm" onClick={() => setWeek(addDays(week, 7))} aria-label="Next week">
+          →
+        </button>
         {data && <Chip status={data.status} />}
       </div>
       {loading ? <Loading /> : error ? <ErrorBox error={error} retry={reload} /> : (
         <>
           {data.reject_reason && <p className="err">Returned by your approver: {data.reject_reason}</p>}
-          {data.status === "submitted" && weekendHours > 0 && !data.weekend_confirmed && data.weekend_requested && (
-            <div className="card mt" style={{ marginBottom: 16 }}>
-              <h3>Confirm weekend hours</h3>
-              <p>Your approver asks you to confirm the {num(weekendHours, 2)} hours logged on Saturday/Sunday this week.</p>
-              {data.weekend_review_note && <p className="note">Their note: {data.weekend_review_note}</p>}
-              <button className="btn pri" disabled={busy} onClick={async () => {
-                if (await run(() => api("/timesheets/mine/weekend-confirm", { body: {}, query: { week } }),
-                               "Confirmed — your approver has been notified")) reload();
-              }}>Confirm weekend hours</button>
-            </div>
-          )}
-          {data.status === "submitted" && weekendHours > 0 && data.weekend_confirmed && (
-            <p className="note">Weekend hours confirmed — waiting for approval.</p>
-          )}
-          {data.status === "submitted" && (
-            <div className="card mt" style={{ marginBottom: 16 }}>
-              <h3>Approval status</h3>
-              <div className="row" style={{ gap: 12 }}>
-                <div className="card" style={{ flex: 1 }}>
-                  <div className="muted" style={{ fontSize: 12.5 }}>
-                    Placed By{data.placed_by_name ? ` — ${data.placed_by_name}` : " (placing company)"}
-                  </div>
-                  <Chip status={data.placed_by_approved ? "accepted" : "pending"} />
-                </div>
-                <div className="card" style={{ flex: 1 }}>
-                  <div className="muted" style={{ fontSize: 12.5 }}>
-                    End Client{data.end_client_names?.length ? ` — ${data.end_client_names.join(", ")}` : ""}
-                  </div>
-                  <Chip status={data.end_client_approved ? "accepted" : "pending"} />
-                </div>
-              </div>
-              <p className="note" style={{ fontSize: 12.5 }}>Both companies must approve before this timesheet is finalised.</p>
-            </div>
-          )}
           <div className="tw ts">
             <table>
-              <thead><tr><th>Project</th>{days.map((d) => <th key={d}>{d}</th>)}<th className="num">Total</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  {days.map((d) => <th key={d}>{d}</th>)}
+                  <th className="num">Total</th>
+                  <th>Placed By</th>
+                  <th>End Client</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
               <tbody>
-                {rows.map((r, ri) => (
-                  <tr key={r.placement_id ?? "internal"}>
-                    <td>{r.project}</td>
-                    {r.hours.map((h, di) => (
-                      <td key={di}><input type="number" min={0} max={24} step={0.25} value={h || ""} placeholder="0" disabled={locked}
-                                         aria-label={`${r.project} ${days[di]}`} onChange={(e) => set(ri, di, e.target.value)} /></td>
-                    ))}
-                    <td className="num"><b>{num(r.hours.reduce((a, h) => a + h, 0), 2)}</b></td>
-                  </tr>
-                ))}
+                {rows.map((r, ri) => {
+                  const locked = r.ts_status === "submitted" || r.ts_status === "approved";
+                  const placedBy = data.placed_by_name ? ` — ${data.placed_by_name}` : " (placing company)";
+                  const endClient =
+                    data.end_client_names?.length ? ` — ${data.end_client_names.join(", ")}` : "";
+                  return (
+                    <tr key={r.placement_id ?? "internal"}>
+                      <td>{r.project}</td>
+                      {r.hours.map((h, di) => (
+                        <td key={di}>
+                          <input
+                            type="number"
+                            min={0}
+                            max={24}
+                            step={0.25}
+                            value={h || ""}
+                            placeholder="0"
+                            disabled={locked || busy}
+                            aria-label={`${r.project} ${days[di]}`}
+                            onChange={(e) => setHours(ri, di, e.target.value)}
+                          />
+                        </td>
+                      ))}
+                      <td className="num"><b>{num(r.hours.reduce((a, h) => a + h, 0), 2)}</b></td>
+                      <td>
+                        <Chip status={r.ts_placed_by_approved ? "accepted" : "pending"} />
+                        {placedBy}
+                      </td>
+                      <td>
+                        <Chip status={r.ts_end_client_approved ? "accepted" : "pending"} />
+                        {endClient}
+                      </td>
+                      <td>
+                        {!locked && (
+                          <button
+                            className="btn pri sm"
+                            disabled={busy || r.hours.reduce((a, h) => a + h, 0) <= 0 || !note.trim()}
+                            onClick={() => saveAndSubmit(ri)}
+                          >
+                            Submit
+                          </button>
+                        )}
+                        {locked && r.ts_status === "submitted" && (
+                          <span className="muted" style={{ fontSize: 11 }}>
+                            Pending approval
+                          </span>
+                        )}
+                        {locked && r.ts_status === "approved" && (
+                          <span className="muted" style={{ fontSize: 11, color: "var(--ok)" }}>
+                            Approved
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {data.time_off?.some(Boolean) && (
-                  <tr><td className="muted">Time off (approved)</td>
-                    {data.time_off.map((k: string | null, di: number) => <td key={di} className="muted">{k ? label(k) : ""}</td>)}<td /></tr>
+                  <tr>
+                    <td className="muted">Time off (approved)</td>
+                    {data.time_off.map((k: string | null, di: number) => (
+                      <td key={di} className="muted">
+                        {k ? label(k) : ""}
+                      </td>
+                    ))}
+                    <td />
+                  </tr>
                 )}
-                <tr><td><b>Day total</b></td>{days.map((d, di) => <td key={d} className={dayTotal(di) > 12 ? "err" : "muted"}>{num(dayTotal(di), 2)}</td>)}<td className="num"><b>{num(total, 2)}</b></td></tr>
+                <tr>
+                  <td><b>Day total</b></td>
+                  {days.map((d, di) => (
+                    <td key={d} className={dayTotal(di) > 12 ? "err" : "muted"}>
+                      {num(dayTotal(di), 2)}
+                    </td>
+                  ))}
+                  <td className="num"><b>{num(total, 2)}</b></td>
+                  <td />
+                  <td />
+                  <td />
+                </tr>
               </tbody>
             </table>
           </div>
@@ -118,57 +215,79 @@ export default function MyTimesheet() {
               Note for your approver <span style={{ color: "var(--bad)" }} aria-hidden="true">*</span>
               <span className="muted"> — required to submit</span>
             </label>
-            <textarea id="tsNote" className={`ctl ${noteError ? "err" : ""}`} placeholder="Explain anything your approver should know about this week"
-                      value={note} onChange={(e) => { setNote(e.target.value); setNoteError(""); }} disabled={locked} required />
+            <textarea
+              id="tsNote"
+              className={`ctl ${noteError ? "err" : ""}`}
+              placeholder="Explain anything your approver should know about this week"
+              value={note}
+              onChange={(e) => { setNote(e.target.value); setNoteError(""); }}
+              disabled={busy}
+              required
+            />
             {noteError && <p className="err" style={{ marginTop: 6 }}>{noteError}</p>}
           </div>
-          {!locked && (
+          {!busy && (
             <div className="row mt">
               {!rows.some((r) => r.placement_id === null) && (
-                <button className="btn" onClick={() => setRows((rs) => [...rs, { placement_id: null, project: "Internal / non-billable", hours: [0, 0, 0, 0, 0, 0, 0] }])}>Add internal time</button>
+                <button className="btn" onClick={addInternalTime}>
+                  Add internal time
+                </button>
               )}
               <span className="grow" style={{ flex: 1 }} />
-              <button className="btn" disabled={busy} onClick={async () => { if (await run(save, "Saved")) reload(); }}>Save draft</button>
-              <button className="btn pri" disabled={busy} onClick={async () => {
-                if (total <= 0) {
-                  setNoteError("Enter the hours you worked this week — at least one day needs time logged before you can submit.");
-                  document.getElementById("tsNote")?.focus();
-                  return;
-                }
-                if (!note || !note.trim()) {
-                  setNoteError("The note for your approver is required — say what the week covers (e.g. client request, tasks).");
-                  document.getElementById("tsNote")?.focus();
-                  return;
-                }
-                const ok = await run(async () => { await save(); return api("/timesheets/mine/submit", { body: {}, query: { week } }); }, "Submitted for approval");
-                if (!ok) {
-                  setNoteError("Submitting failed. Check the message above and try again.");
-                  return;
-                }
-                reload(); history.reload();
-              }}>Submit week</button>
+              <button className="btn" disabled={busy} onClick={saveDraft}>
+                Save draft
+              </button>
             </div>
           )}
-          {locked && <p className="note">This week is {data.status}. Ask your approver to return it if something needs to change.</p>}
+          {busy && <p className="note">Saving…</p>}
+          {rows.every((r) => r.ts_status === "submitted" || r.ts_status === "approved") && (
+            <p className="note">
+              All projects submitted. Ask your approver to return a timesheet if something needs to change.
+            </p>
+          )}
+          {rows.some((r) => r.ts_status === "draft") && !busy && (
+            <p className="note">
+              Draft projects are not yet submitted. Use the Submit button next to each project's total hours.
+            </p>
+          )}
         </>
       )}
-
       <div className="card mt">
         <h3>My timesheet history</h3>
         {history.data?.length ? (
-          <div className="tw"><table>
-            <thead><tr><th>Week</th><th>Project</th><th className="num">Hours</th><th>Placed By</th><th>End Client</th></tr></thead>
-            <tbody>{history.data.slice(0, 40).map((h, i) => (
-              <tr key={i} className="click" onClick={() => setWeek(h.week_start)}>
-                <td>{date(h.week_start)}</td><td>{h.project}</td><td className="num">{num(h.hours, 2)}</td>
-                <td><Chip status={h.status === "rejected" ? "rejected" : h.placed_by_approved ? "accepted" : "pending"} />
-                    {h.placed_by_name && <div className="muted" style={{ fontSize: 12 }}>{h.placed_by_name}</div>}</td>
-                <td><Chip status={h.status === "rejected" ? "rejected" : h.end_client_approved ? "accepted" : "pending"} />
-                    {h.end_client_names ? <div className="muted" style={{ fontSize: 12 }}>{h.end_client_names}</div> : null}</td>
-              </tr>
-            ))}</tbody>
-          </table></div>
-        ) : <p className="muted">Your submitted weeks will appear here.</p>}
+          <div className="tw">
+            <table>
+              <thead>
+                <tr>
+                  <th>Week</th>
+                  <th>Project</th>
+                  <th className="num">Hours</th>
+                  <th>Placed By</th>
+                  <th>End Client</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.data.slice(0, 40).map((h, i) => (
+                  <tr key={i} className="click" onClick={() => setWeek(h.week_start)}>
+                    <td>{date(h.week_start)}</td>
+                    <td>{h.project}</td>
+                    <td className="num">{num(h.hours, 2)}</td>
+                    <td>
+                      <Chip status={h.status === "rejected" ? "rejected" : h.placed_by_approved ? "accepted" : "pending"} />
+                      {h.placed_by_name && <div className="muted" style={{ fontSize: 12 }}>{h.placed_by_name}</div>}
+                    </td>
+                    <td>
+                      <Chip status={h.status === "rejected" ? "rejected" : h.end_client_approved ? "accepted" : "pending"} />
+                      {h.end_client_names ? <div className="muted" style={{ fontSize: 12 }}>{h.end_client_names}</div> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted">Your submitted weeks will appear here.</p>
+        )}
         <p className="note"><Link href="/my">Back to My work</Link></p>
       </div>
     </>
