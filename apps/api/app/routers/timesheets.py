@@ -411,7 +411,7 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
     reject_reason = next((t["reject_reason"] for t in tss if t["reject_reason"]), None)
     note = next((t["note"] for t in tss if t["note"]), "")
     # Company names for the approval-status panel: the placing workspace and the
-    # end client(s) on the weeks' placements (public names — cross-tenant safe).
+    # end client(s) on the weeks' placements (public names ï¿½ cross-tenant safe).
     placed_by = None
     if db.ctx.tenant_id:
         placed_by = await db.val("select name from mytrakin.tenants where id = :t", {"t": db.ctx.tenant_id})
@@ -489,7 +489,7 @@ async def submit_my_week(body: Decision, db: TenantDb = Depends(tenant_db), week
                              {"id": ts["id"]})
         if total <= 0:
             raise bad_request("Enter your hours first")
-    # Submit each timesheet individually — each project is routed to its own
+    # Submit each timesheet individually ï¿½ each project is routed to its own
     # placed-by company and end client for independent approval.
     for ts in tss:
         await _contract_gate(db, ts["id"])
@@ -621,7 +621,7 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
         if line["pay_rate"] is not None and line["ap_payee"]:
             preview["ap"] += Decimal(line["hours"]) * line["pay_rate"]
             preview["ap_to"].add(line["ap_payee"])
-    checks, summary = await _checks(db, ts)
+    checks, summary = await _checks(db, timesheet_id=ts["id"])
     # Approval state for the page: which end-client companies are represented here and
     # whether the week is waiting on them after the placed-by approval.
     end_clients = await _end_clients(db, ts["tenant_id"], timesheet_id)
