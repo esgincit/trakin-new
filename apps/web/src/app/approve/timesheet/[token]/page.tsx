@@ -27,7 +27,7 @@ export default function TimesheetApprovalPage() {
   useEffect(() => { load(); }, [load]);
 
   const decide = async (decision: "approve" | "return") => {
-    if (decision === "return" && note.trim().length < 3) return;
+    if (note.trim().length < 3) return;
     setBusy(true);
     setError(null);
     try {
@@ -71,10 +71,10 @@ export default function TimesheetApprovalPage() {
       {open ? (
         <>
           <div className="card mt">
-            <label className="muted" style={{ fontSize: 12.5 }} htmlFor="ts-note">Note when returning the week (required to return)</label>
-            <textarea id="ts-note" className="ctl mt" placeholder="e.g. Friday hours look high — the client didn't request overtime" value={note} onChange={(e) => setNote(e.target.value)} />
+            <label className="muted" style={{ fontSize: 12.5 }} htmlFor="ts-note">Note <span style={{ color: "var(--bad)" }}>*</span></label>
+            <textarea id="ts-note" className="ctl mt" placeholder="Add a short note (required)" value={note} onChange={(e) => setNote(e.target.value)} />
             <div className="row mt">
-              <button className="btn pri" disabled={busy} onClick={() => decide("approve")}>Approve timesheet</button>
+              <button className="btn pri" disabled={busy || note.trim().length < 3} onClick={() => decide("approve")}>Approve timesheet</button>
               <button className="btn" disabled={busy || note.trim().length < 3} onClick={() => decide("return")}>Return with note</button>
             </div>
             <p className="note">Approving finalises this week and triggers invoice generation for both sides of the placement.</p>
