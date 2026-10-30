@@ -838,14 +838,24 @@ async def reject(timesheet_id: UUID, body: Decision, db: TenantDb = Depends(tena
 async def approve_all_passing(db: TenantDb = Depends(tenant_db), week: date = Query(...)):
     """Approve every submitted timesheet for the week whose checks all pass."""
     db.ctx.require(*APPROVER_ROLES)
-    overview = await week_overview(db, _sunday(week))
+    ws = _sunday(week)
+    # Get all submitted timesheets for this week with consultant info
+    tss = await db.all(
+        """select t.id, c.full_name as consultant
+             from timesheets t
+             join consultants c on c.id = t.consultant_id
+            where t.week_start = :ws and t.status = 'submitted'""",
+        {"ws": ws})
     approved, skipped = [], []
-    for r in overview["rows"]:
-        if r["status"] == "submitted" and r["checks"] and r["checks"]["result"] == "pass":
-            try:
-                await approve(r["id"], db)
-            except ApiError as exc:     # contract / acceptance missing: leave it for review
-                skipped.append(f"{r['full_name']}: {exc.message}")
+    for ts in tss:
+        try:
+            checks, summary = await _checks(db, timesheet_id=ts["id"])
+            if checks and summary.get("result") != "pass":
+                skipped.append(f"{ts['consultant']}: checks failed")
                 continue
-            approved.append(r["full_name"])
+            await approve(ts["id"], db)
+            approved.append(ts["consultant"])
+        except ApiError as exc:     # contract / acceptance missing: leave it for review
+            skipped.append(f"{ts['consultant']}: {exc.message}")
+            continue
     return {"approved": approved, "skipped": skipped}
