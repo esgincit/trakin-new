@@ -36,7 +36,7 @@ def validate(switches: Any) -> dict[str, bool]:
 
 
 async def pay_model(db, engagement: str) -> str:
-    """payroll (W-2), vendor (C2C, E2E) or self (1099) — from the engagement_types table (WF-07)."""
+    """payroll (W-2), vendor (C2C, E2E) or self (1099) - from the engagement_types table (WF-07)."""
     model = await db.val("select pay_model from engagement_types where code = :c and is_active", {"c": engagement})
     if model is None:
         raise ApiError(400, "bad_request", f"Unknown engagement type '{engagement}'")
@@ -54,34 +54,38 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
     Pending and rejected MSAs don't count: the other company hasn't accepted them.
     An MSA lives in the workspace that sent it, so one the other company sent us counts too (shared_agreements).
     Matched by the company id first; a same-name company (how the counterparty was recorded here vs their own
-    account) also matches — strictly a fallback under the exact branches, never a replacement for them."""
+    account) also matches � strictly a fallback under the exact branches, never a replacement for them.
+    An agreement sent for e-signature ('out_for_signature') is treated as in force once the envelope
+    has been completed, since the other party has signed it."""
     return bool(await db.val(
         """select exists (select 1 from agreements
-                           where status in ('active', 'accepted') and kind = any(:kinds)
+                           where status in ('active', 'accepted', 'out_for_signature') and kind = any(:kinds)
                              and (company_id = cast(:co as uuid) or consultant_id = cast(:con as uuid))
                              and coalesce(effective_on, cast(:d as date)) <= :d
                              and coalesce(expires_on, cast(:d as date)) >= :d)
-               or (cast(:co as uuid) is not null and exists (
-                     select 1 from mytrakin.shared_agreements() s
-                      where s.status in ('active', 'accepted') and s.kind = any(:kinds)
-                        and mytrakin.agreement_peer_company(s.id) = cast(:co as uuid)
-                        and coalesce(s.effective_on, cast(:d as date)) <= :d
-                        and coalesce(s.expires_on, cast(:d as date)) >= :d))
-               or (cast(:co as uuid) is not null and exists (
-                     select 1 from companies me
-                      join companies oc on lower(oc.name) = lower(me.name)
+              or (cast(:co as uuid) is not null and exists (
+                    select 1 from mytrakin.shared_agreements() s
+                     where s.status in ('active', 'accepted', 'out_for_signature') and s.kind = any(:kinds)
+                       and mytrakin.agreement_peer_company(s.id) = cast(:co as uuid)
+                       and coalesce(s.effective_on, cast(:d as date)) <= :d
+                       and coalesce(s.expires_on, cast(:d as date)) >= :d))
+              or (cast(:co as uuid) is not null and exists (
+                    select 1 from companies me
+                     join companies oc on lower(regexp_replace(oc.name, '[^a-z0-9]', '', 'g')) =
+                                        lower(regexp_replace(me.name, '[^a-z0-9]', '', 'g'))
                      join agreements a2 on a2.company_id = oc.id
                                        and a2.tenant_id = mytrakin.ctx_tenant()
-                                       and a2.status in ('active', 'accepted') and a2.kind = any(:kinds)
+                                       and a2.status in ('active', 'accepted', 'out_for_signature') and a2.kind = any(:kinds)
                                        and coalesce(a2.effective_on, cast(:d as date)) <= :d
                                        and coalesce(a2.expires_on, cast(:d as date)) >= :d
-                      where me.id = :co))
-               or (cast(:co as uuid) is not null and exists (
-                     select 1 from companies me
-                     join mytrakin.shared_agreements() s
-                       on lower(coalesce(s.counterparty, '')) = lower(me.name)
-                      and s.status in ('active', 'accepted') and s.kind = any(:kinds)
-                      and coalesce(s.effective_on, cast(:d as date)) <= :d
-                      and coalesce(s.expires_on, cast(:d as date)) >= :d
-                      where me.id = :co))""",
+                       where me.id = :co))
+              or (cast(:co as uuid) is not null and exists (
+                    select 1 from companies me
+                    join mytrakin.shared_agreements() s
+                      on lower(regexp_replace(coalesce(s.counterparty, ''), '[^a-z0-9]', '', 'g')) =
+                                         lower(regexp_replace(me.name, '[^a-z0-9]', '', 'g'))
+                     and s.status in ('active', 'accepted', 'out_for_signature') and s.kind = any(:kinds)
+                     and coalesce(s.effective_on, cast(:d as date)) <= :d
+                     and coalesce(s.expires_on, cast(:d as date)) >= :d
+                     where me.id = :co))""",
         {"kinds": list(kinds), "co": company_id, "con": consultant_id, "d": on or date.today()}))
