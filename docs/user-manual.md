@@ -32,6 +32,10 @@ This manual is organised by what you do. Find your role in the table, then read 
 3. Use the e-mail address you were invited with. If you see *Almost there*, nobody has invited that address yet —
    ask your administrator.
 
+### Sign in screen
+
+![Sign in page with e-mail code, SSO, Google, Microsoft options](docs/01-login.png)
+
 ### Two-step verification
 
 Admins and finance users must add an authenticator app the first time:
@@ -57,6 +61,8 @@ Supabase (see the operations runbook).
 - **Project codes are globally unique** — the same code (e.g. PRJ-04) can never appear on two different projects, so
   placement pickers never show duplicates.
 
+![Main navigation sidebar showing menu items](docs/02-navigation.png)
+
 ## 3. Setting up a workspace (admins)
 
 Open **Workspace settings**. The setup checklist has eight steps; click *Mark … done* as you finish each.
@@ -77,10 +83,12 @@ Also in settings: which sign-in methods are allowed, your SSO domain, MFA for al
 
 - **Require NDA** — a signed NDA must exist before an MSA can be created with that company, and before a project can go active.
 - **Require MSA** — an active MSA/subcontract/ICA must exist before a project goes active, before invoices are created, and before vendor payments are made.
-- **Require acceptance** — the resource contract (offer letter for W-2, vendor/contractor work order for C2C/E2E) and the client SOW must be accepted before timesheets can be approved.
+- **Require acceptance** — the resource contract (offer letter for W-2, vendor/contractor work order) and the client SOW must be accepted before timesheets can be approved.
 - **Require resource contract** — timesheets need the resource's work order (vendor / 1099) or offer letter (W-2).
 
 When a switch is on and the requirement isn't met, actions are blocked with a clear message explaining what to do or how to turn the switch off.
+
+![Settings page with Workflow switches](docs/03-settings-workflow.png)
 
 ## 4. Dashboard
 
@@ -96,6 +104,8 @@ When a switch is on and the requirement isn't met, actions are blocked with a cl
 Dashboard figures are always live — they read directly from invoices, payments, timesheets and contracts, so they're
 current as soon as the page loads.
 
+![Dashboard showing KPIs, smart suggestions, cash forecast, and needs attention](docs/04-dashboard.png)
+
 ## 5. Payment flow
 
 One row per consultant and period. Read it left to right:
@@ -106,6 +116,8 @@ One row per consultant and period. Read it left to right:
 - **Gap AR − AP** on the right.
 
 Use **Open / All** and the search box. Colours follow the legend at the top.
+
+![Payment flow screen showing AR/AP payment cards](docs/05-payment-flow.png)
 
 ## 6. Invoices and payments
 
@@ -121,6 +133,8 @@ Use **Open / All** and the search box. Colours follow the legend at the top.
 
 The **History** tab lists every week, consultant and project with filters.
 
+![Timesheets week view showing submitted timesheets with checks column](docs/06-timesheets-week.png)
+
 ### 6.2 Creating and sending client invoices
 
 1. **Invoices** → **Create invoices from timesheets** → choose the period → *Create drafts*.
@@ -128,10 +142,14 @@ The **History** tab lists every week, consultant and project with filters.
 2. Open each draft, check it, and click **Send to customer** (e-mails the company's contact; the due date follows the terms).
 3. To invoice something by hand (a fixed fee, a correction), use **New client invoice**: placement, period, hours, PO and memo.
 
+![Invoice creation screen](docs/07-invoice-create.png)
+
 ### 6.3 Recording payments
 
 Open the invoice → *Payments* → amount, date, method, reference → **Record payment**. Part payments are fine. When a
 client invoice is paid in full, any **pay-when-paid** vendor invoice waiting on it becomes *Ready to pay*.
+
+![Invoice detail page with payment recording](docs/08-invoice-detail.png)
 
 ### 6.4 Following up
 
@@ -174,6 +192,8 @@ W-9 status and whether a 1099-NEC is needed (threshold shown at the top). Export
   documents and **Files** (drag in W-9s, COIs, anything up to 25 MB).
 - **Mark inactive** (with a reason) when you stop working together; history stays. **Reactivate** any time.
 - Old and inactive vendors and clients can be imported in bulk (section 13).
+
+![Company page showing details, agreements, SOWs, and tracked documents](docs/09-company-page.png)
 
 ## 9. Consultants, projects and placements
 
@@ -218,6 +238,8 @@ A consultant can work on several projects in the same week. Each project gets it
 
 Once all projects for the week are submitted or approved, the week shows as finalised.
 
+![My timesheet page showing per-project submit buttons](docs/10-timesheet-my.png)
+
 ## 10. Contracts and e-signatures
 
 ### Recording or creating an agreement
@@ -255,6 +277,10 @@ The SOW updates automatically when everyone signs.
 If a save fails (for example, an NDA hasn't been signed yet with that company), the error appears at the top of the modal
 in red — not hidden behind it.
 
+![Add agreement modal showing New draft selected by default](docs/11-add-agreement.png)
+
+![Sending a document for signature screen](docs/12-esign-send.png)
+
 ## 11. Compliance
 
 - **Expiring documents** — *Track a document* (person, type, label, expiry date, what it holds, extra recipients).
@@ -266,6 +292,8 @@ in red — not hidden behind it.
 - **Registrations** — copy your public registration link and send it to new vendors, clients and contractors. Review each
   registration: details, automatic checks, possible duplicates, documents. **Approve**, **Ask for more** or **Reject**.
 - **Reminders & e-mails** — (admins) switch reminder rules on/off and change their days. Below, the log of every e-mail sent.
+
+![Compliance page showing expiring documents and work authorization](docs/13-compliance.png)
 
 ## 12. Users and roles (admins)
 
@@ -363,3 +391,25 @@ workspaces, sign-ups waiting and inactive workspaces.
 | End Client history is empty | Make sure you're signed in as an end-client representative (`client_user` role) for the company that's the end client on the placement. |
 | Hours reset after entering them | Make sure you click **Save draft** or **Submit** before navigating away; entered hours are saved per project. |
 | Only one project's Submit button shows | Each project has its own Submit button next to its total hours. Submit each project you want to send for approval. |
+
+---
+
+## Screenshot placeholders
+
+The following screenshots need to be captured from a running instance of myTrakIn:
+
+| File | Screen | How to capture |
+|---|---|---|
+| `docs/01-login.png` | Sign in page | ✅ Captured — sign-in page with e-mail code, SSO, Google, Microsoft options |
+| `docs/02-navigation.png` | Main navigation sidebar | Log in as any user, capture the left sidebar |
+| `docs/03-settings-workflow.png` | Settings → Workflow | Log in as admin, go to Settings → Workflow |
+| `docs/04-dashboard.png` | Dashboard | Log in as finance/admin, go to Dashboard |
+| `docs/05-payment-flow.png` | Payment flow | Log in as finance/account manager, go to Payment flow |
+| `docs/06-timesheets-week.png` | Timesheets week view | Log in as approver/finance, go to Timesheets |
+| `docs/07-invoice-create.png` | Create invoice | Log in as finance, go to Invoices → Create invoices from timesheets |
+| `docs/08-invoice-detail.png` | Invoice detail page | Log in as finance, open any invoice |
+| `docs/09-company-page.png` | Company page | Log in as account manager, go to Clients & vendors → open a company |
+| `docs/10-timesheet-my.png` | My timesheet page | Log in as consultant, go to My timesheet |
+| `docs/11-add-agreement.png` | Add agreement modal | Log in as legal/account manager, go to MSAs & SOWs → Add agreement |
+| `docs/12-esign-send.png` | Send for signature page | Log in as legal/account manager, open a draft agreement, click Send for signature |
+| `docs/13-compliance.png` | Compliance page | Log in as HR/legal, go to Compliance |
