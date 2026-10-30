@@ -1,12 +1,12 @@
 # myTrakIn user manual
 
-Version 1.0 · October 2026
+Version 1.1 · October 2026
 
 This manual is organised by what you do. Find your role in the table, then read **Getting started** and your sections.
 
 | I am… | Read |
 |---|---|
-| Everyone | [1 Getting started](#1-getting-started), [2 Finding your way](#2-finding-your-way-around), [14 Profile & network](#14-your-profile-and-the-network), [15 Account & security](#15-account-and-security) |
+| Everyone | [1 Getting started](#1-getting-started), [2 Finding your way](#2-finding-your-way-around), [14 Your profile and the network](#14-your-profile-and-the-network), [15 Account & security](#15-account-and-security) |
 | Admin | All sections, especially [3 Setting up](#3-setting-up-a-workspace-admins), [12 Users](#12-users-and-roles-admins), [13 Import](#13-import-and-export) |
 | Finance | [4 Dashboard](#4-dashboard), [5 Payment flow](#5-payment-flow), [6 Invoices](#6-invoices-and-payments), [7 Payroll, 1099, referrals](#7-payroll-1099-and-referrals) |
 | Account manager | [4](#4-dashboard), [8 Companies](#8-clients-and-vendors), [9 Consultants & placements](#9-consultants-projects-and-placements), [10 Contracts & e-signatures](#10-contracts-and-e-signatures) |
@@ -21,6 +21,7 @@ This manual is organised by what you do. Find your role in the table, then read 
 ## 1. Getting started
 
 ### Signing in
+
 1. Open the address your company gave you (for example `https://app.yourcompany.com`).
 2. Choose a sign-in method:
    - **E-mail me a code** — enter your e-mail, then the 6-digit code from the e-mail (valid 10 minutes). No password needed.
@@ -32,7 +33,9 @@ This manual is organised by what you do. Find your role in the table, then read 
    ask your administrator.
 
 ### Two-step verification
+
 Admins and finance users must add an authenticator app the first time:
+
 1. Install Google Authenticator, Microsoft Authenticator, 1Password or Authy on your phone.
 2. Scan the QR code shown after sign-in (or type the key under it).
 3. Enter the 6-digit code from the app. From now on you'll be asked for a code at each sign-in.
@@ -51,6 +54,8 @@ Supabase (see the operations runbook).
 - **Status colours** — green done/paid, blue open/in progress, amber waiting/on hold, red overdue/failed/missing,
   violet out for signature.
 - **Masked values `••••`** mean the amount exists but isn't yours to see (another link in the chain, or not your role).
+- **Project codes are globally unique** — the same code (e.g. PRJ-04) can never appear on two different projects, so
+  placement pickers never show duplicates.
 
 ## 3. Setting up a workspace (admins)
 
@@ -68,6 +73,15 @@ Open **Workspace settings**. The setup checklist has eight steps; click *Mark �
 
 Also in settings: which sign-in methods are allowed, your SSO domain, MFA for all staff, idle sign-out and the invoice footer.
 
+### Workflow switches (Settings → Workflow)
+
+- **Require NDA** — a signed NDA must exist before an MSA can be created with that company, and before a project can go active.
+- **Require MSA** — an active MSA/subcontract/ICA must exist before a project goes active, before invoices are created, and before vendor payments are made.
+- **Require acceptance** — the resource contract (offer letter for W-2, vendor/contractor work order for C2C/E2E) and the client SOW must be accepted before timesheets can be approved.
+- **Require resource contract** — timesheets need the resource's work order (vendor / 1099) or offer letter (W-2).
+
+When a switch is on and the requirement isn't met, actions are blocked with a clear message explaining what to do or how to turn the switch off.
+
 ## 4. Dashboard
 
 - **KPIs** — AR outstanding, overdue AR, collected in the last 30 days, AP outstanding and on hold (finance only),
@@ -78,6 +92,9 @@ Also in settings: which sign-in methods are allowed, your SSO domain, MFA for al
 - **Needs attention** — overdue invoices, vendor mismatches, held payables, SOWs near their ceiling, MSAs expiring,
   documents expiring. Click a line to open it.
 - **Timesheets missing for last week.**
+
+Dashboard figures are always live — they read directly from invoices, payments, timesheets and contracts, so they're
+current as soon as the page loads.
 
 ## 5. Payment flow
 
@@ -93,30 +110,36 @@ Use **Open / All** and the search box. Colours follow the legend at the top.
 ## 6. Invoices and payments
 
 ### 6.1 Approving timesheets
+
 1. **Timesheets** → pick the week with ← → (weeks run Sunday–Saturday).
 2. The *Checks* column summarises each timesheet: *All checks pass*, *n to review* or *n failed*.
 3. Click a row to review: hours per project per day, every check with its detail, and (finance) the AR and AP amounts
    approval will create.
-4. **Approve**, or **Return for changes** with a message the consultant will see.
+4. **Approve**, or **Return for changes** with a message the consultant will see. A note of at least 3 characters is
+   required for both approve and return.
 5. For clean weeks use **Approve all that pass** — only timesheets with no warnings are approved.
 
 The **History** tab lists every week, consultant and project with filters.
 
 ### 6.2 Creating and sending client invoices
+
 1. **Invoices** → **Create invoices from timesheets** → choose the period → *Create drafts*.
    Hours already invoiced are skipped, so you can run it again safely.
 2. Open each draft, check it, and click **Send to customer** (e-mails the company's contact; the due date follows the terms).
 3. To invoice something by hand (a fixed fee, a correction), use **New client invoice**: placement, period, hours, PO and memo.
 
 ### 6.3 Recording payments
+
 Open the invoice → *Payments* → amount, date, method, reference → **Record payment**. Part payments are fine. When a
 client invoice is paid in full, any **pay-when-paid** vendor invoice waiting on it becomes *Ready to pay*.
 
 ### 6.4 Following up
+
 Add **follow-up notes** on the invoice ("Called AP, payment run Friday"). Automatic reminders go to the customer 7 days
 before the due date and 1, 7, 15 and 30 days after (finance copied at 30).
 
 ### 6.5 Vendor and 1099 invoices
+
 - Vendors submit invoices in their portal; you can also see them under **Invoices → Vendor & 1099 invoices (AP)**.
 - **Exception** = the hours don't match approved timesheets. Open it: the *three-way match* shows invoiced, approved and
   billed hours. **Accept at approved hours** recalculates the amount, or ask the vendor for a corrected invoice.
@@ -131,6 +154,7 @@ before the due date and 1, 7, 15 and 30 days after (finance copied at 30).
 Employer taxes and benefits give the true cost of each employee.
 
 **Referral fees**
+
 1. *New referral agreement* — referrer, type (individual 1099, company, employee), the referred consultant, hourly fee
    (with optional hour cap) or one-time fee, eligible-from date, W-9 on file.
 2. The table shows *Earned* (from approved hours or the one-time fee once due), *Paid* and *Due*.
@@ -154,48 +178,82 @@ W-9 status and whether a 1099-NEC is needed (threshold shown at the top). Export
 ## 9. Consultants, projects and placements
 
 ### Onboarding someone
+
 1. **Consultants → Onboard someone**.
 2. Pick the type: **W-2 employee (full-time)**, **W-2 contract**, **C2C (through a vendor)** or **1099 contractor**.
 3. Name, e-mail, start date (and employer for C2C) → *Start onboarding*. They receive a sign-in invitation.
-4. On their page, tick the checklist as items are done (offer signed, I-9, E-Verify, W-4, NDA…).
+4. On their page, tick the checklist as items are done (offer signed, I-9, E-Verify, W-4, NDA…). Use **Select all** to tick every item at once, or tick each item individually.
 5. **Finish onboarding** when the list is complete — the consultant becomes Active and can enter time.
 
 ### While they work
+
 - **Edit** contact details, skills, and (HR) work authorization, I-9 and E-Verify status.
 - Projects, agreements, policy acceptances (with time and IP), tracked documents and files are all on their page.
 
 ### When they leave
+
 **Offboard** → last day, reason, eligible for rehire. All assignments end, sign-in stops, nothing is deleted. They move to
 the **Former** tab. **Rehire** restarts onboarding.
 
 ### Projects and placements
-- **New project** — code, name, client, prime vendor (if you're a sub), dates, client approver.
-- **New placement** — consultant, project, role, hours/week, dates, end client (name only), who you bill (AR customer,
-  SOW, bill rate, terms) and who you pay (vendor or 1099, SOW, pay rate, terms, pay-when-paid). W-2 employees have no
-  AP payee. A consultant can have as many placements as needed.
+
+- **New project** — code, name, client, prime vendor (if you're a sub), dates, client approver. Project codes are globally unique — you can't reuse a code that already exists on another project anywhere in myTrakIn.
+- **New placement** — consultant, project, role, hours/week, dates, end client (name only), who you bill (AR customer, SOW, bill rate, terms) and who you pay (vendor or 1099, SOW, pay rate, terms, pay-when-paid). W-2 employees have no AP payee. A consultant can have as many placements as needed.
+
+  **Before you can create a placement:**
+  - **W-2 consultants** need an active offer letter.
+  - **C2C / E2E consultants** need an active MSA (or subcontract) with the company you bill (AR customer).
+  
+  If the requirement isn't met, placement creation is blocked with a clear message naming the missing agreement.
+
+### Timesheets — one per project, submitted independently
+
+A consultant can work on several projects in the same week. Each project gets its own timesheet, so:
+
+- **Enter hours** per project per day (quarter hours).
+- **Submit each project separately** — click **Submit** next to that project's total hours. The project goes to *Pending approval* until its placed-by company and end client both sign off.
+- Hours on a submitted or approved project are locked for that project only; you can still enter hours on other projects.
+- **Save draft** saves all projects at once without submitting anything.
+- **One note** covers all projects for the week — it's required before any submission.
+
+Once all projects for the week are submitted or approved, the week shows as finalised.
 
 ## 10. Contracts and e-signatures
 
 ### Recording or creating an agreement
+
 **MSAs & SOWs → Add agreement**:
+
+- *New draft (send for signature)* — the default. After saving, the agreement opens directly in e-signature so you can upload the PDF and send it to signers.
 - *Already signed (record it)* — for contracts signed outside myTrakIn; attach the PDF on the agreement page.
-- *New draft (send for signature)* — then **Send for signature** from the agreement page.
+
+### Editing a draft agreement
+
+On the agreement page, while an agreement is still a **draft**, click **Edit** to change the effective date, expiry, payment terms, renewal, notice period, insurance required, or "you are the" side. Once an agreement is sent for signature or accepted, these fields are locked.
+
+### Add SOW
 
 **Add SOW** — under an agreement, side (we bill / we pay), dates, value ceiling, amounts invoiced and collected before
-myTrakIn, and (for vendor SOWs) the client SOW it supports.
+myTrakIn, and (for vendor SOWs) the client SOW it supports. The **New draft (send for signature)** option is selected
+by default; saving opens the e-signature flow immediately.
 
-**Amend / extend** — on the SOW page, describe the change, new end date and value change → draft → *Send* for signature.
+**NDA agreements** — when the type is *NDA*, the Payment terms, Renewal, Notice period and Insurance required fields are hidden (they don't apply to NDAs).
+
+### Amend / extend
+
+On the SOW page, describe the change, new end date and value change → draft → *Send* for signature.
 The SOW updates automatically when everyone signs.
 
-The **Missing & expiring** tab lists every gap: companies without an MSA, consultants without NDA/offer/contractor
-agreement, policies not accepted, documents missing or expiring.
-
 ### Sending a document for signature
+
 1. **E-signatures → Send a document** (or *Send for signature* on an agreement, SOW or amendment).
 2. Title, PDF, signers in order (name, e-mail, company), *Sign in order* on/off, message.
 3. **Send now** (or *Save draft*).
 4. Follow progress on the envelope page: each signer's status and the audit trail with time, IP address and location.
    **Remind now**, **Void**, **View document** / **Download signed PDF**.
+
+If a save fails (for example, an NDA hasn't been signed yet with that company), the error appears at the top of the modal
+in red — not hidden behind it.
 
 ## 11. Compliance
 
@@ -252,7 +310,9 @@ Legal and compliance notices are always sent.
   extensions in progress, your work authorization, and **Where my payments are**: for each period, whether the
   customer has paid and whether your employer (or you, for 1099) has been paid — status and dates only.
 - **My timesheet** — enter hours per project per day (quarter hours), add internal time if needed, **Save draft**,
-  **Submit week** by Friday. Returned weeks show the reason; fix and submit again. History below — click a week to open it.
+  then click **Submit** next to each project you want to send for approval. Each project goes to its own placed-by
+  company and end client. Returned weeks show the reason; fix and submit again. History below — click a week to open it.
+  A note is required before any submission.
 - **Policies & documents** — read each policy and click **Accept** (time and IP are recorded); see your agreements
   and offers, and the documents we track for you with their expiry dates.
 - **Expenses & time off** — submit expenses (keep receipts) and request time off; decisions appear in the lists.
@@ -267,6 +327,10 @@ amount is calculated from the agreed rate. Status: *Received* (matches), *Except
 you), *Held* (pay-when-paid, waiting for our client), *Ready to pay*, *Scheduled*, *Paid*.
 
 **Clients** see invoices addressed to them and their placements' bill rates.
+
+**Timesheet history (client / end client)** — as an end-client representative you can open **Timesheets → History**
+and see every week where your company is the end client on at least one placement, with consultant, week, hours,
+project and approval status. Approved timesheets stay in History even after they're no longer pending approval.
 
 Both can use the network and their profile.
 
@@ -287,7 +351,15 @@ workspaces, sign-ups waiting and inactive workspaces.
 | Code e-mail didn't arrive | Check spam; wait one minute and *send a new code*; codes expire after 10 minutes. |
 | "Finish two-step verification" | Your role needs an authenticator app — follow the on-screen steps. |
 | "Not available for your role" | Ask an admin if you need that access. |
-| A timesheet can't be edited | It's submitted or approved — ask your approver to return it. |
+| A timesheet can't be edited | It's submitted or approved — ask your approver to return it. Only that project's hours are locked; other projects can still be edited. |
 | Import says "column missing" | Download the template again; don't rename headers. |
 | A signing link "doesn't work" | It was used, voided or expired — ask the sender to remind you (a new link is sent). |
 | Amount shows `••••` | It belongs to another link of the chain or your role can't see it — by design. |
+| "Sign an NDA with this company before its MSA" | Create an NDA with this company first (Verify → NDA → MSA), or turn off *Require NDA* in Settings → Workflow. |
+| "No active MSA — not invoiced" | Sign an MSA with this customer first, or turn off *Require MSA* in Settings → Workflow. |
+| "This consultant has no active offer letter" | Assign an active offer letter to the consultant, or turn off *Require resource contract* in Settings → Workflow. |
+| "No active MSA with the AR customer" | Sign an active MSA (or subcontract) with the customer you bill, or turn off *Require resource contract* in Settings → Workflow. |
+| Placement can't be created | Check that the consultant has the required agreement (offer letter for W-2, MSA/subcontract for C2C/E2E with your AR customer). |
+| End Client history is empty | Make sure you're signed in as an end-client representative (`client_user` role) for the company that's the end client on the placement. |
+| Hours reset after entering them | Make sure you click **Save draft** or **Submit** before navigating away; entered hours are saved per project. |
+| Only one project's Submit button shows | Each project has its own Submit button next to its total hours. Submit each project you want to send for approval. |
