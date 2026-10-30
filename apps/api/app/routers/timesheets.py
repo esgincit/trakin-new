@@ -385,19 +385,25 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
     for p in projects:
         pid = str(p["placement_id"])
         ts = ts_by_placement.get(pid)
+        ts_end_client = None
+        if ts:
+            ec = await db.val("select mytrakin.company_public_name(p.end_client_company_id) from placements p where p.id = :id", {"id": p["placement_id"]})
+            ts_end_client = ec
         rows.append({"placement_id": p["placement_id"], "project": p["project"],
                      "hours": grid.get(pid, [Decimal(0)] * 7),
                      "timesheet_id": ts["id"] if ts else None,
                      "ts_status": ts["status"] if ts else "draft",
                      "ts_placed_by_approved": bool(ts["placed_by_approved"]) if ts else False,
-                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False})
+                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False,
+                     "ts_end_client": ts_end_client})
     if None in grid:
         ts = ts_by_placement.get(None)
         rows.append({"placement_id": None, "project": "Internal / non-billable", "hours": grid[None],
                      "timesheet_id": ts["id"] if ts else None,
                      "ts_status": ts["status"] if ts else "draft",
                      "ts_placed_by_approved": bool(ts["placed_by_approved"]) if ts else False,
-                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False})
+                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False,
+                     "ts_end_client": None})
     # TS-10: approved time off shown per day (read-only, never saved as hours or billed).
     off = await db.all(
         """select starts_on, ends_on, kind from time_off where consultant_id = :c and status in ('approved', 'holiday')
@@ -500,6 +506,32 @@ async def submit_my_week(body: Decision, db: TenantDb = Depends(tenant_db), week
                  weekend_requested_by = null, weekend_requested_at = null, weekend_review_note = null
                  where id = :id""", {"id": ts["id"]})
     return {"id": tss[0]["id"], "status": "submitted"}
+
+
+@router.post("/{timesheet_id}/submit")
+async def submit_my_timesheet(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """Submit a single timesheet (one project) for approval."""
+    if db.ctx.role != "consultant":
+        raise ApiError(403, "forbidden", "Only consultants submit timesheets")
+    ts = await db.one("select id, status, note from timesheets where id = :id and consultant_id = :c",
+                      {"id": timesheet_id, "c": db.ctx.consultant_id})
+    if ts is None:
+        raise not_found("Timesheet")
+    if ts["status"] not in ("draft", "rejected"):
+        raise ApiError(409, "not_submittable", "Only draft or rejected timesheets can be submitted")
+    if not ts["note"] or not ts["note"].strip():
+        raise bad_request("Please enter a note before submitting the timesheet.")
+    total = await db.val("select coalesce(sum(hours), 0) from timesheet_entries where timesheet_id = :id",
+                         {"id": timesheet_id})
+    if total <= 0:
+        raise bad_request("Enter your hours first")
+    await _contract_gate(db, timesheet_id)
+    await db.run(
+        """update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null,
+             placed_by_approved = false, end_client_approved = false, weekend_confirmed = false,
+             weekend_requested_by = null, weekend_requested_at = null, weekend_review_note = null
+             where id = :id""", {"id": timesheet_id})
+    return {"id": timesheet_id, "status": "submitted"}
 
 
 # ----------------------------------------------------------------------------- review

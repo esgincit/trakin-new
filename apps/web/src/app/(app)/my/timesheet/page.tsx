@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label, num } from "@/lib/format";
@@ -16,6 +16,7 @@ type Row = {
   ts_status: string;
   ts_placed_by_approved: boolean;
   ts_end_client_approved: boolean;
+  ts_end_client: string | null;
 };
 
 export default function MyTimesheet() {
@@ -27,8 +28,10 @@ export default function MyTimesheet() {
   const [noteError, setNoteError] = useState("");
   const { run, busy } = useAction();
 
+  const initialized = useRef(false);
   useEffect(() => {
-    if (!data) return;
+    if (!data || initialized.current) return;
+    initialized.current = true;
     setRows(data.rows.map((r: any) => ({ ...r, hours: r.hours.map(Number) })));
     setNote(data.note ?? "");
     setNoteError("");
@@ -67,6 +70,7 @@ export default function MyTimesheet() {
         ts_status: "draft",
         ts_placed_by_approved: false,
         ts_end_client_approved: false,
+        ts_end_client: null,
       },
     ]);
   };
@@ -130,8 +134,7 @@ export default function MyTimesheet() {
                 {rows.map((r, ri) => {
                   const locked = r.ts_status === "submitted" || r.ts_status === "approved";
                   const placedBy = data.placed_by_name ? ` — ${data.placed_by_name}` : " (placing company)";
-                  const endClient =
-                    data.end_client_names?.length ? ` — ${data.end_client_names.join(", ")}` : "";
+                  const endClient = r.ts_end_client ? ` — ${r.ts_end_client}` : "";
                   return (
                     <tr key={r.placement_id ?? "internal"}>
                       <td>{r.project}</td>
