@@ -281,10 +281,11 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
                           max(t.note) as note,
                           (select array_agg(coalesce(dh.sum_hours, 0) order by dh.dn)
                            from (
-                               select (e.work_date - cast(:ws as date)) as dn, sum(e.hours) as sum_hours
-                               from timesheet_entries e
-                               where e.timesheet_id in (select id from timesheets where consultant_id = c.id and week_start = :ws)
-                               group by (e.work_date - cast(:ws as date))
+                               select g.dn, coalesce(sum(e.hours), 0) as sum_hours
+                               from generate_series(0, 6) g(dn)
+                               left join timesheet_entries e on (e.work_date - cast(:ws as date)) = g.dn
+                                  and e.timesheet_id in (select id from timesheets where consultant_id = c.id and week_start = :ws)
+                               group by g.dn
                            ) dh(dn, sum_hours)
                           ) as days
                    from timesheets t
