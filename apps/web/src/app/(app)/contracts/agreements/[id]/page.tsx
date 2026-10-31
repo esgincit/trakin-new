@@ -98,17 +98,22 @@ export default function AgreementDetail() {
   const { data: a, error, loading, reload } = useApi(`/agreements/${id}`);
   const { run, busy } = useAction();
   const [editing, setEditing] = useState(false);
-  const editValues: any = {};
+  const [editValues, setEditValues] = useState<Record<string, any>>({});
   const startEditing = () => {
+    // Seed the form from the saved agreement; a plain object created during render
+    // would be wiped by the re-render that opens the form.
+    setEditValues({
+      effective_on: a.effective_on ?? "",
+      expires_on: a.expires_on ?? "",
+      payment_terms: a.payment_terms ?? "",
+      renewal: a.renewal ?? "",
+      notice_period: a.notice_period ?? "",
+      insurance_required: a.insurance_required ?? "",
+      tenant_side: a.tenant_side ?? "",
+    });
     setEditing(true);
-    editValues.effective_on = a.effective_on;
-    editValues.expires_on = a.expires_on;
-    editValues.payment_terms = a.payment_terms ?? "";
-    editValues.renewal = a.renewal ?? "";
-    editValues.notice_period = a.notice_period ?? "";
-    editValues.insurance_required = a.insurance_required ?? "";
-    editValues.tenant_side = a.tenant_side;
   };
+  const setField = (key: string, value: any) => setEditValues((cur) => ({ ...cur, [key]: value }));
   // A document sent for signature lives with its envelope, not in this agreement's
   // files — open it from there rather than duplicating the upload.
   const openDocument = async (envelopeId: string, doc: any) => {
@@ -148,13 +153,13 @@ export default function AgreementDetail() {
               }
             }}>
               <div className="fields">
-                <Field label="Effective" name="effective_on" type="date" required defaultValue={editValues.effective_on} onChange={(e: any) => editValues.effective_on = e.target.value} />
-                <Field label="Expires" name="expires_on" type="date" defaultValue={editValues.expires_on} onChange={(e: any) => editValues.expires_on = e.target.value} />
-                <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} defaultValue={editValues.payment_terms || ""} onChange={(e: any) => editValues.payment_terms = e.target.value} />
-                <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} defaultValue={editValues.renewal || ""} onChange={(e: any) => editValues.renewal = e.target.value} />
-                <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} defaultValue={editValues.notice_period || ""} onChange={(e: any) => editValues.notice_period = e.target.value} />
-                <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} defaultValue={editValues.insurance_required || ""} onChange={(e: any) => editValues.insurance_required = e.target.value} />
-                <Field label="You are the" name="tenant_side" as="select" options={[["supplier", "Supplier"], ["buyer", "Buyer"], ["employer", "Employer"]]} defaultValue={editValues.tenant_side} onChange={(e: any) => editValues.tenant_side = e.target.value} />
+                <Field label="Effective" name="effective_on" type="date" required value={editValues.effective_on ?? ""} onChange={(e: any) => setField("effective_on", e.target.value)} />
+                <Field label="Expires" name="expires_on" type="date" value={editValues.expires_on ?? ""} onChange={(e: any) => setField("expires_on", e.target.value)} />
+                <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} value={editValues.payment_terms ?? ""} onChange={(e: any) => setField("payment_terms", e.target.value)} />
+                <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} value={editValues.renewal ?? ""} onChange={(e: any) => setField("renewal", e.target.value)} />
+                <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} value={editValues.notice_period ?? ""} onChange={(e: any) => setField("notice_period", e.target.value)} />
+                <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} value={editValues.insurance_required ?? ""} onChange={(e: any) => setField("insurance_required", e.target.value)} />
+                <Field label="You are the" name="tenant_side" as="select" options={[["supplier", "Supplier"], ["buyer", "Buyer"], ["employer", "Employer"]]} value={editValues.tenant_side ?? ""} onChange={(e: any) => setField("tenant_side", e.target.value)} />
               </div>
               <div className="row mt">
                 <button className="btn pri" disabled={busy}>Save</button>
