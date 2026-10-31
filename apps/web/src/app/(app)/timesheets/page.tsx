@@ -35,7 +35,8 @@ export default function Timesheets() {
       render: (r: any) => r.checks ? <Chip status={r.checks.result === "pass" ? "ok" : r.checks.result === "fail" ? "rejected" : "pending"}>{r.checks.label}</Chip> : "–" },
   ];
 
-  const passing = (data?.rows ?? []).filter((r: any) => r.status === "submitted" && r.checks?.result === "pass").length;
+  const passing = (data?.rows ?? []).filter((r: any) =>
+    r.status === "submitted" && !r.placed_by_approved && r.checks?.result === "pass").length;
 
   return (
     <>

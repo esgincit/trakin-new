@@ -277,7 +277,8 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
     ws = _sunday(week) if week else week_start(date.today())
     rows = await db.all(
         """select c.id as consultant_id, c.full_name, c.engagement, emp.name as employer,
-                  ts_agg.id, ts_agg.status, ts_agg.submitted_at, ts_agg.reject_reason, ts_agg.note,
+                  ts_agg.id, ts_agg.status, ts_agg.placed_by_approved,
+                  ts_agg.submitted_at, ts_agg.reject_reason, ts_agg.note,
                   (select string_agg(distinct pr.name, ', ') from placements p join projects pr on pr.id = p.project_id
                     where p.consultant_id = c.id and p.start_date <= cast(:ws as date) + 6
                       and coalesce(p.end_date, cast(:ws as date)) >= :ws) as projects,
@@ -295,6 +296,7 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
                                when bool_or(t.status = 'draft') then 'draft'
                                when bool_or(t.status = 'approved') then 'approved'
                                else 'not_submitted' end as status,
+                          bool_or(t.placed_by_approved) as placed_by_approved,
                           max(t.submitted_at) as submitted_at,
                           max(t.reject_reason) as reject_reason,
                           max(t.note) as note,
@@ -775,6 +777,9 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     await _contract_gate(db, timesheet_id)
 
     current = await db.one("select placed_by_approved, end_client_approved from timesheets where id = :id", {"id": timesheet_id})
+    if is_placed_by and not is_end_client and current["placed_by_approved"]:
+        raise ApiError(409, "already_approved",
+                       "Your company already approved this week — no further approval is needed here.")
 
     new_pb = current["placed_by_approved"] or is_placed_by
     new_ec = current["end_client_approved"] or is_end_client
@@ -918,7 +923,7 @@ async def approve_all_passing(db: TenantDb = Depends(tenant_db), week: date = Qu
         """select t.id, c.full_name as consultant
              from timesheets t
              join consultants c on c.id = t.consultant_id
-            where t.week_start = :ws and t.status = 'submitted'""",
+            where t.week_start = :ws and t.status = 'submitted' and not t.placed_by_approved""",
         {"ws": ws})
     approved, skipped = [], []
     for ts in tss:

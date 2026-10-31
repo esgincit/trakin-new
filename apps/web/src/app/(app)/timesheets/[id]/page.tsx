@@ -40,14 +40,14 @@ export default function TimesheetReview() {
                                       approved ? "Adjustment opened — changes need approval again" : "Returned to the consultant")) reload();
             }}>{ts.status === "approved" ? "Request adjustment" : "Return for changes"}</button>
           )}
-          {canApprove && ts.status === "submitted" && weekendHours > 0 && !ts.weekend_confirmed && (
+          {canApprove && ts.status === "submitted" && !ts.placed_by_approved && weekendHours > 0 && !ts.weekend_confirmed && (
             <button className="btn" disabled={busy} onClick={async () => {
               const note = prompt("Optional note for the consultant (e.g. why the weekend hours need confirming):") ?? "";
               if (await run(() => api(`/timesheets/${id}/weekend-confirm-request`, { body: { note } }),
                               "Asked the consultant to confirm the weekend hours")) reload();
             }}>Ask consultant to confirm weekend hours</button>
           )}
-          {canApprove && ts.status === "submitted" && (
+          {canApprove && ts.status === "submitted" && !ts.placed_by_approved && (
             <button className="btn pri" disabled={busy} onClick={async () => {
               if (await run(() => api(`/timesheets/${id}/approve`, { method: "POST" }), "Approved")) reload();
             }}>Approve</button>
@@ -58,6 +58,15 @@ export default function TimesheetReview() {
             }}>Approve (end client)</button>
           )}
         </>} />
+
+      {ts.status === "submitted" && ts.placed_by_approved && (
+        <p className="note" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Chip status="accepted">Approved by your company</Chip>
+          <span>{ts.awaiting_end_client
+            ? "Waiting for the end client's approval — nothing left to approve here."
+            : "The approval is recorded."}</span>
+        </p>
+      )}
 
       <div className="tw ts">
         <table>
