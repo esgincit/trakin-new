@@ -158,6 +158,12 @@ async def test_the_client_sees_the_week_in_its_own_timesheets_page(client, auth)
                                 json={"decision": "approve"})
     assert decided.status_code == 200 and decided.json()["status"] == "approved", decided.text
 
+    # The completed week leaves the queue and shows in the client's own History tab,
+    # even though the timesheet belongs to the placing workspace.
+    history = (await client.get("/timesheets/history", headers=client_admin)).json()
+    mine = [h for h in history if h["id"] == ts_id]
+    assert mine and all(h["status"] == "approved" for h in mine), mine
+
     # and the placements block others' workspaces from the queue / decisions
     outsider = await client.get("/timesheets/client-queue", headers=auth("finance"))
     assert all(q["timesheet_id"] != ts_id for q in (outsider.json() or []))

@@ -326,6 +326,11 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
     Internal staff and vendor admins see everything. A client_user (end client
     representative) only sees weeks where their company is the end client on at
     least one placement in the timesheet.
+
+    A company's own workspace never owns the weeks it approves — they belong to
+    the placing workspace, hidden by tenant isolation — so the completed weeks
+    where it was the end client are added through ts_client_history(), the
+    read-only counterpart of the pending queue.
     """
     if not db.ctx.internal and db.ctx.role not in ("vendor_admin", "client_user"):
         raise ApiError(403, "forbidden", "Use My timesheet for your own history")
@@ -348,7 +353,7 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
         await db.run("select set_config('app.company_id', :cid, true)",
                      {"cid": str(company_id)})
 
-    return await db.all(
+    rows = await db.all(
         """select t.id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
                   c.full_name, c.id as consultant_id, coalesce(pr.name, 'Internal') as project,
                   sum(e.hours) as hours, t.decided_at
@@ -365,6 +370,23 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
              order by t.week_start desc, c.full_name, project
              limit 2000""",
         {"c": consultant_id, "f": since, "u": until, "role": db.ctx.role, "co": company_id})
+
+    seen = {(str(r["id"]), r["project"]) for r in rows}
+    for r in await db.all(
+            """select timesheet_id as id, week_start, status, placed_by_approved, end_client_approved,
+                      consultant as full_name, consultant_id, project, hours, decided_at
+                 from mytrakin.ts_client_history()
+                where (cast(:c as uuid) is null or consultant_id = :c)
+                  and (cast(:f as date) is null or week_start >= :f)
+                  and (cast(:u as date) is null or week_start <= :u)""",
+            {"c": consultant_id, "f": since, "u": until}):
+        key = (str(r["id"]), r["project"])
+        if key not in seen:
+            seen.add(key)
+            rows.append(r)
+    rows.sort(key=lambda r: (r["full_name"], r["project"]))
+    rows.sort(key=lambda r: r["week_start"], reverse=True)
+    return rows
 
 
 # ----------------------------------------------------------------------------- consultant
