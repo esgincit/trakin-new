@@ -75,12 +75,22 @@ async def _counterparty_company(db: TenantDb, *, agreement_id: UUID | None, sow_
 
 
 async def _admins_of(db: TenantDb, company_id: UUID | None) -> list[dict]:
-    """Who may sign for a company (owners and admins), strongest role first."""
+    """Who may sign for a company: its admins, and the company's own contact e-mail —
+    the address given when the company was created. The contact is offered first, so
+    company documents and their one-time codes go to that address unless the sender
+    picks a named admin instead."""
     if not company_id:
         return []
     rows = await db.all("select * from mytrakin.company_signing_admins(:c)", {"c": company_id})
     name = await db.val("select mytrakin.company_public_name(:c)", {"c": company_id})
-    return [{**r, "company": name, "company_id": company_id} for r in rows]
+    signers = [{**r, "company": name, "company_id": company_id} for r in rows]
+    contact = await db.one("select name, contact_email from mytrakin.company_counterparty(:c)",
+                           {"c": company_id})
+    email = (contact or {}).get("contact_email")
+    if email and all(s["email"].lower() != email.lower() for s in signers):
+        signers.insert(0, {"user_id": None, "name": contact.get("name") or name, "email": email,
+                           "company_role": "company contact", "company": name, "company_id": company_id})
+    return signers
 
 
 @router.get("/signing-parties")
