@@ -7,9 +7,9 @@ import { Attachments } from "@/components/Attachments";
 import { CheckList } from "@/components/CompanyWizard";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { CompanyForm } from "@/components/forms";
-import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
+import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, NetTerms, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { AGREEMENT_TERMS, date, effectiveStatus, label, money, roleList } from "@/lib/format";
+import { date, effectiveStatus, label, money, roleList } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -271,7 +271,7 @@ function CompanyMsaModal({ company, onClose, onDone }: { company: any; onClose: 
           <Field label="We are the" name="tenant_side" as="select" defaultValue="supplier" options={[["supplier", "Supplier"], ["buyer", "Buyer"]]} />
           <Field label="Effective" name="effective_on" type="date" />
           <Field label="Expires" name="expires_on" type="date" />
-          <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} />
+          <NetTerms label="Payment terms" name="payment_terms" required />
           {existing
             ? <Field label="Signed by" name="signed_by" full />
             : <Field label="Message to the other company" name="note" as="textarea" full />}

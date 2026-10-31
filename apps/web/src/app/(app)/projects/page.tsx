@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -187,23 +187,17 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
           {!placement && <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(parties, orMsa("client", "prime_vendor"), (c) => c.name)} />}
           {!placement && <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}`)} />}
           <Field label="Bill rate ($/h)" name="bill_rate" type="number" step="0.01" min="0" defaultValue={String(placement?.bill_rate ?? "")} />
-          <Field label="Accounts Receivable Payment Terms" name="ar_terms" as="select" defaultValue={placement?.ar_terms ?? "Net 30"} options={[
-            ["", "–"],
-            ["Net 15", "Net 15"],
-            ["Net 30", "Net 30"],
-            ["Net 45", "Net 45"],
-            ["Net 60", "Net 60"],
-          ]} />
+          <NetTerms label="Accounts Receivable Payment Terms" name="ar_terms" defaultValue={placement?.ar_terms ?? "Net 30"} />
           {!placement && ["c2c", "e2e"].includes(consultant?.engagement) && <Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(parties, orMsa("vendor"), (c) => c.name)} />}
           {!placement && consultant && !consultant.engagement.startsWith("w2") && <>
             <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}`)} />
             <Field label="Pay rate ($/h)" name="pay_rate" type="number" step="0.01" min="0" />
-            <Field label="AP terms" name="ap_terms" placeholder="Net 30" />
+            <NetTerms label="AP terms" name="ap_terms" defaultValue={placement?.ap_terms ?? "Net 30"} />
             <Field label="Pay when paid" name="pay_when_paid" as="select" options={[["no", "No"], ["yes", "Yes — pay after the customer pays"]]} />
           </>}
           {placement && !placement.engagement?.startsWith("w2") && <>
             <Field label="Pay rate ($/h)" name="pay_rate" type="number" step="0.01" min="0" defaultValue={String(placement?.pay_rate ?? "")} />
-            <Field label="AP terms" name="ap_terms" as="select" defaultValue={placement?.ap_terms ?? ""} options={[["", "–"], ["Net 15", "Net 15"], ["Net 30", "Net 30"], ["Net 45", "Net 45"], ["Net 60", "Net 60"]]} />
+            <NetTerms label="AP terms" name="ap_terms" defaultValue={placement?.ap_terms ?? "Net 30"} />
             <Field label="Pay when paid" name="pay_when_paid" as="select" defaultValue={placement?.pay_when_paid ? "yes" : "no"} options={[["no", "No"], ["yes", "Yes — pay after the customer pays"]]} />
           </>}
         </div>

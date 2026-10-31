@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Acceptance } from "@/components/Acceptance";
 import { Attachments } from "@/components/Attachments";
-import { Bar, Chip, ErrorBox, Field, Loading, PageHead, useAction } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, Loading, NetTerms, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, effectiveStatus, label, AGREEMENT_TERMS } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
@@ -105,7 +105,7 @@ export default function AgreementDetail() {
     setEditValues({
       effective_on: a.effective_on ?? "",
       expires_on: a.expires_on ?? "",
-      payment_terms: a.payment_terms ?? "",
+      payment_terms: a.payment_terms ?? "Net 30",
       renewal: a.renewal ?? "",
       notice_period: a.notice_period ?? "",
       insurance_required: a.insurance_required ?? "",
@@ -155,7 +155,7 @@ export default function AgreementDetail() {
               <div className="fields">
                 <Field label="Effective" name="effective_on" type="date" required value={editValues.effective_on ?? ""} onChange={(e: any) => setField("effective_on", e.target.value)} />
                 <Field label="Expires" name="expires_on" type="date" value={editValues.expires_on ?? ""} onChange={(e: any) => setField("expires_on", e.target.value)} />
-                <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} value={editValues.payment_terms ?? ""} onChange={(e: any) => setField("payment_terms", e.target.value)} />
+                <NetTerms label="Payment terms" name="payment_terms" required value={editValues.payment_terms ?? ""} onChange={(v: string) => setField("payment_terms", v)} />
                 <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} value={editValues.renewal ?? ""} onChange={(e: any) => setField("renewal", e.target.value)} />
                 <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} value={editValues.notice_period ?? ""} onChange={(e: any) => setField("notice_period", e.target.value)} />
                 <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} value={editValues.insurance_required ?? ""} onChange={(e: any) => setField("insurance_required", e.target.value)} />

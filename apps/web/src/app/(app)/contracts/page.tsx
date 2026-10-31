@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction, useToast } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction, useToast } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { api, ApiError } from "@/lib/api";
 import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label } from "@/lib/format";
@@ -133,7 +133,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
           <Field label="Expires" name="expires_on" type="date" />
           {kind !== "nda" && (
             <>
-              <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} />
+              <NetTerms label="Payment terms" name="payment_terms" required />
               <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} />
               <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} />
               <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} />

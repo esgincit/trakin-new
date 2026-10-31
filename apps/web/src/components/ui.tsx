@@ -122,6 +122,37 @@ export function Field({ label: l, name, as = "input", options, full, ...rest }: 
   );
 }
 
+/** Payment terms: "Net" + a digits-only box for the days (15 → "Net 15").
+ *  Uncontrolled (defaultValue) inside a <form>, or controlled with value/onChange. */
+export function NetTerms({ label = "Payment terms", name, defaultValue, value, onChange, required }: {
+  label?: string; name: string; defaultValue?: string | null; value?: string | null;
+  onChange?: (value: string) => void; required?: boolean;
+}) {
+  const digits = (v?: string | null) => (v ?? "").match(/\d{1,3}/)?.[0] ?? "";
+  const controlled = value !== undefined;
+  const source = controlled ? value : defaultValue;
+  const start = digits(source) || (source ? "" : "30");
+  const [typed, setTyped] = useState(start);
+  const shown = controlled ? (digits(value) || (value == null ? "30" : "")) : typed;
+  const set = (raw: string) => {
+    const clean = raw.replace(/\D/g, "").slice(0, 3);
+    if (!controlled) setTyped(clean);
+    onChange?.(clean ? `Net ${clean}` : "");
+  };
+  return (
+    <div>
+      <label htmlFor={`f-${name}`}>{label}</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span className="muted" aria-hidden="true">Net</span>
+        <input id={`f-${name}`} className="ctl" type="text" inputMode="numeric" pattern="[0-9]*"
+               maxLength={3} placeholder="30" value={shown} required={required}
+               onChange={(e) => set(e.target.value)} style={{ flex: 1 }} />
+      </div>
+      <input type="hidden" name={name} value={shown ? `Net ${shown}` : (source ?? "")} />
+    </div>
+  );
+}
+
 /** Turns a <form> into a plain object; empty strings are left out. */
 export function formValues(form: HTMLFormElement): Record<string, string> {
   const out: Record<string, string> = {};
