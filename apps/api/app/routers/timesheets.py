@@ -396,7 +396,8 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
         raise ApiError(403, "forbidden", "Only consultants have a personal timesheet")
     ws = _sunday(week) if week else week_start(date.today())
     projects = await db.all(
-        """select p.id as placement_id, pr.name as project, p.role_title, p.hours_per_week
+        """select p.id as placement_id, pr.name as project, p.role_title, p.hours_per_week,
+                  mytrakin.company_public_name(p.end_client_company_id) as end_client
              from placements p join projects pr on pr.id = p.project_id
             where p.consultant_id = :c and p.status in ('active', 'ending', 'onboarding')
               and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws
@@ -420,17 +421,13 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
     for p in projects:
         pid = str(p["placement_id"])
         ts = ts_by_placement.get(pid)
-        ts_end_client = None
-        if ts:
-            ec = await db.val("select mytrakin.company_public_name(p.end_client_company_id) from placements p where p.id = :id", {"id": p["placement_id"]})
-            ts_end_client = ec
         rows.append({"placement_id": p["placement_id"], "project": p["project"],
                      "hours": grid.get(pid, [Decimal(0)] * 7),
                      "timesheet_id": ts["id"] if ts else None,
                      "ts_status": ts["status"] if ts else "draft",
                      "ts_placed_by_approved": bool(ts["placed_by_approved"]) if ts else False,
                      "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False,
-                     "ts_end_client": ts_end_client})
+                     "ts_end_client": p["end_client"]})
     if None in grid:
         ts = ts_by_placement.get(None)
         rows.append({"placement_id": None, "project": "Internal / non-billable", "hours": grid[None],
@@ -486,29 +483,57 @@ async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
     for row in body.rows:
         if row.placement_id and str(row.placement_id) not in allowed:
             raise bad_request("One of the projects isn't assigned to you")
-    # Submitted/approved weeks are locked and cannot be edited. Rejected weeks can be
-    # edited and resubmitted by the consultant until they are approved.
-    tss = await db.all("select id, status from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
-    if any(t["status"] in ("submitted", "approved") for t in tss):
-        raise ApiError(409, "locked", "This week is already submitted. Ask your admin to return it if something needs to change.")
-    # Delete all existing draft timesheets and entries for this week.
-    for t in tss:
-        await db.run("delete from timesheet_entries where timesheet_id = :id", {"id": t["id"]})
-        await db.run("delete from timesheets where id = :id", {"id": t["id"]})
-    # One timesheet per placement so each project is routed to its own
-    # placed-by company and end client for independent approval.
+    # Save one timesheet per placement, upserting in place: submitting one project
+    # must not stop the others being entered, and saving one project must not wipe
+    # another project's draft. Only a submitted/approved project itself is locked.
+    # Rejected projects can be edited and resubmitted until they are approved.
     for row in body.rows:
+        existing = await db.one(
+            """select t.id, t.status from timesheets t
+                where t.consultant_id = :c and t.week_start = :ws
+                  and exists (select 1 from timesheet_entries e
+                               where e.timesheet_id = t.id
+                                 and e.placement_id is not distinct from :p)
+                order by t.created_at desc limit 1""",
+            {"c": db.ctx.consultant_id, "ws": ws, "p": row.placement_id})
+        if existing and existing["status"] in ("submitted", "approved"):
+            continue
+        # Remove only this project's days; a legacy timesheet can also hold another
+        # placement's days, which must survive.
+        if existing:
+            await db.run(
+                """delete from timesheet_entries
+                    where timesheet_id = :id and placement_id is not distinct from :p""",
+                {"id": existing["id"], "p": row.placement_id})
         entry_rows = [{"t": db.ctx.tenant_id, "ts": None, "p": row.placement_id,
                        "d": ws + timedelta(days=i), "h": h}
                       for i, h in enumerate(row.hours) if h > 0]
         if not entry_rows:
+            if existing:
+                left = await db.val("select count(*) from timesheet_entries where timesheet_id = :id",
+                                    {"id": existing["id"]})
+                if not left:
+                    await db.run("delete from timesheets where id = :id", {"id": existing["id"]})
             continue
-        ts = await db.one(
-            "insert into timesheets (tenant_id, consultant_id, week_start, note) "
-            "values (:t, :c, :ws, :n) returning id",
-            {"t": db.ctx.tenant_id, "c": db.ctx.consultant_id, "ws": ws, "n": body.note})
+        if existing:
+            left = await db.val("select count(*) from timesheet_entries where timesheet_id = :id",
+                                {"id": existing["id"]})
+            if not left:
+                tid = existing["id"]
+                await db.run("update timesheets set note = :n, updated_at = now() where id = :id",
+                             {"n": body.note, "id": tid})
+            else:
+                # The old week-wide timesheet keeps its other placement; this project
+                # gets its own timesheet now.
+                existing = None
+        if not existing:
+            ts = await db.one(
+                "insert into timesheets (tenant_id, consultant_id, week_start, note) "
+                "values (:t, :c, :ws, :n) returning id",
+                {"t": db.ctx.tenant_id, "c": db.ctx.consultant_id, "ws": ws, "n": body.note})
+            tid = ts["id"]
         for er in entry_rows:
-            er["ts"] = ts["id"]
+            er["ts"] = tid
         await db.run(
             """insert into timesheet_entries (tenant_id, timesheet_id, placement_id, work_date, hours)
                values (:t, :ts, :p, :d, :h)""", entry_rows)
@@ -804,30 +829,36 @@ async def weekend_confirm(db: TenantDb = Depends(tenant_db), week: date = Query(
     if db.ctx.role != "consultant":
         raise ApiError(403, "forbidden", "Only consultants confirm their weekend hours")
     ws = _sunday(week)
-    ts = await db.one(
-        """select t.id, t.status, t.week_start, t.weekend_confirmed, t.weekend_requested_at, t.weekend_requested_by,
+    # One timesheet per project: confirm every submitted project of the week that
+    # was asked about (the approver asks per timesheet).
+    tss = await db.all(
+        """select t.id, t.week_start, t.weekend_confirmed, t.weekend_requested_at, t.weekend_requested_by,
                   c.full_name from timesheets t join consultants c on c.id = t.consultant_id
-            where t.consultant_id = :c and t.week_start = :ws""", {"c": db.ctx.consultant_id, "ws": ws})
-    if ts is None or ts["status"] != "submitted":
+            where t.consultant_id = :c and t.week_start = :ws and t.status = 'submitted'
+            order by t.id""", {"c": db.ctx.consultant_id, "ws": ws})
+    if not tss:
         raise ApiError(409, "not_submitted", "This week isn't awaiting approval")
-    if ts["weekend_confirmed"]:
-        return {"id": ts["id"], "weekend_confirmed": True}
-    if ts["weekend_requested_at"] is None:
+    asked = [t for t in tss if not t["weekend_confirmed"] and t["weekend_requested_at"] is not None]
+    if not asked:
+        if all(t["weekend_confirmed"] for t in tss):
+            return {"id": tss[0]["id"], "weekend_confirmed": True}
         raise bad_request("Your approver hasn't asked you to confirm weekend hours on this week")
-    await db.run(
-        "update timesheets set weekend_confirmed = true, weekend_confirmed_by = :u, weekend_confirmed_at = now() where id = :id",
-        {"u": db.ctx.user_id, "id": ts["id"]})
-    # Tell the approver who asked, so they can finish the approval.
-    to = await _user_email(db, ts["weekend_requested_by"])
-    if to:
-        settings = get_settings()
-        await send_email(db, to=to, subject=f"Weekend hours confirmed — week of {ts['week_start']}",
-                         kind="timesheet", tenant_id=db.ctx.tenant_id, ref_type="timesheet", ref_id=ts["id"],
-                         html_body=render("Weekend hours confirmed",
-                                          [f"{ts['full_name']} confirmed the weekend hours for the week of {ts['week_start']}.",
-                                           "You can approve the week now."],
-                                          button=("Review timesheet", f"{settings.web_origin.rstrip('/')}/timesheets/{ts['id']}")))
-    return {"id": ts["id"], "weekend_confirmed": True}
+    for t in asked:
+        await db.run(
+            "update timesheets set weekend_confirmed = true, weekend_confirmed_by = :u,"
+            " weekend_confirmed_at = now() where id = :id",
+            {"u": db.ctx.user_id, "id": t["id"]})
+        # Tell the approver who asked, so they can finish the approval.
+        to = await _user_email(db, t["weekend_requested_by"])
+        if to:
+            settings = get_settings()
+            await send_email(db, to=to, subject=f"Weekend hours confirmed — week of {t['week_start']}",
+                             kind="timesheet", tenant_id=db.ctx.tenant_id, ref_type="timesheet", ref_id=t["id"],
+                             html_body=render("Weekend hours confirmed",
+                                              [f"{t['full_name']} confirmed the weekend hours for the week of {t['week_start']}.",
+                                               "You can approve the week now."],
+                                              button=("Review timesheet", f"{settings.web_origin.rstrip('/')}/timesheets/{t['id']}")))
+    return {"id": asked[0]["id"], "weekend_confirmed": True}
 
 
 @router.post("/{timesheet_id}/reject")

@@ -28,14 +28,17 @@ export default function MyTimesheet() {
   const [noteError, setNoteError] = useState("");
   const { run, busy } = useAction();
 
-  const initialized = useRef(false);
+  // Load the week's saved hours once, and again only when the week changes. A
+  // background refresh (the approval-status poll) must never overwrite what the
+  // consultant is typing.
+  const loadedWeek = useRef<string | null>(null);
   useEffect(() => {
-    if (!data || initialized.current) return;
-    initialized.current = true;
+    if (!data || data.week_start !== week || loadedWeek.current === week) return;
+    loadedWeek.current = week;
     setRows(data.rows.map((r: any) => ({ ...r, hours: r.hours.map(Number) })));
     setNote(data.note ?? "");
     setNoteError("");
-  }, [data]);
+  }, [data, week]);
 
   // Keep the approval statuses fresh while any timesheet is waiting for the companies.
   useEffect(() => {
@@ -86,18 +89,20 @@ export default function MyTimesheet() {
 
   const saveAndSubmit = async (ri: number) => {
     const r = rows[ri];
-    if (!r.timesheet_id) return;
     const body = { week_start: week, note, rows: [{ placement_id: r.placement_id, hours: r.hours }] };
-    const saved = await api("/timesheets/mine", { method: "PUT", body });
-    if (!saved) {
-      setNoteError("Save failed. Check the message above and try again.");
-      return;
-    }
-    const ok = await api(`/timesheets/${r.timesheet_id}/submit`, { method: "POST", body: {}, query: { week } });
-    if (!ok) {
-      setNoteError("Submitting failed. Check the message above and try again.");
-      return;
-    }
+    const target = await run(async () => {
+      // Save this project only (the server upserts per placement, so other
+      // projects keep their drafts), then submit the timesheet it returns —
+      // a brand-new project has no timesheet id until that save.
+      const saved: any = await api("/timesheets/mine", { method: "PUT", body });
+      const row = (saved?.rows ?? []).find((x: any) => (x.placement_id ?? null) === r.placement_id);
+      if (!row?.timesheet_id) throw new Error("This project's hours weren't saved — try again.");
+      await api(`/timesheets/${row.timesheet_id}/submit`, { method: "POST", body: {}, query: { week } });
+      return row.timesheet_id as string;
+    }, `${r.project} submitted for approval`);
+    if (!target) return;
+    setRows((rs) => rs.map((x, i) => i === ri ? { ...x, timesheet_id: target, ts_status: "submitted" } : x));
+    setNoteError("");
     reload();
     history.reload();
   };
@@ -281,7 +286,7 @@ export default function MyTimesheet() {
                     </td>
                     <td>
                       <Chip status={h.status === "rejected" ? "rejected" : h.end_client_approved ? "accepted" : "pending"} />
-                      {h.end_client_names ? <div className="muted" style={{ fontSize: 12 }}>{h.end_client_names}</div> : null}
+                      {h.end_client_name ? <div className="muted" style={{ fontSize: 12 }}>{h.end_client_name}</div> : null}
                     </td>
                   </tr>
                 ))}
