@@ -312,20 +312,39 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
     if pay_model == "self":
         body.ap_consultant_id = body.ap_consultant_id or body.consultant_id
     # WF-05: resource contract → acceptance → timesheet. A W-2 consultant needs an active
-    # offer letter; a C2C/E2E consultant needs an active MSA/subcontract with the AR customer.
-    if pay_model == "payroll":
-        has_contract = await workflow.has_active_agreement(db, kinds=("offer_letter",), consultant_id=body.consultant_id)
-        if not has_contract:
-            raise workflow.blocked("contract_required", f"This consultant has no active offer letter — assign one before creating the placement (or turn off 'Require resource contract' in Settings → Workflow)")
-    else:
-        ar_co = body.ar_company_id
-        if ar_co is None:
-            ar_co = await db.val("select prime_company_id from projects where id = :id and source_project_id is not null",
-                                 {"id": body.project_id})
-        if ar_co is not None:
-            has_contract = await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=ar_co)
+    # offer letter; a 1099 contractor an offer letter or independent contractor agreement;
+    # a C2C/E2E vendor an active MSA/subcontract with the AR customer.
+    rules = await workflow.rules(db)
+    if rules["requireContract"]:
+        if pay_model == "payroll":
+            has_contract = await workflow.has_active_agreement(
+                db, kinds=("offer_letter",), consultant_id=body.consultant_id)
             if not has_contract:
-                raise workflow.blocked("contract_required", f"No active MSA with the AR customer — sign one before creating the placement (or turn off 'Require resource contract' in Settings → Workflow)")
+                raise workflow.blocked(
+                    "contract_required",
+                    "Placement cannot be created because this consultant does not have an offer letter. "
+                    "Please assign an offer letter before proceeding.")
+        elif pay_model == "self":
+            has_contract = await workflow.has_active_agreement(
+                db, kinds=("offer_letter", "ica"), consultant_id=body.consultant_id)
+            if not has_contract:
+                raise workflow.blocked(
+                    "contract_required",
+                    "Placement cannot be created because this consultant does not have an offer letter. "
+                    "Please assign an offer letter before proceeding.")
+        else:
+            ar_co = body.ar_company_id
+            if ar_co is None:
+                ar_co = await db.val("select prime_company_id from projects where id = :id and source_project_id is not null",
+                                     {"id": body.project_id})
+            if ar_co is not None:
+                has_contract = await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=ar_co)
+                if not has_contract:
+                    counterparty = await _client_name(db, ar_co) or "the AR customer"
+                    raise workflow.blocked(
+                        "contract_required",
+                        f"Placement cannot be created because there is no active MSA or subcontract with "
+                        f"{counterparty}. Please sign one before proceeding.")
     body.project_id = await _local_project(db, body.project_id)
     # The end client is the original company that initiated the project chain
     # (the project's client), whichever workspace places the consultant. It is
