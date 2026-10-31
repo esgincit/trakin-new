@@ -16,7 +16,9 @@ router = APIRouter(tags=["dashboard"])
 @router.get("/dashboard")
 async def dashboard(db: TenantDb = Depends(tenant_db)):
     ctx = db.ctx
-    if not ctx.internal:
+    # Staff see the whole workspace; an end client's representative sees the same
+    # figures scoped by RLS to their company's invoices (AR only, no AP).
+    if not (ctx.internal or ctx.role == "client_user"):
         raise forbidden("The dashboard is for staff. Vendors and consultants have their own pages.")
     show_ap = ctx.allows("finance")
 
@@ -100,6 +102,6 @@ async def dashboard(db: TenantDb = Depends(tenant_db)):
               and not exists (select 1 from timesheets t where t.consultant_id = c.id
                                and t.week_start = :wk and t.status in ('submitted', 'approved'))""",
         {"wk": week_start(date.today()) - timedelta(days=7)},
-    )
+    ) if ctx.internal else []
     return {"kpis": kpis, "forecast": forecast, "attention": attention, "missing_timesheets_last_week": missing_ts,
-            "show_ap": show_ap}
+            "show_ap": show_ap, "staff": ctx.internal}
