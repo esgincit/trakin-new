@@ -204,9 +204,15 @@ async def _checks(db: TenantDb, consultant_id: UUID | None = None, week_start: d
                  join timesheets t on t.id = e.timesheet_id
                 where t.consultant_id = :c and t.week_start = :ws""",
             {"c": consultant_id, "ws": week_start})
-        ts_row = await db.one("select status from timesheets where consultant_id = :c and week_start = :ws limit 1",
-                              {"c": consultant_id, "ws": week_start})
-        status = ts_row["status"] if ts_row else "draft"
+        ts_row = await db.one(
+            """select case when bool_or(status = 'submitted') then 'submitted'
+                          when bool_or(status = 'rejected') then 'rejected'
+                          when bool_or(status = 'draft') then 'draft'
+                          when bool_or(status = 'approved') then 'approved'
+                          else 'not_submitted' end as status
+                 from timesheets where consultant_id = :c and week_start = :ws""",
+            {"c": consultant_id, "ws": week_start})
+        status = ts_row["status"] if ts_row and ts_row["status"] else "draft"
     placements = await db.all(
         """select p.id, p.hours_per_week, p.start_date, p.end_date, p.bill_rate, s.code as sow_code,
                   (s.value_cap - b.invoiced) as sow_remaining
@@ -271,10 +277,15 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
                from consultants c
                left join companies emp on emp.id = c.employer_company_id
                left join lateral (
-                   select min(t.id) as id,
+                   -- Postgres has no min(uuid): pick the week's timesheet that most needs
+                   -- attention (submitted, then returned, then the oldest draft) so a click
+                   -- opens the one awaiting approval when a consultant has several projects.
+                   select (array_agg(t.id order by (t.status = 'submitted') desc,
+                                                 (t.status = 'rejected') desc, t.created_at))[1] as id,
                           case when bool_or(t.status = 'submitted') then 'submitted'
-                               when bool_or(t.status = 'approved') then 'approved'
+                               when bool_or(t.status = 'rejected') then 'rejected'
                                when bool_or(t.status = 'draft') then 'draft'
+                               when bool_or(t.status = 'approved') then 'approved'
                                else 'not_submitted' end as status,
                           max(t.submitted_at) as submitted_at,
                           max(t.reject_reason) as reject_reason,
@@ -292,6 +303,8 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
                    where t.consultant_id = c.id and t.week_start = :ws
                ) ts_agg on true
               where c.status = 'active'
+                -- Approved weeks are done: they move to History and no longer need an approver.
+                and (ts_agg.id is null or ts_agg.status <> 'approved')
                 and (ts_agg.id is not null or exists (select 1 from placements p where p.consultant_id = c.id
                                                         and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws))
               order by c.full_name""",

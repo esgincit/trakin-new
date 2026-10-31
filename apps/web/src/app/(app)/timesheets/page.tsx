@@ -17,6 +17,8 @@ export default function Timesheets() {
   const [week, setWeek] = useState(sundayOf());
   const { data, error, reload } = useApi("/timesheets", { week });
   const history = useApi<any[]>(tab === "history" ? "/timesheets/history" : null);
+  // Week holds what still needs an approver; done weeks live in History.
+  const completed = (history.data ?? []).filter((r: any) => r.status === "approved");
   const { run, busy } = useAction();
   const canApprove = allows(workspace, "approver", "account_manager", "hr", "finance") && permits(workspace, "timesheets");
   const clientQueue = useApi<any[]>("/timesheets/client-queue");
@@ -79,19 +81,19 @@ export default function Timesheets() {
           <ErrorBox error={error} retry={reload} />
           <DataTable id="timesheets-week" rows={data?.rows} columns={columns}
                      onRowClick={(r) => r.id ? router.push(`/timesheets/${r.id}`) : undefined}
-                     empty="No one is scheduled to work this week." />
+                     empty="No timesheets are waiting for approval this week." />
         </>
       ) : (
-        <DataTable id="timesheets-history" rows={history.data} onRowClick={(r) => router.push(`/timesheets/${r.id}`)} columns={[
+        <DataTable id="timesheets-history" rows={completed} onRowClick={(r) => router.push(`/timesheets/${r.id}`)} columns={[
           { key: "week_start", label: "Week", type: "date" },
           { key: "full_name", label: "Consultant", filter: true },
           { key: "project", label: "Project", filter: true },
           { key: "hours", label: "Hours", type: "number" },
           { key: "status", label: "Status", type: "status", filter: true },
           { key: "decided_at", label: "Decided", type: "date", hideSm: true },
-        ]} />
+        ]} empty="No approved timesheets yet." />
       )}
-      <p className="note">Weeks run Sunday to Saturday. {label("w2_contract")} and {label("w2_fulltime")} hours over 40 are flagged as overtime.</p>
+      <p className="note">Weeks run Sunday to Saturday. Approved weeks move to History. {label("w2_contract")} and {label("w2_fulltime")} hours over 40 are flagged as overtime.</p>
     </>
   );
 }
