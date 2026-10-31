@@ -54,7 +54,7 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
     Pending and rejected MSAs don't count: the other company hasn't accepted them.
     An MSA lives in the workspace that sent it, so one the other company sent us counts too (shared_agreements).
     Matched by the company id first; a same-name company (how the counterparty was recorded here vs their own
-    account) also matches � strictly a fallback under the exact branches, never a replacement for them.
+    account) also matches (a fallback under the exact branches, never a replacement for them).
     An agreement sent for e-signature ('out_for_signature') is treated as in force once the envelope
     has been completed, since the other party has signed it."""
     return bool(await db.val(
@@ -89,3 +89,42 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
                      and coalesce(s.expires_on, cast(:d as date)) >= :d
                      where me.id = :co))""",
         {"kinds": list(kinds), "co": company_id, "con": consultant_id, "d": on or date.today()}))
+
+
+async def stale_note(db, *, kinds: tuple[str, ...], company_id: Any = None) -> str | None:
+    """Why no agreement of these kinds is in force with the party, as one human clause (or None).
+
+    The screen may still show the agreement as Active — the status field is only switched at
+    renewal/termination, never when the end date passes — so a plain 'no signed NDA' reads as a
+    contradiction. Point at the closest agreement and its dates instead: 'NDA TGS-001 expired on
+    16 Oct 2026' or 'MSA MSA-EX-001 is still pending the other company's signature'."""
+    if not company_id:
+        return None
+    row = await db.one(
+        """select code, kind, status, effective_on, expires_on
+             from (select a.code, a.kind, a.status, a.effective_on, a.expires_on
+                     from agreements a
+                    where a.kind = any(:kinds) and a.company_id = cast(:co as uuid)
+                      and a.status not in ('draft', 'rejected')
+                    union all
+                   select s.code, s.kind, s.status, s.effective_on, s.expires_on
+                     from mytrakin.shared_agreements() s
+                    where s.kind = any(:kinds) and mytrakin.agreement_peer_company(s.id) = cast(:co as uuid)
+                      and s.status not in ('draft', 'rejected')) t
+            order by (status in ('active', 'accepted', 'out_for_signature')) desc, expires_on desc nulls last
+            limit 1""",
+        {"kinds": list(kinds), "co": company_id})
+    if row is None:
+        return None
+    lbl = {"nda": "NDA", "msa": "MSA", "subcontract": "subcontract", "ica": "contractor agreement"}
+    lbl = lbl.get(row["kind"], row["kind"])
+    today = date.today()
+    if row["status"] == "pending":
+        return f"{lbl} {row['code']} is still pending — the other company has to sign or accept it"
+    if row["status"] == "out_for_signature":
+        return f"{lbl} {row['code']} is out for signature"
+    if row["expires_on"] and row["expires_on"] < today:
+        return f"{lbl} {row['code']} expired on {row['expires_on'].day} {row['expires_on']:%b %Y} — renew or replace it"
+    if row["effective_on"] and row["effective_on"] > today:
+        return f"{lbl} {row['code']} only starts on {row['effective_on'].day} {row['effective_on']:%b %Y}"
+    return None

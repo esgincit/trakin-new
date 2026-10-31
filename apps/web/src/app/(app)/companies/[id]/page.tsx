@@ -9,7 +9,7 @@ import { CompanyPicker } from "@/components/CompanyPicker";
 import { CompanyForm } from "@/components/forms";
 import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { AGREEMENT_TERMS, date, label, money, roleList } from "@/lib/format";
+import { AGREEMENT_TERMS, date, effectiveStatus, label, money, roleList } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -130,7 +130,7 @@ export default function CompanyDetail() {
           <h3>Agreements</h3>
           {c.agreements.map((a: any) => (
             <div key={a.id} className="alert click" onClick={() => router.push(`/contracts/agreements/${a.id}`)}>
-              <Chip status={a.status} /><div><b>{a.code}</b> · {label(a.kind)}<div className="muted" style={{ fontSize: 12.5 }}>{date(a.effective_on)} – {date(a.expires_on)} · {a.payment_terms ?? ""} {a.source !== "myTrakIn" && `· ${a.source}`}</div></div>
+              <Chip status={effectiveStatus(a)} /><div><b>{a.code}</b> · {label(a.kind)}<div className="muted" style={{ fontSize: 12.5 }}>{date(a.effective_on)} – {date(a.expires_on)} · {a.payment_terms ?? ""} {a.source !== "myTrakIn" && `· ${a.source}`}</div></div>
             </div>
           ))}
           {!c.agreements.length && <p className="muted">No MSA yet. <Link href="/contracts?new=agreement">Add one</Link> or send one for signature.</p>}

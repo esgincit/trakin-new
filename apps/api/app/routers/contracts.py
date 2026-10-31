@@ -98,7 +98,9 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
     # Verify → NDA → MSA (WF-02): a company's MSA / subcontract needs its NDA first, unless the tenant switched that off.
     if body.kind in ("msa", "subcontract") and body.company_id and (await workflow.rules(db))["requireNDA"] \
             and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=body.company_id):
-        raise workflow.blocked("nda_required", "Sign an NDA with this company before its MSA "
+        note = await workflow.stale_note(db, kinds=("nda",), company_id=body.company_id)
+        why = f" — {note}" if note else ""
+        raise workflow.blocked("nda_required", f"An NDA in force with this company is needed first{why} "
                                                "(or turn off 'Require NDA' in Settings → Workflow)")
     counterparty = await db.val(
         """select coalesce((select name from mytrakin.company_counterparty(cast(:co as uuid))),
@@ -402,7 +404,8 @@ async def missing_items(db: TenantDb = Depends(tenant_db)):
              select 'agreement' as category, 'bad' as tone, c.name as who, 'No MSA on file' as what, 'company' as ref_type, c.id::text as ref_id
                from companies c
                where c.status <> 'inactive' and c.kinds && array['client', 'prime_vendor', 'vendor']
-                and not exists (select 1 from agreements a where a.company_id = c.id and a.status in ('active', 'accepted', 'out_for_signature'))
+                and not exists (select 1 from agreements a where a.company_id = c.id and a.status in ('active', 'accepted', 'out_for_signature')
+                                 and (a.expires_on is null or a.expires_on >= current_date))
              union all
              select 'agreement', 'bad', k.full_name,
                     case k.engagement when '1099' then 'Independent contractor agreement missing' else 'Offer letter not signed' end,
@@ -415,7 +418,8 @@ async def missing_items(db: TenantDb = Depends(tenant_db)):
              select 'agreement', 'bad', k.full_name, 'NDA not signed', 'consultant', k.id::text
                from consultants k
               where k.status <> 'former'
-                and not exists (select 1 from agreements a where a.consultant_id = k.id and a.kind = 'nda' and a.status = 'active')
+                and not exists (select 1 from agreements a where a.consultant_id = k.id and a.kind = 'nda' and a.status = 'active'
+                                 and (a.expires_on is null or a.expires_on >= current_date))
              union all
              select 'policy', 'warn', k.full_name, 'Not accepted: ' || string_agg(po.name || ' ' || po.version, ', '), 'consultant', k.id::text
                from consultants k join policies po on po.active and k.engagement = any (po.applies_to)

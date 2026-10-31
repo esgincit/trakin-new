@@ -7,7 +7,7 @@ import { Acceptance } from "@/components/Acceptance";
 import { Attachments } from "@/components/Attachments";
 import { Bar, Chip, ErrorBox, Field, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { date, label, AGREEMENT_TERMS } from "@/lib/format";
+import { date, effectiveStatus, label, AGREEMENT_TERMS } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -122,7 +122,7 @@ export default function AgreementDetail() {
   const canEdit = allows(workspace, "legal", "account_manager", "finance", "hr") && !shared;
   return (
     <>
-      <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{shared ? `Received from ${a.sent_by_company ?? "the other company"}` : a.counterparty} · <Chip status={a.status} /> · {shared ? "Sent to your company" : a.source === "myTrakIn" ? "Created in myTrakIn" : `Recorded (${a.source})`}</>}
+      <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{shared ? `Received from ${a.sent_by_company ?? "the other company"}` : a.counterparty} · <Chip status={effectiveStatus(a)} /> · {shared ? "Sent to your company" : a.source === "myTrakIn" ? "Created in myTrakIn" : `Recorded (${a.source})`}</>}
         actions={<> 
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && a.status === "draft" && <button className="btn" onClick={startEditing}>Edit</button>}

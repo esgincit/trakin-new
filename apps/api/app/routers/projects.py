@@ -147,10 +147,14 @@ async def _activation_gate(db: TenantDb, body: ProjectIn) -> None:
     rules = await workflow.rules(db)
     name = await _client_name(db, customer) or "The counterparty"
     if rules["requireNDA"] and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=customer):
-        raise workflow.blocked("nda_required", f"{name} has no signed NDA — the project can't be activated yet "
+        note = await workflow.stale_note(db, kinds=("nda",), company_id=customer)
+        why = f" — {note}" if note else ""
+        raise workflow.blocked("nda_required", f"{name} has no NDA in force{why}. The project can't be activated yet "
                                                "(save it as planned, or turn off 'Require NDA' in Settings → Workflow)")
     if rules["requireMSA"] and not await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=customer):
-        raise workflow.blocked("msa_required", f"{name} has no active MSA — the project can't be activated yet "
+        note = await workflow.stale_note(db, kinds=workflow.MASTER_KINDS, company_id=customer)
+        why = f" — {note}" if note else ""
+        raise workflow.blocked("msa_required", f"{name} has no MSA in force{why}. The project can't be activated yet "
                                                "(save it as planned, or turn off 'Require MSA' in Settings → Workflow)")
 
 

@@ -261,6 +261,14 @@ by default; saving opens the e-signature flow immediately.
 
 **NDA agreements** — when the type is *NDA*, the Payment terms, Renewal, Notice period and Insurance required fields are hidden (they don't apply to NDAs).
 
+### Agreement expiry
+
+The status shown on an agreement is its effective status: once past its **Expires** date an agreement shows as
+**Expired** (red) even if the record still reads *active* underneath. Expired agreements stop gating dependent
+records — a project assigned to a company whose NDA or MSA has expired is blocked with a message naming the exact
+agreement and its expiry date, until the agreement is renewed or replaced. The **Missing** tab of *MSAs & SOWs* also
+lists companies whose only MSA has expired.
+
 ### Amend / extend
 
 On the SOW page, describe the change, new end date and value change → draft → *Send* for signature.
@@ -383,7 +391,8 @@ workspaces, sign-ups waiting and inactive workspaces.
 | Import says "column missing" | Download the template again; don't rename headers. |
 | A signing link "doesn't work" | It was used, voided or expired — ask the sender to remind you (a new link is sent). |
 | Amount shows `••••` | It belongs to another link of the chain or your role can't see it — by design. |
-| "Sign an NDA with this company before its MSA" | Create an NDA with this company first (Verify → NDA → MSA), or turn off *Require NDA* in Settings → Workflow. |
+| "An NDA in force with this company is needed first" | Create an NDA with this company first (Verify → NDA → MSA), or turn off *Require NDA* in Settings → Workflow. The message names the exact agreement if one is expired, pending or awaiting signature. |
+| "…NDA NDA-XXX-001 expired on … — renew or replace it" | The agreement's end date has passed. Create or renew the agreement with the company and try again. |
 | "No active MSA — not invoiced" | Sign an MSA with this customer first, or turn off *Require MSA* in Settings → Workflow. |
 | "This consultant has no active offer letter" | Assign an active offer letter to the consultant, or turn off *Require resource contract* in Settings → Workflow. |
 | "No active MSA with the AR customer" | Sign an active MSA (or subcontract) with the customer you bill, or turn off *Require resource contract* in Settings → Workflow. |

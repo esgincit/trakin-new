@@ -31,9 +31,19 @@ export function label(v: string | null | undefined): string {
     prime_vendor: "Prime vendor", end_client: "End client", tenant_admin: "Admin", account_manager: "Account manager",
     vendor_admin: "Vendor", client_user: "Client", super_admin: "Owner", owner: "Co-owner", msa: "MSA", nda: "NDA", ica: "Contractor agreement",
     we_bill: "We bill", we_pay: "We pay", due_30: "Within 30 days", due_120: "Within 120 days", ok: "OK", i9_reverification: "I-9 reverification", ead: "EAD", i94: "I-94", coi: "COI", w9: "W-9",
-    pto: "Paid time off",
+    pto: "Paid time off", expired: "Expired",
   };
   return special[v] ?? v.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/** The status an agreement effectively has: once past its end date it is expired even while the
+ *  stored record still says active/accepted (the status only flips at renewal or termination).
+ *  Every agreement screen shows this, so what you see matches what the workflow gates enforce. */
+export function effectiveStatus(a: { status?: string | null; expires_on?: string | null; days_left?: number | null } | null | undefined): string | null | undefined {
+  if (!a) return a === undefined ? undefined : null;
+  const inForce = a.status === "active" || a.status === "accepted" || a.status === "out_for_signature";
+  const past = typeof a.days_left === "number" ? a.days_left < 0 : a.expires_on ? new Date(a.expires_on) < new Date(new Date().toDateString()) : false;
+  return inForce && past ? "expired" : a.status;
 }
 
 /** Every role a company plays, oldest API responses only carry the primary `kind`. */

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Attachments } from "@/components/Attachments";
 import { Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { date, dateTime, label } from "@/lib/format";
+import { date, dateTime, effectiveStatus, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -86,7 +86,7 @@ export default function ConsultantDetail() {
           ))}
           {!c.placements.length && <p className="muted">Not placed yet. Add a placement under Projects.</p>}
           <h3 className="mt">Agreements</h3>
-          {c.agreements.map((a: any) => <div key={a.id} className="alert"><Chip status={a.status} /><b>{label(a.kind)}</b> {a.code}</div>)}
+          {c.agreements.map((a: any) => <div key={a.id} className="alert"><Chip status={effectiveStatus(a)} /><b>{label(a.kind)}</b> {a.code}</div>)}
           {!c.agreements.length && <p className="muted">No NDA, offer or contractor agreement on file.</p>}
         </div>
         <div className="card">

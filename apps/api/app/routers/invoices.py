@@ -179,7 +179,10 @@ async def create_invoice(body: ManualInvoiceIn, db: TenantDb = Depends(tenant_db
         raise bad_request("This placement has no AR customer or bill rate")
     if (await workflow.rules(db))["requireMSA"] and not await workflow.has_active_agreement(
             db, kinds=workflow.MASTER_KINDS, company_id=p["ar_company_id"], on=body.period_end):
-        raise workflow.blocked("msa_required", f"{p['customer']} has no active MSA — invoices are blocked until one is signed")
+        note = await workflow.stale_note(db, kinds=workflow.MASTER_KINDS, company_id=p["ar_company_id"])
+        why = f" — {note}" if note else ""
+        raise workflow.blocked("msa_required", f"{p['customer']} has no MSA in force{why} — invoices are blocked "
+                                               "until one is signed")
     issued = date.today()
     invoice = await db.one(
         """insert into invoices (tenant_id, number, direction, placement_id, company_id, sow_id, period_start, period_end, hours,

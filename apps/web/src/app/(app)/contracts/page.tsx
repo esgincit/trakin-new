@@ -7,7 +7,7 @@ import { DataTable, type Column } from "@/components/DataTable";
 import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction, useToast } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { api, ApiError } from "@/lib/api";
-import { AGREEMENT_TERMS, daysLeft, label } from "@/lib/format";
+import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label } from "@/lib/format";
 import { linkFor } from "@/lib/links";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -34,7 +34,7 @@ function Contracts() {
     { key: "days_left", label: "Left", value: (r) => r.days_left, render: (r) => daysLeft(r.days_left) },
     { key: "sow_count", label: "SOWs", type: "number", hideSm: true },
     { key: "source", label: "Source", filter: true, hideSm: true, value: (r) => (r.shared ? "Received" : r.source) },
-    { key: "status", label: "Status", type: "status", filter: true },
+    { key: "status", label: "Status", type: "status", filter: true, value: effectiveStatus },
   ];
   const sowCols: Column<any>[] = [
     { key: "code", label: "SOW", render: (r) => <>{r.code}{r.shared && <Chip status="pending">Sent to you</Chip>}</> },
