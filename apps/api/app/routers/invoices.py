@@ -5,6 +5,7 @@ Only the tenant's own two links are ever tracked — never other layers of the c
 
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -12,7 +13,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from ..deps import TenantDb, tenant_db
+from ..config import get_settings
+from ..deps import TenantDb, open_system, tenant_db
 from ..errors import ApiError, bad_request, not_found
 from ..services import numbering, workflow
 from ..services.email import render, send_email
@@ -127,7 +129,12 @@ async def client_payable(db: TenantDb = Depends(tenant_db)):
 async def get_invoice(invoice_id: UUID, db: TenantDb = Depends(tenant_db)):
     row = await db.one(_LIST_SQL + " where b.id = :id", {"id": invoice_id})
     if row is None:
-        raise not_found("Invoice")
+        # An invoice another workspace sent to the company we act for: RLS hides its
+        # rows here, so read it through the same SECURITY DEFINER helper as the AP list.
+        shared = await db.val("select mytrakin.client_payable_detail(:id)", {"id": invoice_id})
+        if shared is None:
+            raise not_found("Invoice")
+        return shared if isinstance(shared, dict) else json.loads(shared)
     # Consultants never see what the client is billed (RULE-02); a 1099 contractor may open their own payable only.
     if db.ctx.role == "consultant" and not (row["direction"] == "ap" and await db.val(
             "select consultant_id = :c from invoices where id = :id", {"c": db.ctx.consultant_id, "id": invoice_id})):
@@ -260,6 +267,60 @@ async def add_payment(invoice_id: UUID, body: PaymentIn, db: TenantDb = Depends(
     return await record_payment(db, tenant_id=db.ctx.tenant_id, user_id=db.ctx.user_id, invoice_id=invoice_id,
                                 amount=body.amount, paid_on=body.paid_on, method=body.method, reference=body.reference,
                                 status=body.status)
+
+
+class ClientPaymentIn(BaseModel):
+    amount: Decimal = Field(gt=0)
+    paid_on: date
+    method: str = Field("ACH", pattern="^(ACH|Wire|Check|Card|Other)$")
+    reference: str | None = Field(None, max_length=120)
+
+
+async def _notify_provider_of_client_payment(db: TenantDb, invoice_id: UUID, res: dict, amount: Decimal) -> None:
+    """Tell the placing company's finance team that its customer recorded a payment."""
+    recipients = [r["email"] for r in await db.all(
+        "select email from mytrakin.client_payable_recipients(:i)", {"i": invoice_id})]
+    if not recipients:
+        return
+    payer = await db.val("select name from mytrakin.tenants where id = :t", {"t": db.ctx.tenant_id}) or "Your customer"
+    settings = get_settings()
+    async for sdb in open_system(UUID(str(res["tenant_id"]))):
+        await send_email(
+            sdb, to=recipients, subject=f"Payment recorded by {payer} — {res['number']}",
+            kind="invoice", tenant_id=res["tenant_id"], ref_type="invoice", ref_id=invoice_id,
+            html_body=render("Your customer recorded a payment",
+                             [f"{payer} recorded a payment of {money(amount)} on invoice {res['number']}.",
+                              f"Open balance after it: {money(res.get('balance') or 0)}.",
+                              "Acknowledge the payment in Payment flow once you have received it."],
+                             button=("Open invoice", f"{settings.web_origin.rstrip('/')}/invoices/{invoice_id}")))
+
+
+@router.post("/invoices/{invoice_id}/client-payment", status_code=201)
+async def client_payment(invoice_id: UUID, body: ClientPaymentIn, db: TenantDb = Depends(tenant_db)):
+    """The company an invoice was sent to records the payment it made (full or partial).
+    The invoice stays in the placing company's workspace, which acknowledges the payment."""
+    if db.ctx.role in ("consultant", "public", "anonymous"):
+        raise ApiError(403, "forbidden", "Only the company billed on the invoice can record this payment")
+    res = await db.val(
+        "select mytrakin.client_record_payment(:i, :a, :d, :m, :r, :u)",
+        {"i": invoice_id, "a": body.amount, "d": body.paid_on, "m": body.method,
+         "r": body.reference, "u": db.ctx.user_id})
+    res = res if isinstance(res, dict) else json.loads(res)
+    err = res.get("error")
+    if err == "not_found":
+        raise not_found("Invoice")
+    if err == "not_ours":
+        raise ApiError(403, "forbidden", "Your company isn't the customer on this invoice")
+    if err == "future_date":
+        raise bad_request("The payment date can't be in the future")
+    if err == "invalid_amount":
+        raise bad_request("Enter an amount greater than zero")
+    if err == "over_balance":
+        raise bad_request(f"That is more than the open balance of {money(res.get('balance') or 0)}")
+    if err == "invalid_method":
+        raise bad_request("Choose a payment method")
+    await _notify_provider_of_client_payment(db, invoice_id, res, body.amount)
+    return res
 
 
 # ----------------------------------------------------------------------------- payment lifecycle (WF-09)

@@ -69,10 +69,10 @@ function Invoices() {
                    empty="No credit notes. Issue one from a client invoice when the customer was over-billed." />
       ) : (
         <><DataTable id={`invoices-${direction}`} rows={data} columns={columns}
-                     onRowClick={(r) => { if (!r.is_client_payable) router.push(`/invoices/${r.id}`); }}
+                     onRowClick={(r) => router.push(`/invoices/${r.id}`)}
                      empty={direction === "ar" ? "No client invoices yet. Approve timesheets, then create invoices from them." : "No vendor invoices yet."} />
           {direction === "ap" && (data ?? []).some((r: any) => r.is_client_payable) && (
-            <p className="note">Note: rows whose party is another workspace are invoices that company sent us — view only, they're payable in that company's payment flow.</p>
+            <p className="note">Note: rows whose party is another workspace are invoices that company sent us — open one to record the payment you made (in full or in part); the provider acknowledges it.</p>
           )}
         </>
       )}
@@ -112,7 +112,7 @@ function GenerateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
 }
 
 function PaymentRunModal({ rows, onClose, onDone }: { rows?: any[]; onClose: () => void; onDone: () => void }) {
-  const payable = (rows ?? []).filter((r) => Number(r.balance) > 0 && ["open", "ready_to_pay", "scheduled", "overdue"].includes(r.live_status));
+  const payable = (rows ?? []).filter((r) => !r.is_client_payable && Number(r.balance) > 0 && ["open", "ready_to_pay", "scheduled", "overdue"].includes(r.live_status));
   const [picked, setPicked] = useState<string[]>(payable.map((r) => r.id));
   const { run, busy } = useAction();
   const total = payable.filter((r) => picked.includes(r.id)).reduce((s, r) => s + Number(r.balance), 0);

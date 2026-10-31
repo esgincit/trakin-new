@@ -20,14 +20,15 @@ export default function InvoiceDetail() {
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const ar = inv.direction === "ar";
+  const shared = !!inv.shared;
 
   return (
     <>
-      <PageHead title={`${ar ? "Client" : "Vendor"} invoice ${inv.number}`} sub={<>{inv.party} · <Chip status={inv.live_status} /></>}
+      <PageHead title={`${shared ? "Invoice from" : ar ? "Client invoice" : "Vendor invoice"} ${inv.number}`} sub={<>{inv.party} · <Chip status={inv.live_status} /></>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
-          {finance && ar && inv.status === "draft" && <button className="btn pri" disabled={busy} onClick={async () => { await run(() => api(`/invoices/${id}/send`, { method: "POST" }), "Invoice sent"); reload(); }}>Send to customer</button>}
-          {finance && inv.live_status === "exception" && <button className="btn pri" disabled={busy} onClick={async () => { await run(() => api(`/invoices/${id}/resolve`, { method: "POST" }), "Accepted at approved hours"); reload(); }}>Accept at approved hours</button>}
+          {!shared && finance && ar && inv.status === "draft" && <button className="btn pri" disabled={busy} onClick={async () => { await run(() => api(`/invoices/${id}/send`, { method: "POST" }), "Invoice sent"); reload(); }}>Send to customer</button>}
+          {!shared && finance && inv.live_status === "exception" && <button className="btn pri" disabled={busy} onClick={async () => { await run(() => api(`/invoices/${id}/resolve`, { method: "POST" }), "Accepted at approved hours"); reload(); }}>Accept at approved hours</button>}
         </>} />
 
       <div className="grid c2">
@@ -85,25 +86,32 @@ export default function InvoiceDetail() {
               </tr>
             ))}</tbody></table>
           ) : <p className="muted">No payments yet.</p>}
-          {finance && Number(inv.balance) > 0 && inv.status !== "void" && (
+          {shared && inv.payments.length > 0 && (
+            <p className="note">Payments you record here stay “completed” until {inv.provider ?? "the service provider"} acknowledges them — then they show “confirmed”.</p>
+          )}
+          {(shared || finance) && Number(inv.balance) > 0 && inv.status !== "void" && (
             <form className="form mt" onSubmit={async (e) => {
               e.preventDefault();
               const v = formValues(e.currentTarget);
-              if (await run(() => api(`/invoices/${id}/payments`, { body: { ...v, amount: Number(v.amount) } }), "Payment recorded")) reload();
+              const path = shared ? "client-payment" : "payments";
+              if (await run(() => api(`/invoices/${id}/${path}`, { body: { ...v, amount: Number(v.amount) } }),
+                              shared ? "Payment recorded — waiting for your provider to acknowledge it" : "Payment recorded")) reload();
             }}>
               <div className="fields">
-                <Field label="Amount" name="amount" type="number" step="0.01" min="0.01" defaultValue={inv.balance} required />
+                <Field label="Amount" name="amount" type="number" step="0.01" min="0.01" max={shared ? inv.balance : undefined} defaultValue={inv.balance} required />
                 <Field label="Date" name="paid_on" type="date" defaultValue={iso(new Date())} required />
                 <Field label="Method" name="method" as="select" options={["ACH", "Wire", "Check", "Card", "Other"]} />
                 <Field label="Reference" name="reference" placeholder="Trace / check number" />
-                <Field label="Status" name="status" as="select" options={[["completed", "Completed (money moved)"], ["processing", "Processing"], ["pending", "Pending"]]} />
+                {!shared && <Field label="Status" name="status" as="select" options={[["completed", "Completed (money moved)"], ["processing", "Processing"], ["pending", "Pending"]]} />}
               </div>
-              <p className="note">Pending and processing payments don't reduce the balance until marked completed. Confirmation by the receiving side closes the payment.</p>
-              <button className="btn pri mt" disabled={busy}>{ar ? "Record payment received" : "Record payment made"}</button>
+              <p className="note">{shared
+                ? "Full or partial payment. Your service provider acknowledges it on their side."
+                : "Pending and processing payments don't reduce the balance until marked completed. Confirmation by the receiving side closes the payment."}</p>
+              <button className="btn pri mt" disabled={busy}>{shared ? "Mark as paid" : ar ? "Record payment received" : "Record payment made"}</button>
             </form>
           )}
 
-          {ar && (inv.credits?.length > 0 || (finance && inv.status !== "draft" && inv.status !== "void" && Number(inv.balance) > 0)) && (
+          {!shared && ar && (inv.credits?.length > 0 || (finance && inv.status !== "draft" && inv.status !== "void" && Number(inv.balance) > 0)) && (
             <>
               <h3 className="mt">Credit notes</h3>
               {inv.credits?.length > 0 && (
@@ -148,7 +156,7 @@ export default function InvoiceDetail() {
               </form>
             </>
           )}
-          {finance && inv.status !== "void" && Number(inv.paid) === 0 && !inv.credits?.length && (
+          {!shared && finance && inv.status !== "void" && Number(inv.paid) === 0 && !inv.credits?.length && (
             <p className="note mt"><a onClick={async () => {
               const reason = prompt("Why is this invoice being voided?");
               if (reason && await run(() => api(`/invoices/${id}/void`, { body: { body: reason } }), "Invoice voided")) reload();
@@ -156,7 +164,7 @@ export default function InvoiceDetail() {
           )}
         </div>
       </div>
-      <Attachments ownerType="invoice" ownerId={id} canEdit={finance} />
+      <Attachments ownerType="invoice" ownerId={id} canEdit={finance && !shared} />
     </>
   );
 }
