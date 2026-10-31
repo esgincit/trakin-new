@@ -253,7 +253,12 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
         payroll = r["pay_model"] == "payroll"
         contract_status = r["offer_status"] if payroll else r["ap_status"]
         what = "offer letter" if payroll else "vendor / contractor work order"
-        if rules["requireContract"] and contract_status is None and not r["offer_in_force"]:
+        # A W-2 resource contract is the offer letter (it counts from any workspace the
+        # person works in). A vendor / 1099 contractor's resource contract is the AP work
+        # order on the placement — an offer letter for the same person elsewhere must not
+        # stand in for a missing work order.
+        contract_ok = r["offer_in_force"] if payroll else contract_status is not None
+        if rules["requireContract"] and not contract_ok:
             raise workflow.blocked("contract_required", f"{r['project']}: no {what} for this resource yet — add it before "
                                                         "timesheets (or turn off 'Require contract' in Settings → Workflow)")
         if rules["requireAcceptance"]:
