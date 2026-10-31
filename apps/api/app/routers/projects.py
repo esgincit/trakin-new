@@ -140,9 +140,13 @@ async def list_projects(db: TenantDb = Depends(tenant_db)):
 
 async def _activation_gate(db: TenantDb, body: ProjectIn) -> None:
     """NDA → MSA → Project (WF-03): an active project needs the customer's NDA and MSA, per the workflow switches.
-    The customer is the prime when the project comes through one, otherwise the client."""
-    customer = body.prime_company_id or body.client_company_id
-    if body.status != "active" or customer is None:
+    The customer is the prime when the project comes through one, otherwise the client. A project for our own
+    company is internal work — there is no other party to hold an agreement with, so the gate does not apply."""
+    if body.status != "active":
+        return
+    own = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    customer = body.prime_company_id if body.prime_company_id and body.prime_company_id != own else body.client_company_id
+    if customer is None or customer == own:
         return
     rules = await workflow.rules(db)
     name = await _client_name(db, customer) or "The counterparty"

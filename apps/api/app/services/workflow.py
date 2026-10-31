@@ -53,8 +53,9 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
     """An agreement in force (accepted, or active) of one of these kinds with the party covers the date.
     Pending and rejected MSAs don't count: the other company hasn't accepted them.
     An MSA lives in the workspace that sent it, so one the other company sent us counts too (shared_agreements).
-    Matched by the company id first; a same-name company (how the counterparty was recorded here vs their own
-    account) also matches (a fallback under the exact branches, never a replacement for them).
+    Matched by the company id first; a same-name company also matches — the counterparty can be recorded
+    here as a local company while the project / SOW names its own directory record (or the other way round)
+    — as a fallback under the exact branches, never a replacement for them.
     An agreement sent for e-signature ('out_for_signature') is treated as in force once the envelope
     has been completed, since the other party has signed it."""
     return bool(await db.val(
@@ -71,8 +72,8 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
                        and coalesce(s.expires_on, cast(:d as date)) >= :d))
               or (cast(:co as uuid) is not null and exists (
                     select 1 from companies me
-                     join companies oc on lower(regexp_replace(oc.name, '[^a-z0-9]', '', 'g')) =
-                                        lower(regexp_replace(me.name, '[^a-z0-9]', '', 'g'))
+                     join companies oc on lower(regexp_replace(oc.name, '[^a-zA-Z0-9]', '', 'g')) =
+                                        lower(regexp_replace(me.name, '[^a-zA-Z0-9]', '', 'g'))
                      join agreements a2 on a2.company_id = oc.id
                                        and a2.tenant_id = mytrakin.ctx_tenant()
                                        and a2.status in ('active', 'accepted', 'out_for_signature') and a2.kind = any(:kinds)
@@ -82,12 +83,38 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
               or (cast(:co as uuid) is not null and exists (
                     select 1 from companies me
                     join mytrakin.shared_agreements() s
-                      on lower(regexp_replace(coalesce(s.counterparty, ''), '[^a-z0-9]', '', 'g')) =
-                                         lower(regexp_replace(me.name, '[^a-z0-9]', '', 'g'))
+                      on lower(regexp_replace(coalesce(s.counterparty, ''), '[^a-zA-Z0-9]', '', 'g')) =
+                                         lower(regexp_replace(me.name, '[^a-zA-Z0-9]', '', 'g'))
                      and s.status in ('active', 'accepted', 'out_for_signature') and s.kind = any(:kinds)
                      and coalesce(s.effective_on, cast(:d as date)) <= :d
                      and coalesce(s.expires_on, cast(:d as date)) >= :d
-                     where me.id = :co))""",
+                     where me.id = :co))
+              -- A project / SOW can name the counterparty by its own directory record while the
+              -- agreements were recorded against a local company with the same name (or the
+              -- other way round). Match those by name as well; the company-id branches above
+              -- always win, this is only a fallback under them.
+              or (cast(:co as uuid) is not null and exists (
+                    select 1 from agreements a3
+                     where a3.tenant_id = mytrakin.ctx_tenant()
+                       and a3.status in ('active', 'accepted', 'out_for_signature') and a3.kind = any(:kinds)
+                       and coalesce(a3.effective_on, cast(:d as date)) <= :d
+                       and coalesce(a3.expires_on, cast(:d as date)) >= :d
+                       and length(regexp_replace(coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                                 '[^a-zA-Z0-9]', '', 'g')) > 0
+                       and lower(regexp_replace(coalesce(mytrakin.company_public_name(a3.company_id), ''),
+                                                '[^a-zA-Z0-9]', '', 'g')) =
+                           lower(regexp_replace(coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                                '[^a-zA-Z0-9]', '', 'g'))))
+              or (cast(:co as uuid) is not null and exists (
+                    select 1 from mytrakin.shared_agreements() s
+                     where s.status in ('active', 'accepted', 'out_for_signature') and s.kind = any(:kinds)
+                       and coalesce(s.effective_on, cast(:d as date)) <= :d
+                       and coalesce(s.expires_on, cast(:d as date)) >= :d
+                       and length(regexp_replace(coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                                 '[^a-zA-Z0-9]', '', 'g')) > 0
+                       and lower(regexp_replace(coalesce(s.counterparty, ''), '[^a-zA-Z0-9]', '', 'g')) =
+                           lower(regexp_replace(coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                                '[^a-zA-Z0-9]', '', 'g'))))""",
         {"kinds": list(kinds), "co": company_id, "con": consultant_id, "d": on or date.today()}))
 
 
@@ -104,13 +131,31 @@ async def stale_note(db, *, kinds: tuple[str, ...], company_id: Any = None) -> s
         """select code, kind, status, effective_on, expires_on
              from (select a.code, a.kind, a.status, a.effective_on, a.expires_on
                      from agreements a
-                    where a.kind = any(:kinds) and a.company_id = cast(:co as uuid)
+                    where a.kind = any(:kinds)
                       and a.status not in ('draft', 'rejected')
+                      and (a.company_id = cast(:co as uuid)
+                           or (length(regexp_replace(
+                                 coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                 '[^a-zA-Z0-9]', '', 'g')) > 0
+                               and lower(regexp_replace(
+                                     coalesce(mytrakin.company_public_name(a.company_id), ''),
+                                     '[^a-zA-Z0-9]', '', 'g')) =
+                                   lower(regexp_replace(
+                                     coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                     '[^a-zA-Z0-9]', '', 'g'))))
                     union all
                    select s.code, s.kind, s.status, s.effective_on, s.expires_on
                      from mytrakin.shared_agreements() s
-                    where s.kind = any(:kinds) and mytrakin.agreement_peer_company(s.id) = cast(:co as uuid)
-                      and s.status not in ('draft', 'rejected')) t
+                    where s.kind = any(:kinds)
+                      and s.status not in ('draft', 'rejected')
+                      and (mytrakin.agreement_peer_company(s.id) = cast(:co as uuid)
+                           or (length(regexp_replace(
+                                 coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                 '[^a-zA-Z0-9]', '', 'g')) > 0
+                               and lower(regexp_replace(coalesce(s.counterparty, ''), '[^a-zA-Z0-9]', '', 'g')) =
+                                   lower(regexp_replace(
+                                     coalesce(mytrakin.company_public_name(cast(:co as uuid)), ''),
+                                     '[^a-zA-Z0-9]', '', 'g'))))) t
             order by (status in ('active', 'accepted', 'out_for_signature')) desc, expires_on desc nulls last
             limit 1""",
         {"kinds": list(kinds), "co": company_id})
