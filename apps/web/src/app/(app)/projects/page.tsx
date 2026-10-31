@@ -185,12 +185,12 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
           {placement && <Field label="Status" name="status" as="select" defaultValue={placement.status}
                   options={[["onboarding", "Onboarding"], ["active", "Active"], ["ending", "Ending"], ["completed", "Completed"], ["ended", "Ended"]]} />}
           {!placement && <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(parties, orMsa("client", "prime_vendor"), (c) => c.name)} />}
-          {!placement && <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}`)} />}
+          {!placement && <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}${s.project_name ? ` · ${s.project_name}` : s.project ? ` · ${s.project}` : ""}`)} />}
           <Field label="Bill rate ($/h)" name="bill_rate" type="number" step="0.01" min="0" defaultValue={String(placement?.bill_rate ?? "")} />
           <NetTerms label="Accounts Receivable Payment Terms" name="ar_terms" defaultValue={placement?.ar_terms ?? "Net 30"} />
           {!placement && ["c2c", "e2e"].includes(consultant?.engagement) && <Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(parties, orMsa("vendor"), (c) => c.name)} />}
           {!placement && consultant && !consultant.engagement.startsWith("w2") && <>
-            <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}`)} />
+            <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}${s.project_name ? ` · ${s.project_name}` : s.project ? ` · ${s.project}` : ""}`)} />
             <Field label="Pay rate ($/h)" name="pay_rate" type="number" step="0.01" min="0" />
             <NetTerms label="AP terms" name="ap_terms" defaultValue={placement?.ap_terms ?? "Net 30"} />
             <Field label="Pay when paid" name="pay_when_paid" as="select" options={[["no", "No"], ["yes", "Yes — pay after the customer pays"]]} />
