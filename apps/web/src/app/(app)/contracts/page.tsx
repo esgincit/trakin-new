@@ -153,7 +153,6 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const sows = useApi<any[]>("/sows", { side: "we_bill" });
   const projects = useApi<any[]>("/projects");
   const [existing, setExisting] = useState(false);
-  const [sendNow, setSendNow] = useState(true);
   const [saving, setSaving] = useState(false);
   const { run, busy } = useAction();
   // An MSA either side recorded with one of our companies: work under it runs from here too.
@@ -173,14 +172,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
         v.status = existing ? "active" : "draft";
         for (const k of ["value_cap", "prior_invoiced", "prior_paid"]) if (v[k]) v[k] = Number(v[k]);
         const r = await run(() => api("/sows", { body: v }), existing ? "SOW saved" : "SOW drafted");
-        if (r) {
-          // An MSA the other workspace recorded: offer to put it in front of them at once.
-          if (!existing && sendNow) {
-            await run(() => api(`/sows/${r.id}/submit`, { method: "POST" }),
-              "Sent to the other company for approval");
-          }
-          onDone(r);
-        }
+        if (r) onDone(r);
         setSaving(false);
       }}>
         <div className="fields">
@@ -197,15 +189,8 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
           <Field label="Invoiced before myTrakIn ($)" name="prior_invoiced" type="number" step="0.01" min="0" />
           <Field label="Collected / paid before myTrakIn ($)" name="prior_paid" type="number" step="0.01" min="0" />
         </div>
-        {!existing && (
-          <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-            <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} style={{ marginTop: 4 }} />
-            <span>Send it to the other company for approval straight away
-              <span className="muted"> — until you do, it is a draft and they cannot see it</span></span>
-          </label>
-        )}
         <button className="btn pri mt" disabled={busy || saving}>
-          {existing ? "Save SOW" : sendNow ? "Save & send for approval" : "Save draft"}
+          {existing ? "Save SOW" : "Save draft"}
         </button>
       </form>
     </Modal>
