@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **MSA creation recognises a live NDA between the two companies, whichever side recorded it (2026-10-31):**
+  the NDA → MSA gate asked "does this workspace have an NDA whose `company_id` is X?", so two live NDAs were
+  missed and the user was told to turn off *Require NDA*: (1) direction - an NDA keeps the other party in
+  `company_id`, so starting the MSA from that company's page looked for an NDA *with our own company*; (2)
+  workspace - when the counterparty recorded the NDA, only the shared (read-only) view had it, and
+  `has_company_agreement()` looked at the caller's own agreements and only at status `active`. Both MSA
+  creation paths (company page `POST /companies/{id}/msas` and Contracts `POST /agreements`) now ask
+  `mytrakin.agreement_in_force_between(a, b, kinds, on)`, which matches the pair by id - either column - then
+  by normalized name, across workspaces, counting `active`, `accepted` and `out_for_signature`. The refusal
+  message names the closest agreement between the pair (expired / pending / out for signature). Expired and
+  missing NDAs still block. Migration `20261031000100_nda_gate_between_companies.sql`; regression test
+  `test_nda_gate_sees_the_nda_between_the_two_companies`.
+
 - **Recoverable company rejections and smoother company setup (2026-10-26, Strike T011303-1084…1089):**
   a company the myTrakIn team rejects is now `rejected` (not `closed`) — its owner can still sign in, sees
   the reason on My companies and the company profile, fixes the details and resubmits, or creates another

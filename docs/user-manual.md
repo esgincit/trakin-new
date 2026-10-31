@@ -391,7 +391,7 @@ workspaces, sign-ups waiting and inactive workspaces.
 | Import says "column missing" | Download the template again; don't rename headers. |
 | A signing link "doesn't work" | It was used, voided or expired — ask the sender to remind you (a new link is sent). |
 | Amount shows `••••` | It belongs to another link of the chain or your role can't see it — by design. |
-| "An NDA in force with this company is needed first" | Create an NDA with this company first (Verify → NDA → MSA), or turn off *Require NDA* in Settings → Workflow. The message names the exact agreement if one is expired, pending or awaiting signature. |
+| "An NDA in force with this company is needed first" | Create an NDA with this company first (Verify → NDA → MSA), or turn off *Require NDA* in Settings → Workflow. The message names the exact agreement if one is expired, pending or awaiting signature. A live NDA counts whichever of the two companies recorded it and whichever page the MSA is started from. |
 | "…NDA NDA-XXX-001 expired on … — renew or replace it" | The agreement's end date has passed. Create or renew the agreement with the company and try again. |
 | "No active MSA — not invoiced" | Sign an MSA with this customer first, or turn off *Require MSA* in Settings → Workflow. |
 | "This consultant has no active offer letter" | Assign an active offer letter to the consultant, or turn off *Require resource contract* in Settings → Workflow. |

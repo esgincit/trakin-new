@@ -96,9 +96,13 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
     if body.company_id and own_company and body.company_id == own_company:
         raise bad_request("An agreement can't be with the company itself — pick the other party")
     # Verify → NDA → MSA (WF-02): a company's MSA / subcontract needs its NDA first, unless the tenant switched that off.
+    # The NDA is between our company and that company - either side may have recorded it, in its own workspace.
     if body.kind in ("msa", "subcontract") and body.company_id and (await workflow.rules(db))["requireNDA"] \
+            and not await workflow.has_agreement_between(
+                db, company_a=own_company, company_b=body.company_id, kinds=("nda",)) \
             and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=body.company_id):
-        note = await workflow.stale_note(db, kinds=("nda",), company_id=body.company_id)
+        note = await workflow.stale_note(db, kinds=("nda",), company_id=body.company_id,
+                                         other_company_id=own_company)
         why = f" — {note}" if note else ""
         raise workflow.blocked("nda_required", f"An NDA in force with this company is needed first{why} "
                                                "(or turn off 'Require NDA' in Settings → Workflow)")
