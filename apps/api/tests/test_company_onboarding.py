@@ -152,6 +152,7 @@ async def _us_company(client, auth, n: int, ein: str = "22-3334401") -> dict:
     assert details.status_code == 200, details.text
     code = (await client.post(f"/onboarding/sessions/{sid}/email-code", headers=admin, json={})).json()
     assert "test_code" in code, code
+    assert code["sent_to"].endswith(f"@flow{n}.example"), code
     verified = await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=admin,
                                  json={"code": code["test_code"]})
     assert verified.status_code == 200, verified.text

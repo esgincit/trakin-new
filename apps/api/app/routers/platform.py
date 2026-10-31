@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, EmailStr, Field
 
 from ..config import get_settings
-from ..deps import TenantDb, platform_db
+from ..deps import TenantDb, open_system, platform_db
 from ..errors import ApiError, bad_request, conflict, not_found
 from ..services import storage
 from ..services.email import render, send_email
@@ -235,13 +235,22 @@ async def decide_company(tenant_id: UUID, body: CompanyDecision, db: TenantDb = 
                   trial_ends_on = case when :s = 'active' then current_date + cast(:trial as int) else trial_ends_on end
             where id = :id""",
         {"s": new_status, "n": body.note, "u": db.ctx.user_id, "trial": TRIAL_DAYS, "id": tenant_id})
-    if owner_email:
-        login = f"{get_settings().web_origin.rstrip('/')}/login?email={owner_email}"
+    if owner_email or tenant["company_id"]:
+        login = f"{get_settings().web_origin.rstrip('/')}/login?email={owner_email or ''}"
         lines = {"activate": [f"{tenant['name']} is now active on myTrakIn. Your {TRIAL_DAYS}-day trial starts today."],
                  "needs_info": ["We need a little more before we can activate your company:", body.note or ""],
                  "reject": ["We're not able to activate this company on myTrakIn.", body.note or ""]}[body.decision]
-        await send_email(None, to=owner_email, subject=f"{tenant['name']} on myTrakIn", kind="welcome",
-                         html_body=render(f"About {tenant['name']}", lines, button=("Open myTrakIn", login)))
+        # Company mail goes to the e-mail verified for that company, not the owner's login
+        # address — the two can differ (the owner may run several companies).
+        async for sdb in open_system(tenant_id):
+            contact = await sdb.val("select contact_email from companies where id = :c",
+                                    {"c": tenant["company_id"]}) if tenant["company_id"] else None
+            to = contact or owner_email
+            if to:
+                await send_email(sdb, to=to, subject=f"{tenant['name']} on myTrakIn", kind="welcome",
+                                 tenant_id=tenant_id, ref_type="tenant", ref_id=tenant_id,
+                                 html_body=render(f"About {tenant['name']}", lines,
+                                                  button=("Open myTrakIn", login)))
     return {"tenant_id": tenant_id, "status": new_status}
 
 

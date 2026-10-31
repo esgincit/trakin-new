@@ -25,6 +25,8 @@ async def _founder_company(client, auth, n: int, ein: str) -> dict:
     assert d.status_code == 200, d.text
     code = (await client.post(f"/onboarding/sessions/{sid}/email-code", headers=h, json={})).json()
     assert "test_code" in code, code
+    # The code goes to the company e-mail entered for this company, never the owner's login.
+    assert code["sent_to"].endswith(f"@founder{n}.example"), code
     assert (await client.post(f"/onboarding/sessions/{sid}/email-verify", headers=h,
                               json={"code": code["test_code"]})).status_code == 200
     done = await client.post(f"/onboarding/sessions/{sid}/complete", headers=h, json={"authorized": True})

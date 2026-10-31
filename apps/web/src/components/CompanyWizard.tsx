@@ -35,6 +35,7 @@ export function CompanyWizard({ onClose, onDone, account = false, resumeId }: { 
   const [parsed, setParsed] = useState<any>(null);
   const [manual, setManual] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
+  const [sentTo, setSentTo] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [details2, setDetails2] = useState<any>(null);   // step-2 answers kept when going Back unsaved
@@ -109,7 +110,8 @@ export function CompanyWizard({ onClose, onDone, account = false, resumeId }: { 
   const sendCode = async () => {
     setError(null);
     try {
-      await api(`/onboarding/sessions/${session.id}/email-code`, { method: "POST", body: {} });
+      const r = await api<{ sent_to?: string }>(`/onboarding/sessions/${session.id}/email-code`, { method: "POST", body: {} });
+      setSentTo(r?.sent_to ?? "");
       setOtpSent(true);
     } catch (e) { fail(e); }
   };
@@ -242,7 +244,7 @@ export function CompanyWizard({ onClose, onDone, account = false, resumeId }: { 
           <div className="fields">
             {country === "IN" && <p className="muted" style={{ gridColumn: "1 / -1" }}>CIN verified{session.details?.cin ? ` (${session.details.cin})` : ""}. Now the online identity.</p>}
             <Field label="Company domain" name="domain" required placeholder={country === "US" ? "acme.com" : "acme.in"} defaultValue={d2.domain ?? ""} />
-            <Field label="Company e-mail" name="company_email" type="email" required defaultValue={d2.company_email ?? ""} />
+            <Field label="Company e-mail" name="company_email" type="email" required autoComplete="off" defaultValue={d2.company_email ?? ""} />
             <Field label="DBA (if different)" name="dba" defaultValue={d2.dba ?? ""} full />
             <Field label="Contact person" name="contact_name" defaultValue={d2.contact_name ?? ""} />
             <Field label="Contact phone" name="contact_phone" defaultValue={d2.contact_phone ?? ""} />
@@ -269,6 +271,7 @@ export function CompanyWizard({ onClose, onDone, account = false, resumeId }: { 
                       <button type="button" className="btn" disabled={busy} onClick={sendCode}>Send again</button>
                     </div>
                   </form>}
+              {sentTo && <p className="note">Code sent to <b>{sentTo}</b>. Wrong address? Go back to step 2 and change the company e-mail.</p>}
             </>
           )}
           <div className="row mt">
