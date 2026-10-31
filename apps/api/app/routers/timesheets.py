@@ -242,7 +242,9 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
         """select distinct pr.name as project, et.pay_model, aps.code as ap_sow, aps.status as ap_status,
                   ars.code as ar_sow, ars.status as ar_status,
                   (select o.status from agreements o where o.consultant_id = p.consultant_id and o.kind = 'offer_letter'
-                    order by o.status = 'active' desc, o.created_at desc limit 1) as offer_status
+                    order by o.status = 'active' desc, o.created_at desc limit 1) as offer_status,
+                  mytrakin.consultant_agreement_in_force(p.consultant_id, array['offer_letter'], current_date)
+                    as offer_in_force
              from timesheet_entries e join placements p on p.id = e.placement_id join projects pr on pr.id = p.project_id
              join consultants c on c.id = p.consultant_id join engagement_types et on et.code = c.engagement
              left join sows aps on aps.id = p.ap_sow_id left join sows ars on ars.id = p.ar_sow_id
@@ -251,11 +253,12 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
         payroll = r["pay_model"] == "payroll"
         contract_status = r["offer_status"] if payroll else r["ap_status"]
         what = "offer letter" if payroll else "vendor / contractor work order"
-        if rules["requireContract"] and contract_status is None:
+        if rules["requireContract"] and contract_status is None and not r["offer_in_force"]:
             raise workflow.blocked("contract_required", f"{r['project']}: no {what} for this resource yet — add it before "
                                                         "timesheets (or turn off 'Require contract' in Settings → Workflow)")
         if rules["requireAcceptance"]:
-            if contract_status is not None and contract_status != "active":
+            if contract_status is not None and contract_status != "active" \
+                    and not (payroll and r["offer_in_force"]):
                 raise workflow.blocked("acceptance_required", f"{r['project']}: the {what} isn't accepted yet")
             if r["ar_sow"] and r["ar_status"] != "active":
                 raise workflow.blocked("acceptance_required", f"{r['project']}: client SOW {r['ar_sow']} isn't accepted yet")

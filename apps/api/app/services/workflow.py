@@ -64,6 +64,10 @@ async def has_active_agreement(db, *, kinds: tuple[str, ...], company_id: Any = 
                              and (company_id = cast(:co as uuid) or consultant_id = cast(:con as uuid))
                              and coalesce(effective_on, cast(:d as date)) <= :d
                              and coalesce(expires_on, cast(:d as date)) >= :d)
+              -- The same person has one consultant row per workspace; an offer letter
+              -- signed in their employer's workspace still counts here.
+              or (cast(:con as uuid) is not null
+                  and mytrakin.consultant_agreement_in_force(cast(:con as uuid), :kinds, :d))
               or (cast(:co as uuid) is not null and exists (
                     select 1 from mytrakin.shared_agreements() s
                      where s.status in ('active', 'accepted', 'out_for_signature') and s.kind = any(:kinds)
