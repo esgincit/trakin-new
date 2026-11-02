@@ -264,9 +264,9 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
         what = "offer letter" if person_contract else "vendor / contractor work order"
         contract_ok = r["offer_in_force"] if person_contract else contract_status is not None
         if rules["requireContract"] and not contract_ok:
-            raise workflow.blocked("contract_required", f"{r['project']}: no active {what} is assigned to this consultant. "
-                                                        f"Assign one before submitting the timesheet (or turn off "
-                                                        "'Require contract' in Settings → Workflow)")
+            raise workflow.blocked("contract_required", f"{r['project']}: no active {what} from your company is "
+                                                        "assigned to this consultant. Assign one before submitting the "
+                                                        "timesheet (or turn off 'Require contract' in Settings → Workflow)")
         if rules["requireAcceptance"]:
             if contract_status is not None and contract_status != "active" \
                     and not (person_contract and r["offer_in_force"]):

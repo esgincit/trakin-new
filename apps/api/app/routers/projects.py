@@ -312,8 +312,9 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
     if pay_model == "self":
         body.ap_consultant_id = body.ap_consultant_id or body.consultant_id
     # WF-05: resource contract → acceptance → timesheet. A W-2 consultant needs an active
-    # offer letter; a 1099 contractor an offer letter or independent contractor agreement;
-    # a C2C/E2E vendor an active MSA/subcontract with the AR customer.
+    # offer letter; a 1099 contractor an offer letter issued by *this* company (an offer
+    # from another company has no effect on this placement); a C2C/E2E vendor an active
+    # MSA/subcontract with the AR customer.
     rules = await workflow.rules(db)
     if rules["requireContract"]:
         if pay_model == "payroll":
@@ -325,13 +326,21 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
                     "Placement cannot be created because this consultant does not have an offer letter. "
                     "Please assign an offer letter before proceeding.")
         elif pay_model == "self":
-            has_contract = await workflow.has_active_agreement(
-                db, kinds=("offer_letter",), consultant_id=body.consultant_id)
+            # The offer must be ours: same workspace, same consultant record. An offer
+            # another company made to this person is not a contract with us.
+            has_contract = bool(await db.val(
+                """select exists (
+                     select 1 from agreements
+                      where tenant_id = :t and consultant_id = :c and kind = 'offer_letter'
+                        and status in ('active', 'accepted', 'out_for_signature')
+                        and coalesce(effective_on, current_date) <= current_date
+                        and coalesce(expires_on, current_date) >= current_date)""",
+                {"t": db.ctx.tenant_id, "c": body.consultant_id}))
             if not has_contract:
                 raise workflow.blocked(
                     "contract_required",
-                    "Placement cannot be created because this consultant does not have an offer letter. "
-                    "Please assign an offer letter before proceeding.")
+                    "Placement cannot be created because this consultant does not have an offer letter "
+                    "from your company. Please assign an offer letter before proceeding.")
         else:
             ar_co = body.ar_company_id
             if ar_co is None:
