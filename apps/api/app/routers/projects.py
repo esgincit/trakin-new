@@ -326,7 +326,7 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
                     "Please assign an offer letter before proceeding.")
         elif pay_model == "self":
             has_contract = await workflow.has_active_agreement(
-                db, kinds=("offer_letter", "ica"), consultant_id=body.consultant_id)
+                db, kinds=("offer_letter",), consultant_id=body.consultant_id)
             if not has_contract:
                 raise workflow.blocked(
                     "contract_required",

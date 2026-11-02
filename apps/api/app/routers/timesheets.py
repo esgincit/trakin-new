@@ -242,12 +242,12 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
         """select distinct pr.name as project, et.pay_model, aps.code as ap_sow, aps.status as ap_status,
                   ars.code as ar_sow, ars.status as ar_status,
                   (select o.status from agreements o where o.consultant_id = p.consultant_id
-                     and o.kind in ('offer_letter', 'ica')
+                     and o.kind = 'offer_letter'
                     order by o.status = 'active' desc, o.created_at desc limit 1) as offer_status,
                   (select exists (
                      select 1 from agreements o
                       where o.consultant_id = p.consultant_id
-                        and o.kind in ('offer_letter', 'ica')
+                        and o.kind = 'offer_letter'
                         and o.status in ('active', 'accepted', 'out_for_signature')
                         and coalesce(o.effective_on, current_date) <= current_date
                         and coalesce(o.expires_on, current_date) >= current_date)) as offer_in_force
@@ -257,13 +257,11 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
             where e.timesheet_id = :id""", {"id": timesheet_id})
     for r in rows:
         payroll = r["pay_model"] == "payroll"
-        # W-2 and 1099 people need a contract assigned to *this* consultant record (offer
-        # letter, or an ICA for a 1099 contractor); a C2C/E2E vendor's resource contract is
-        # the AP work order on the placement.
+        # W-2 employees and 1099 contractors both need an offer letter assigned to *this*
+        # consultant record; a C2C/E2E vendor's resource contract is the AP work order.
         person_contract = r["pay_model"] in ("payroll", "self")
         contract_status = r["offer_status"] if person_contract else r["ap_status"]
-        what = {"payroll": "offer letter", "self": "offer letter or contractor agreement"}.get(
-            r["pay_model"], "vendor / contractor work order")
+        what = "offer letter" if person_contract else "vendor / contractor work order"
         contract_ok = r["offer_in_force"] if person_contract else contract_status is not None
         if rules["requireContract"] and not contract_ok:
             raise workflow.blocked("contract_required", f"{r['project']}: no active {what} is assigned to this consultant. "
