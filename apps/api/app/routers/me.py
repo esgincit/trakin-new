@@ -121,6 +121,12 @@ async def my_consultant_overview(db: TenantDb = Depends(tenant_db)):
                   (select max(paid_on) from payments where invoice_id = ar.id and status in ('completed', 'confirmed')) as customer_paid_on,
                   ap.live_status as payee_status, ap.scheduled_on as payee_scheduled_on, ap.due_on as payee_due_on,
                   (select max(paid_on) from payments where invoice_id = ap.id and status in ('completed', 'confirmed')) as payee_paid_on,
+                  ap.id as payee_invoice_id,
+                  (select pay.id from payments pay
+                    where pay.invoice_id = ap.id and pay.status = 'completed'
+                    order by pay.paid_on desc, pay.created_at desc limit 1) as payee_payment_id,
+                  (select max(pay.confirmed_at) from payments pay
+                    where pay.invoice_id = ap.id and pay.status = 'confirmed') as payee_acknowledged_at,
                   cust.name as customer, payee.name as payee
              from invoice_balances ar
              join placements p on p.id = ar.placement_id
