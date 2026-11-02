@@ -107,12 +107,17 @@ async def signing_parties(
     db.ctx.require(*SENDER_ROLES)
     me = await db.one("select full_name, email from profiles where id = :u", {"u": db.ctx.user_id})
     own_id = await _own_company(db)
+    # Company mail goes to the company's own address, not the person's login: an owner
+    # running several companies must get each company's documents at that company's
+    # e-mail (sunil@x.com for X, sunil@y.com for Y).
+    own_contact = await db.val(
+        "select contact_email from mytrakin.company_counterparty(:c)", {"c": own_id}) if own_id else None
     counterparty_id = await _counterparty_company(
         db, agreement_id=agreement_id, sow_id=sow_id, amendment_id=amendment_id)
     return {
         "creator": {
             "name": (me or {}).get("full_name") or db.ctx.email,
-            "email": (me or {}).get("email") or db.ctx.email,
+            "email": own_contact or (me or {}).get("email") or db.ctx.email,
             "company": await db.val("select mytrakin.company_public_name(:c)", {"c": own_id}),
             "company_id": own_id,
         },

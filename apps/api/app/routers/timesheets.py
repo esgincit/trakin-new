@@ -147,10 +147,17 @@ async def _end_client_recipients(db: TenantDb, tenant_id, chain: set) -> dict:
         """select * from mytrakin.ts_client_recipients(cast(:ids as uuid[]))""",
             {"ids": sorted(str(c) for c in chain)}):
         ws_emails.setdefault(r["company_id"], []).append(r["email"])
+    # The company's own contact e-mail (given when it was created) is company mail and
+    # goes to that address, not to whichever login an admin happens to use.
+    contact_emails: dict = {}
+    for cid in chain:
+        contact = await db.val("select contact_email from mytrakin.company_counterparty(:c)", {"c": cid})
+        if contact:
+            contact_emails.setdefault(cid, []).append(contact)
     for cid in chain:
         seen: set = set()
         emails: list = []
-        for e in (*rep_emails.get(cid, ()), *ws_emails.get(cid, ())):
+        for e in (*contact_emails.get(cid, ()), *rep_emails.get(cid, ()), *ws_emails.get(cid, ())):
             if e and e not in seen:
                 seen.add(e)
                 emails.append(e)
