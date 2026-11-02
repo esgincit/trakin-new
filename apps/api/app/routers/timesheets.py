@@ -244,24 +244,31 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
                   (select o.status from agreements o where o.consultant_id = p.consultant_id
                      and o.kind in ('offer_letter', 'ica')
                     order by o.status = 'active' desc, o.created_at desc limit 1) as offer_status,
-                  mytrakin.consultant_agreement_in_force(p.consultant_id, array['offer_letter', 'ica'], current_date)
-                    as offer_in_force
+                  (select exists (
+                     select 1 from agreements o
+                      where o.consultant_id = p.consultant_id
+                        and o.kind in ('offer_letter', 'ica')
+                        and o.status in ('active', 'accepted', 'out_for_signature')
+                        and coalesce(o.effective_on, current_date) <= current_date
+                        and coalesce(o.expires_on, current_date) >= current_date)) as offer_in_force
              from timesheet_entries e join placements p on p.id = e.placement_id join projects pr on pr.id = p.project_id
              join consultants c on c.id = p.consultant_id join engagement_types et on et.code = c.engagement
              left join sows aps on aps.id = p.ap_sow_id left join sows ars on ars.id = p.ar_sow_id
             where e.timesheet_id = :id""", {"id": timesheet_id})
     for r in rows:
         payroll = r["pay_model"] == "payroll"
-        # W-2 and 1099 people sign their own contract (offer letter, or an ICA for a
-        # 1099 contractor); a C2C/E2E vendor's resource contract is the AP work order.
+        # W-2 and 1099 people need a contract assigned to *this* consultant record (offer
+        # letter, or an ICA for a 1099 contractor); a C2C/E2E vendor's resource contract is
+        # the AP work order on the placement.
         person_contract = r["pay_model"] in ("payroll", "self")
         contract_status = r["offer_status"] if person_contract else r["ap_status"]
         what = {"payroll": "offer letter", "self": "offer letter or contractor agreement"}.get(
             r["pay_model"], "vendor / contractor work order")
         contract_ok = r["offer_in_force"] if person_contract else contract_status is not None
         if rules["requireContract"] and not contract_ok:
-            raise workflow.blocked("contract_required", f"{r['project']}: no {what} for this resource yet — add it before "
-                                                        "timesheets (or turn off 'Require contract' in Settings → Workflow)")
+            raise workflow.blocked("contract_required", f"{r['project']}: no active {what} is assigned to this consultant. "
+                                                        f"Assign one before submitting the timesheet (or turn off "
+                                                        "'Require contract' in Settings → Workflow)")
         if rules["requireAcceptance"]:
             if contract_status is not None and contract_status != "active" \
                     and not (person_contract and r["offer_in_force"]):
