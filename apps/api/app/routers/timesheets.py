@@ -717,7 +717,13 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
              join consultants c on c.id = t.consultant_id left join companies emp on emp.id = c.employer_company_id
             where t.id = :id""", {"id": timesheet_id})
     if ts is None:
-        raise not_found("Timesheet")
+        # An approved week from the placing workspace, opened by the end client from
+        # its History: RLS hides that row here, so read it through the client helper
+        # (read-only, their own projects only).
+        shared = await db.val("select mytrakin.ts_client_history_view(:id)", {"id": timesheet_id})
+        if shared is None:
+            raise not_found("Timesheet")
+        return shared if isinstance(shared, dict) else json.loads(shared)
     lines = await db.all(
         """select e.placement_id, coalesce(pr.name, 'Internal / non-billable') as project, e.work_date, e.hours,
                   p.bill_rate, p.pay_rate, ar.name as ar_company, coalesce(ap.name, apc.full_name) as ap_payee
