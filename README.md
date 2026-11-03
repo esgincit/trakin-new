@@ -83,6 +83,7 @@ Short version — the full, click-by-click guide is [docs/deployment.md](docs/de
 | [Functional specification](docs/functional.md) | Product owners, implementers — what every module does and the business rules |
 | [Technical documentation](docs/technical.md) | Developers — architecture, data model, security model, how to extend |
 | [User manual](docs/user-manual.md) | Everyone — step-by-step by role |
+| [New user guide](docs/new-user-guide.md) | New users — every module explained for individuals, company users and platform admins |
 | [Training guide](docs/training-guide.md) | Trainers and new customers — sessions, exercises, quizzes |
 | [Deployment & operations](docs/deployment.md) | DevOps — Supabase, Vercel, DNS, monitoring, backups, runbook |
 | [Security & compliance](docs/security.md) | Security reviewers, customers' IT |
