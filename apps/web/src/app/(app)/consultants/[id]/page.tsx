@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Attachments } from "@/components/Attachments";
 import { Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -16,21 +16,40 @@ export default function ConsultantDetail() {
   const { data: c, error, loading, reload } = useApi(`/consultants/${id}`);
   const { run, busy } = useAction();
   const [modal, setModal] = useState<"offboard" | "edit" | null>(null);
+  // The checklist is optimistic: a click updates it at once, then the save goes out.
+  // A controlled checkbox tied straight to the loaded row reverted mid-save, so users
+  // had to click two or three times before the tick stuck.
+  const [checklist, setChecklist] = useState<any[] | null>(null);
+  useEffect(() => { setChecklist(c?.onboarding_checklist ?? null); }, [c?.onboarding_checklist]);
   const canEdit = allows(workspace, "hr", "account_manager", "legal");
   const hr = allows(workspace, "hr", "legal");
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
-  const done = c.onboarding_checklist.filter((x: any) => x.done).length;
-  const allDone = c.onboarding_checklist.length > 0 && done === c.onboarding_checklist.length;
+  const items: any[] = checklist ?? c.onboarding_checklist ?? [];
+  const done = items.filter((x: any) => x.done).length;
+  const allDone = items.length > 0 && done === items.length;
+
+  const toggleItem = async (i: number, next: boolean) => {
+    const previous = items;
+    setChecklist(items.map((it: any, j: number) => (j === i ? { ...it, done: next } : it)));
+    const saved = await run(() => api(`/consultants/${id}/checklist`, { body: { index: i, done: next } }));
+    setChecklist(saved?.onboarding_checklist ?? previous);
+  };
 
   const toggleAll = async () => {
     if (!canEdit || busy) return;
     const target = !allDone;
-    await Promise.all((c.onboarding_checklist ?? []).map((_item: any, i: number) =>
-      run(() => api(`/consultants/${id}/checklist`, { body: { index: i, done: target } }))
-    ));
-    reload();
+    const previous = items;
+    setChecklist(items.map((it: any) => ({ ...it, done: target })));
+    const saved = await run(async () => {
+      let last: any = null;
+      for (let i = 0; i < items.length; i++) {
+        last = await api(`/consultants/${id}/checklist`, { body: { index: i, done: target } });
+      }
+      return last;
+    });
+    setChecklist(saved?.onboarding_checklist ?? previous);
   };
 
   return (
@@ -46,7 +65,7 @@ export default function ConsultantDetail() {
 
       <div className="grid c2">
         <div className="card">
-          <h3>Onboarding checklist · {done}/{c.onboarding_checklist.length}</h3>
+          <h3>Onboarding checklist · {done}/{items.length}</h3>
           {canEdit && !busy && (
             <div className="row mt" style={{ marginBottom: 8 }}>
               <input type="checkbox" checked={allDone} onChange={toggleAll} />
@@ -55,10 +74,10 @@ export default function ConsultantDetail() {
               </span>
             </div>
           )}
-          {c.onboarding_checklist.map((item: any, i: number) => (
+          {items.map((item: any, i: number) => (
             <label key={i} className="row" style={{ padding: "6px 0", color: "var(--ink)", borderBottom: "1px solid var(--line)" }}>
               <input type="checkbox" checked={item.done} disabled={!canEdit || busy}
-                     onChange={async (e) => { if (await run(() => api(`/consultants/${id}/checklist`, { body: { index: i, done: e.target.checked } }))) reload(); }} />
+                     onChange={(e) => toggleItem(i, e.target.checked)} />
               {item.item}
             </label>
           ))}
