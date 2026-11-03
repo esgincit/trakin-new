@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction, useToast } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -118,6 +118,7 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
   const sows = useApi<any[]>("/sows");
   const [consultantId, setConsultantId] = useState(placement?.consultant_id ?? "");
   const { run, busy } = useAction();
+  const toast = useToast();
   const [placementError, setPlacementError] = useState("");
   const consultant = consultants.data?.find((c) => c.id === consultantId) ?? (placement ? { engagement: placement.engagement } : null) ?? null;
   const [projectId, setProjectId] = useState(placement?.project_id ?? "");
@@ -166,6 +167,7 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
             onDone();
           } catch (err) {
             setPlacementError((err as ApiError).message);
+            toast((err as ApiError).message);
           }
         }
       }}>

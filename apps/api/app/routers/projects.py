@@ -318,13 +318,22 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
     rules = await workflow.rules(db)
     if rules["requireContract"]:
         if pay_model == "payroll":
-            has_contract = await workflow.has_active_agreement(
-                db, kinds=("offer_letter",), consultant_id=body.consultant_id)
+            # W-2 employees need an offer letter assigned to *this* consultant record in
+            # this workspace — the same check the timesheet gate makes, so a placement is
+            # never created only to be blocked when the consultant submits a week.
+            has_contract = bool(await db.val(
+                """select exists (
+                     select 1 from agreements
+                      where tenant_id = :t and consultant_id = :c and kind = 'offer_letter'
+                        and status in ('active', 'accepted', 'out_for_signature')
+                        and coalesce(effective_on, current_date) <= current_date
+                        and coalesce(expires_on, current_date) >= current_date)""",
+                {"t": db.ctx.tenant_id, "c": body.consultant_id}))
             if not has_contract:
                 raise workflow.blocked(
                     "contract_required",
-                    "Placement cannot be created because this consultant does not have an offer letter. "
-                    "Please assign an offer letter before proceeding.")
+                    "No active offer letter is assigned to this consultant. "
+                    "Please assign an offer letter before creating the placement.")
         elif pay_model == "self":
             # The offer must be ours: same workspace, same consultant record. An offer
             # another company made to this person is not a contract with us.
