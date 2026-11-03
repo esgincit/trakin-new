@@ -306,6 +306,10 @@ async def add_sow(body: SowIn, db: TenantDb = Depends(tenant_db)):
     company = await db.val("select mytrakin.agreement_peer_company(:a)", {"a": body.agreement_id})
     if company is None:
         raise bad_request("This agreement has no other company on it — a SOW needs a company on both sides")
+    # Verify → NDA → MSA → SOW (WF-02/03): no SOW between the two companies until their
+    # NDA is in force, so the missing-contract error does not surface only at placement.
+    own_company = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    await workflow.require_nda_between(db, company_id=company, other_company_id=own_company)
     project_code = None
     if body.project_id:
         project_code = await db.val("select code from projects where id = :id", {"id": body.project_id})
@@ -371,6 +375,13 @@ async def submit_sow(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
     """Send a draft SOW to the other company for approval. Until this is done it is a
     draft and the other company cannot see it."""
     db.ctx.require("legal", "account_manager")
+    sow = await db.one("select company_id from sows where id = :id", {"id": sow_id})
+    if sow is None:
+        raise not_found("SOW")
+    # A SOW already saved as a draft is checked again when it is sent: the NDA may have
+    # expired, or the draft may predate this rule.
+    own_company = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    await workflow.require_nda_between(db, company_id=sow["company_id"], other_company_id=own_company)
     await db.run("select mytrakin.submit_sow_for_approval(:s)", {"s": sow_id})
     return await get_sow(sow_id, db)
 

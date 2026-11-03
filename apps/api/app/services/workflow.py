@@ -223,3 +223,24 @@ async def stale_note(db, *, kinds: tuple[str, ...], company_id: Any = None,
     if row["effective_on"] and row["effective_on"] > today:
         return f"{lbl} {row['code']} only starts on {row['effective_on'].day} {row['effective_on']:%b %Y}"
     return None
+
+
+SOW_NDA_MESSAGE = ("An active NDA is required between these companies before creating or sending an SOW. "
+                   "Please complete the NDA first.")
+
+
+async def require_nda_between(db, *, company_id: Any, other_company_id: Any = None,
+                              message: str = SOW_NDA_MESSAGE) -> None:
+    """NDA → MSA → SOW (WF-02/03): a company SOW needs an NDA in force between the two
+    companies before it is created or sent. Either side may have recorded it, in either
+    workspace; pending, rejected and expired agreements do not count."""
+    if not company_id or not other_company_id or company_id == other_company_id:
+        return
+    if not (await rules(db))["requireNDA"]:
+        return
+    if await has_agreement_between(db, company_a=other_company_id, company_b=company_id, kinds=("nda",)):
+        return
+    if await has_active_agreement(db, kinds=("nda",), company_id=company_id):
+        return
+    note = await stale_note(db, kinds=("nda",), company_id=company_id, other_company_id=other_company_id)
+    raise blocked("nda_required", f"{message}{f' — {note}' if note else ''}")

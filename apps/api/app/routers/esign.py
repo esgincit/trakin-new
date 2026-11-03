@@ -16,7 +16,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError
 from ..config import get_settings
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, conflict, not_found
-from ..services import numbering, storage
+from ..services import numbering, storage, workflow
 from ..services.email import render, send_email
 from ..services.esign import combined_document, link_expiry, log_event, send_to_signer
 from ..utils import sha256_hex
@@ -199,6 +199,13 @@ async def _rebuild_merged(db: TenantDb, envelope_id: UUID) -> None:
                  {"p": path, "h": sha256_hex(combined), "id": envelope_id})
 
 
+async def _require_sow_nda(db: TenantDb, sow_id: UUID) -> None:
+    """A SOW envelope is sending the SOW: its two companies need their NDA in force."""
+    company = await db.val("select company_id from sows where id = :id", {"id": sow_id})
+    own = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    await workflow.require_nda_between(db, company_id=company, other_company_id=own)
+
+
 @router.post("", status_code=201)
 async def create_envelope(
     db: TenantDb = Depends(tenant_db),
@@ -226,6 +233,8 @@ async def create_envelope(
         raise bad_request("Add at least one signer")
     if len({p.email.lower() for p in people}) != len(people):
         raise bad_request("Each signer needs a different e-mail address")
+    if sow_id:
+        await _require_sow_nda(db, sow_id)
 
     incoming: list[tuple[str, bytes]] = []
     for upload in files or []:
@@ -356,6 +365,8 @@ async def send_envelope(envelope_id: UUID, db: TenantDb = Depends(tenant_db)):
         raise not_found("Envelope")
     if env["status"] != "draft":
         raise conflict("This envelope has already been sent")
+    if env["sow_id"]:
+        await _require_sow_nda(db, env["sow_id"])
     env = await db.one("update envelopes set status = 'sent', sent_at = now(), expires_at = :exp where id = :id returning *",
                        {"id": envelope_id, "exp": link_expiry()})
     signers = await db.all("select * from envelope_signers where envelope_id = :id order by position", {"id": envelope_id})
