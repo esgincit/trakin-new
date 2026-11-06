@@ -32,6 +32,16 @@ function Network() {
   );
 }
 
+/** Keep connection state current without a manual refresh: poll while visible, and again when the tab regains focus. */
+function useLiveReload(reload: () => void) {
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === "visible") reload(); };
+    const t = setInterval(tick, 15000);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", tick); };
+  }, [reload]);
+}
+
 function Feed() {
   const { workspace, me } = useSession();
   const { data, error, reload } = useApi<any[]>("/network/feed");
@@ -88,8 +98,9 @@ function People() {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [otw, setOtw] = useState(false);
-  const { data } = useApi<any[]>("/network/people", { q: q || undefined, open_to_work: otw || undefined });
+  const { data, reload } = useApi<any[]>("/network/people", { q: q || undefined, open_to_work: otw || undefined }, { fresh: true });
   const { run } = useAction();
+  useLiveReload(reload);
   return (
     <>
       <div className="toolbar">
@@ -105,8 +116,11 @@ function People() {
             <div className="row mt">
               {p.open_to_work && <Chip status="ok">Open to work</Chip>}
               <span className="right" />
-              {!p.connection && <button className="btn sm" onClick={async (e) => { e.stopPropagation(); await run(() => api(`/network/connections/${p.id}`, { method: "POST" }), "Invitation sent"); }}>Connect</button>}
-              {p.connection && <Chip status={p.connection === "accepted" ? "accepted" : "pending"}>{p.connection === "accepted" ? "Connected" : "Pending"}</Chip>}
+              {/* Connect = no request (or they declined mine to them, not the other way round); Accept = they asked me. */}
+              {(!p.connection || (p.connection === "declined" && !p.i_asked)) && <button className="btn sm" onClick={async (e) => { e.stopPropagation(); if (await run(() => api(`/network/connections/${p.id}`, { method: "POST" }), "Invitation sent")) reload(); }}>Connect</button>}
+              {p.connection === "pending" && !p.i_asked && <button className="btn sm pri" onClick={async (e) => { e.stopPropagation(); if (await run(() => api(`/network/connections/${p.id}/respond`, { method: "POST", query: { accept: true } }), "Connected")) reload(); }}>Accept</button>}
+              {p.connection === "accepted" && <Chip status="accepted">Connected</Chip>}
+              {p.i_asked && p.connection !== "accepted" && <Chip status="pending">Pending</Chip>}
             </div>
           </div>
         ))}
@@ -117,8 +131,9 @@ function People() {
 }
 
 function Connections({ compact }: { compact?: boolean }) {
-  const { data, reload } = useApi("/network/connections");
+  const { data, reload } = useApi("/network/connections", undefined, { fresh: true });
   const { run } = useAction();
+  useLiveReload(reload);
   if (!data) return <div className="card"><div className="skel" /></div>;
   return (
     <div className="card">
