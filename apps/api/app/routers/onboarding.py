@@ -397,8 +397,7 @@ async def send_email_code(session_id: UUID, db: TenantDb = Depends(onboarding_db
                                              [f"Enter {code} to prove {email} belongs to your business.",
                                               f"The code expires in {OTP_TTL_MINUTES} minutes. If you didn't ask for it, ignore this e-mail."]),
                             tenant_id=db.ctx.tenant_id)
-    if not sent:   # don't say "sent" when the mail server refused it; free the resend cooldown so they can retry
-        await db.run("update onboarding_sessions set email_otp_sent_at = null where id = :id", {"id": session_id})
+    if not sent:   # don't say "sent" when the mail server refused it; raising rolls the request back, so no code/cooldown is stored
         raise ApiError(502, "email_failed", "We couldn't send the verification e-mail. Please try again in a minute, or contact support if it keeps happening.")
     result: dict = {"sent_to": _mask(email)}
     if get_settings().environment == "test":
