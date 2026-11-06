@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useEffect } from "react";
 import { ProfileView } from "@/components/ProfileView";
 import { Chip, ErrorBox, Loading, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -9,7 +10,13 @@ import { useApi } from "@/lib/useApi";
 
 export default function Person() {
   const { id } = useParams<{ id: string }>();
-  const { data: p, error, loading, reload } = useApi(`/network/people/${id}`);
+  const { data: p, error, loading, reload } = useApi(`/network/people/${id}`, undefined, { fresh: true });
+  useEffect(() => {   // Pending -> Connected shows up without a manual refresh
+    const tick = () => { if (document.visibilityState === "visible") reload(); };
+    const t = setInterval(tick, 15000);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", tick); };
+  }, [reload]);
   const { run, busy } = useAction();
   if (loading) return <Loading rows={6} />;
   if (error) return <ErrorBox error={error} retry={reload} />;

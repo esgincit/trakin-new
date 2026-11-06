@@ -715,3 +715,24 @@ async def test_domain_mismatch_warns_after_onboarding_email_verification(client,
     after = await domain_check()
     assert after["checks"]["domain"]["status"] == "warn", after
     assert "Contact e-mail must be on the company domain" not in after["blockers"], after
+
+
+async def test_email_code_says_so_when_the_mail_fails(client, auth, monkeypatch):
+    """Strike T011303-1123: a refused send must not look like "code sent" - and must not lock the resend."""
+    from app.routers import onboarding
+
+    admin = auth("admin")
+    sid = (await client.post("/onboarding/sessions", headers=admin, json={"country": "US"})).json()["id"]
+    await client.post(f"/onboarding/sessions/{sid}/w9", headers=admin,
+                      files={"file": ("w9.pdf", w9_pdf("22-3334477", "Mailfail Staffing LLC"), "application/pdf")})
+    details = await client.patch(f"/onboarding/sessions/{sid}", headers=admin, json={
+        "kind": "vendor", "domain": "mailfail.example", "company_email": "billing@mailfail.example",
+        "dba": "Mailfail", "ein": "22-3334477"})
+    assert details.status_code == 200, details.text
+
+    async def refused(*args, **kwargs):
+        return False
+    monkeypatch.setattr(onboarding, "send_email", refused)
+    for _ in range(2):   # the second try is not blocked by the one-minute cooldown
+        r = await client.post(f"/onboarding/sessions/{sid}/email-code", headers=admin, json={})
+        assert r.status_code == 502 and r.json()["error"]["code"] == "email_failed", r.text

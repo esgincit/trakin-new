@@ -392,11 +392,13 @@ async def send_email_code(session_id: UUID, db: TenantDb = Depends(onboarding_db
             where id = :id""",
         {"c": code, "exp": now + timedelta(minutes=OTP_TTL_MINUTES),
          "now": now, "id": session_id})
-    await send_email(None, to=email, subject=f"Your verification code: {code}", kind="company_email_otp",
-                     html_body=render("Verify this company e-mail",
-                                      [f"Enter {code} to prove {email} belongs to your business.",
-                                       f"The code expires in {OTP_TTL_MINUTES} minutes. If you didn't ask for it, ignore this e-mail."]),
-                     tenant_id=db.ctx.tenant_id)
+    sent = await send_email(None, to=email, subject=f"Your verification code: {code}", kind="company_email_otp",
+                            html_body=render("Verify this company e-mail",
+                                             [f"Enter {code} to prove {email} belongs to your business.",
+                                              f"The code expires in {OTP_TTL_MINUTES} minutes. If you didn't ask for it, ignore this e-mail."]),
+                            tenant_id=db.ctx.tenant_id)
+    if not sent:   # don't say "sent" when the mail server refused it; raising rolls the request back, so no code/cooldown is stored
+        raise ApiError(502, "email_failed", "We couldn't send the verification e-mail. Please try again in a minute, or contact support if it keeps happening.")
     result: dict = {"sent_to": _mask(email)}
     if get_settings().environment == "test":
         result["test_code"] = code   # CI only: no mailer runs there

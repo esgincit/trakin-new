@@ -8,16 +8,18 @@ import { api, ApiError } from "./api";
 const cache = new Map<string, unknown>();
 export const clearCache = () => cache.clear();
 
-export function useApi<T = any>(path: string | null, query?: Record<string, any>) {
+export function useApi<T = any>(path: string | null, query?: Record<string, any>, options?: { fresh?: boolean }) {
+  const fresh = options?.fresh ?? false;
   const key = path ? path + JSON.stringify(query ?? {}) : null;
-  const [data, setData] = useState<T | undefined>(key ? (cache.get(key) as T | undefined) : undefined);
+  const [data, setData] = useState<T | undefined>(key && !fresh ? (cache.get(key) as T | undefined) : undefined);
   const [error, setError] = useState<ApiError | null>(null);
-  const [loading, setLoading] = useState<boolean>(!!key && !cache.has(key));
+  const [loading, setLoading] = useState<boolean>(!!key && (fresh || !cache.has(key)));
   const latest = useRef(key);
 
   const load = useCallback(async () => {
     if (!path || !key) return;
     latest.current = key;
+    if (fresh) cache.delete(key);
     setLoading(!cache.has(key));
     try {
       const result = await api<T>(path, { query });
@@ -32,12 +34,12 @@ export function useApi<T = any>(path: string | null, query?: Record<string, any>
       if (latest.current === key) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, fresh]);
 
   useEffect(() => {
-    if (key) setData(cache.get(key) as T | undefined);
+    if (key && !fresh) setData(cache.get(key) as T | undefined);
     load();
-  }, [key, load]);
+  }, [key, load, fresh]);
 
   return { data, error, loading, reload: load, setData };
 }

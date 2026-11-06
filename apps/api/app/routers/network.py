@@ -144,7 +144,8 @@ async def people(db: TenantDb = Depends(member_db), q: str | None = None, open_t
     rows = await db.all(
         """select p.id, p.full_name, p.headline, p.location, p.avatar_path, p.open_to_work, p.skills,
                   (select c.status from connections c where (c.requester_id = :u and c.addressee_id = p.id)
-                                                          or (c.addressee_id = :u and c.requester_id = p.id)) as connection
+                                                          or (c.addressee_id = :u and c.requester_id = p.id)) as connection,
+                  exists (select 1 from connections c where c.requester_id = :u and c.addressee_id = p.id) as i_asked
              from profiles p
             where p.id <> :u and mytrakin.visible_profile(p.id)
               and (cast(:q as text) is null or p.full_name ilike '%' || :q || '%' or p.headline ilike '%' || :q || '%'
