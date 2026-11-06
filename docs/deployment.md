@@ -56,7 +56,9 @@ select rolname, rolbypassrls from pg_roles where rolname = 'mytrakin_api';  -- f
 - **SAML SSO** (per enterprise customer): `supabase sso add --type saml --metadata-url <IdP metadata> --domains customer.com`.
 
 *Authentication → Emails → SMTP*: use Resend's SMTP (or any provider) so sign-in codes come from your domain.
-Edit the *Magic link / OTP* template so it shows `{{ .Token }}` (the 6-digit code).
+Edit **both** the *Confirm signup* template (what a brand-new user gets) and the *Magic link* template (returning
+users) so they show `{{ .Token }}` (the 6-digit code) instead of only `{{ .ConfirmationURL }}`. The sign-in page asks
+for a code, so a link-only e-mail confuses people (Strike T011303-1122).
 
 *Authentication → Multi-factor*: TOTP enabled (enroll + verify).
 
