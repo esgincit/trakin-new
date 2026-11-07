@@ -23,7 +23,7 @@ export default function Person() {
   return <ProfileView p={p} actions={<>
     {!p.connection && <button className="btn pri" disabled={busy} onClick={async () => { if (await run(() => api(`/network/connections/${id}`, { method: "POST" }), "Invitation sent")) reload(); }}>Connect</button>}
     {p.connection?.status === "pending" && !p.connection.i_asked && <button className="btn pri" disabled={busy} onClick={async () => { if (await run(() => api(`/network/connections/${id}/respond`, { method: "POST", query: { accept: true } }), "Connected")) reload(); }}>Accept invitation</button>}
-    {p.connection?.status === "pending" && p.connection.i_asked && <Chip status="pending">Invitation sent</Chip>}
+    {p.connection?.status === "pending" && p.connection.i_asked && <button className="btn" disabled={busy} title="Click to withdraw this request" onClick={async () => { if (await run(() => api(`/network/connections/${id}`, { method: "DELETE" }), "Request withdrawn")) reload(); }}>Pending</button>}
     {p.connection?.status === "accepted" && <Chip status="accepted">Connected</Chip>}
     <Link className="btn" href={`/network?tab=messages&with=${id}`}>Message</Link>
   </>} />;
