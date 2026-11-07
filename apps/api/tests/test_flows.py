@@ -255,6 +255,26 @@ async def test_public_registration_and_approval(client, auth):
     assert approved["created"]["name"] == "Acme Talent LLC"
 
 
+async def test_public_registration_rejects_disguised_files_and_floods(client, auth):
+    tenant_id = (await client.get("/session", headers=auth("admin"))).json()["tenant"]["id"]
+    url, ip = f"/public/workspaces/{tenant_id}/registrations", {"x-real-ip": "203.0.113.9"}
+
+    def form(i: int) -> dict:
+        return {"kind": "vendor", "name": f"Flood Co {i}", "contact": "Bo Bot", "email": f"bot{i}@flood.example"}
+
+    disguised = await client.post(url, data=form(0), headers=ip,
+                                  files=[("files", ("w9.pdf", b"MZ\x90\x00 not a pdf", "application/pdf"))])
+    assert disguised.status_code == 400, disguised.text
+    script = await client.post(url, data=form(0), headers=ip, files=[("files", ("x.html", b"<script>", "text/html"))])
+    assert script.status_code == 400
+    for i in range(1, 6):   # rejected attempts above saved nothing, so five are allowed
+        assert (await client.post(url, data=form(i), headers=ip)).status_code == 201
+    flooded = await client.post(url, data=form(6), headers=ip)
+    assert flooded.status_code == 429 and flooded.json()["error"]["code"] == "rate_limited"
+    # A different visitor is unaffected.
+    assert (await client.post(url, data=form(7), headers={"x-real-ip": "198.51.100.4"})).status_code == 201
+
+
 # ---------------------------------------------------------------------------- import / export
 async def test_templates_import_and_export(client, auth):
     admin = auth("admin")

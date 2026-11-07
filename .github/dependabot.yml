@@ -1,0 +1,16 @@
+# Security and version updates. New releases wait a few days (cooldown) so a hijacked
+# package version is usually caught and pulled before we take it.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule: { interval: weekly }
+    cooldown: { default-days: 5 }
+  - package-ecosystem: pip
+    directory: /apps/api
+    schedule: { interval: weekly }
+    cooldown: { default-days: 5 }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 5 }
