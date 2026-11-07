@@ -335,7 +335,7 @@ async def register(
         if not storage.is_document(data, f.content_type):
             raise bad_request(f"{f.filename} must be a PDF, JPEG, PNG or WebP file")
         uploads.append((f, data))
-    if await _recent_registrations(db, email) >= REGISTRATIONS_PER_HOUR:
+    if await _recent_registrations(db) >= REGISTRATIONS_PER_HOUR:
         raise ApiError(429, "rate_limited", "Too many registrations from here in the last hour. Please try again later.")
     domain = email.split("@")[1].lower()
     checks = {"email_free_domain": domain in FREE_MAIL, "ein_given": bool(ein), "submitted_ip": db.ctx.ip}
@@ -363,15 +363,18 @@ async def register(
     return {"id": reg["id"], "status": "pending"}
 
 
-# ponytail: counted in the database per IP or e-mail; move to an edge firewall rule if bots spread across IPs.
+# ponytail: soft limit counted per IP in the database (a simultaneous burst can slip a few past);
+# move to an edge firewall rule if bots spread across IPs.
 REGISTRATIONS_PER_HOUR = 5
 
 
-async def _recent_registrations(db: TenantDb, email: str) -> int:
-    """Registrations from this IP or e-mail in the last hour, across all workspaces."""
+async def _recent_registrations(db: TenantDb) -> int:
+    """Registrations from this IP in the last hour, across all workspaces (0 when the IP is unknown)."""
+    if not db.ctx.ip:
+        return 0
     try:
         async with db.conn.begin_nested():
-            return await db.val("select mytrakin.recent_registrations(:ip, :e)", {"ip": db.ctx.ip, "e": email})
+            return await db.val("select mytrakin.recent_registrations(:ip)", {"ip": db.ctx.ip})
     except ProgrammingError:   # migration 20261107000100 not applied here yet: register without the limit
         log.warning("recent_registrations() missing: registration rate limit is off")
         return 0

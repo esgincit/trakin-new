@@ -4,7 +4,7 @@
 
 - **Security patching (2026-11-07):** Next.js 16.4.5 (fixes the October 2026 Next.js advisories) and pypdf ≥ 6.21.4.
   The public registration form now accepts only real PDF, JPEG, PNG or WebP files (type and leading bytes checked
-  before anything is saved) and at most 5 registrations per hour from one IP or e-mail (429 `rate_limited`); the W-9
+  before anything is saved) and at most 5 registrations per hour from one IP (429 `rate_limited`); the W-9
   and restricted company-document uploads use the same byte check for images as well as PDFs. CI actions are pinned to
   commit SHAs, the migration workflow pins Supabase CLI 2.122.1, and Dependabot is on with a 5-day cooldown. Migration
   `20261107000100_registration_rate_limit.sql`; regression test `test_public_registration_rejects_disguised_files_and_floods`.

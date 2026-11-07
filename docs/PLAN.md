@@ -450,7 +450,7 @@ Phase 0.4 and applied whenever the matching code is touched.
 | ID | Check | Status |
 |---|---|---|
 | SEC-01 | One-time codes use `secrets` (CSPRNG). | ✅ |
-| SEC-02 | Per-code attempt limit **and** app-level rate limits on `/v1/public/*` and every code send/verify endpoint. | 🟡 attempts + public registration (5/hour per IP or e-mail, 2026-11-07); other public endpoints open |
+| SEC-02 | Per-code attempt limit **and** app-level rate limits on `/v1/public/*` and every code send/verify endpoint. | 🟡 attempts + public registration (5/hour per IP, 2026-11-07); other public endpoints open |
 | SEC-03 | Code resend: 60 s cooldown, max 5/hour per recipient. | 🟡 |
 | SEC-04 | 5 wrong tries burn the code; constant-time compare. | 🟡 |
 | SEC-05 | Sign-up / sign-in / reset responses identical whether or not the account exists. | ❓ |
@@ -646,7 +646,7 @@ Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted
 
 - 2026-11-07 · SEC-02, SEC-12, SEC-15 · **Security patching, phase 0**: Next.js 16.3.8 → 16.4.5 (October 2026
   advisories), pypdf floor ≥ 6.21.4; public registration checks every file's type and leading bytes before saving
-  anything and allows 5 per hour per IP or e-mail (migration `20261107000100_registration_rate_limit.sql`, **apply to
+  anything and allows 5 per hour per IP (migration `20261107000100_registration_rate_limit.sql`, **apply to
   QA and production**; until then the API logs a warning and skips the limit); W-9 / restricted documents use the same
   check; GitHub Actions pinned to SHAs, Supabase CLI pinned to 2.122.1, Dependabot added. Left: bot check on public
   forms (needs a Turnstile/hCaptcha key), other upload paths, full security scan, account-level hardening (owner).
