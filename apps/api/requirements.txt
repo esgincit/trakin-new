@@ -1,6 +1,6 @@
 # Runtime dependencies for the myTrakIn API (installed by Vercel at build time).
 fastapi>=0.115,<1
-sqlalchemy[asyncio]>=2.0.35,<2.1
+sqlalchemy[asyncio]>=2.0.35,<2.2
 asyncpg>=0.30
 pydantic>=2.9,<3
 pydantic-settings>=2.5
