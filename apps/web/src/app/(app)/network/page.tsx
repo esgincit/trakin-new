@@ -120,7 +120,7 @@ function People() {
               {(!p.connection || (p.connection === "declined" && !p.i_asked)) && <button className="btn sm" onClick={async (e) => { e.stopPropagation(); if (await run(() => api(`/network/connections/${p.id}`, { method: "POST" }), "Invitation sent")) reload(); }}>Connect</button>}
               {p.connection === "pending" && !p.i_asked && <button className="btn sm pri" onClick={async (e) => { e.stopPropagation(); if (await run(() => api(`/network/connections/${p.id}/respond`, { method: "POST", query: { accept: true } }), "Connected")) reload(); }}>Accept</button>}
               {p.connection === "accepted" && <Chip status="accepted">Connected</Chip>}
-              {p.i_asked && p.connection !== "accepted" && <Chip status="pending">Pending</Chip>}
+              {p.i_asked && p.connection !== "accepted" && <button className="btn sm" title="Click to withdraw this request" onClick={async (e) => { e.stopPropagation(); if (await run(() => api(`/network/connections/${p.id}`, { method: "DELETE" }), "Request withdrawn")) reload(); }}>Pending</button>}
             </div>
           </div>
         ))}

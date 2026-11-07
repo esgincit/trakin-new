@@ -335,6 +335,20 @@ async def test_profile_photo_post_and_message(client, auth, user_ids):
     assert (await client.post(f"/network/connections/{ravi}/respond", params={"accept": True}, headers=admin)).json()["status"] == "accepted"
 
 
+async def test_pending_connection_request_can_be_withdrawn(client, auth, user_ids):
+    """Strike T011303-1125: Connect -> Pending -> (click Pending) -> Connect."""
+    admin, finance, fid = auth("admin"), auth("finance"), user_ids["finance"]
+    card = lambda rows: next(r for r in rows if r["id"] == str(fid))
+    assert (await client.post(f"/network/connections/{fid}", headers=admin)).json()["status"] == "pending"
+    mine = card((await client.get("/network/people", headers=admin)).json())
+    assert mine["connection"] == "pending" and mine["i_asked"] is True
+    assert (await client.get("/network/connections", headers=finance)).json()["incoming"]   # they can see it
+    assert (await client.delete(f"/network/connections/{fid}", headers=admin)).status_code == 200
+    assert card((await client.get("/network/people", headers=admin)).json())["connection"] is None
+    assert (await client.get("/network/connections", headers=finance)).json()["incoming"] == []
+    assert (await client.post(f"/network/connections/{fid}", headers=admin)).json()["status"] == "pending"   # can ask again
+
+
 # ---------------------------------------------------------------------------- automation
 async def test_smart_suggestions(client, auth):
     items = (await client.get("/insights", headers=auth("admin"))).json()
