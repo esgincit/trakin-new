@@ -71,6 +71,11 @@ async def test_a_project_assigned_to_us_by_sow_can_take_a_placement(client, auth
                 """insert into mytrakin.consultants (tenant_id, full_name, email, engagement, status, start_date)
                    values (:t, 'Placed Person', 'placed.person@example.com', 'w2_contract', 'active', current_date)
                    returning id"""), {"t": partner["X-Tenant-Id"]})).scalar())
+            # A W-2 placement needs its own offer letter first (1951d5e).
+            await conn.execute(text(
+                """insert into mytrakin.agreements (tenant_id, code, kind, tenant_side, consultant_id, status)
+                   values (:t, 'OL-PLACED', 'offer_letter', 'employer', :c, 'active')"""),
+                {"t": partner["X-Tenant-Id"], "c": consultant})
         body = {"consultant_id": consultant, "project_id": project["id"], "start_date": str(today)}
         first = await client.post("/placements", headers=partner, json=body)
         assert first.status_code == 201, first.text
@@ -84,6 +89,35 @@ async def test_a_project_assigned_to_us_by_sow_can_take_a_placement(client, auth
         assert again.status_code == 201 and again.json()["project_id"] == local, again.text
         listed = [p for p in (await client.get("/projects/shared", headers=partner)).json() if p["id"] == project["id"]]
         assert listed[0]["local_project_id"] == local, listed
+    finally:
+        await cleanup()
+        if project:
+            async with get_engine().begin() as conn:
+                await conn.execute(text("delete from mytrakin.projects where id = :p"), {"p": project["id"]})
+
+
+async def test_offer_letter_is_required_at_every_chain_level(client, auth, user_ids):
+    """T011303-1128: B -> C placement of a 1099 or W-2 consultant with no offer letter must be refused."""
+    admin, partner, ours, partner_company, msa_id, cleanup = await _pair(client, auth, user_ids)
+    today = date.today()
+    project = None
+    try:
+        await _no_nda_gate(partner["X-Tenant-Id"])
+        project = (await client.post("/projects", headers=admin, json={"name": "Chain Rollout", "status": "active"})).json()
+        sow = (await client.post("/sows", headers=admin, json={
+            "agreement_id": msa_id, "side": "we_pay", "title": "Chain work order", "project_id": project["id"],
+            "start_date": str(today), "end_date": str(today + timedelta(days=90)), "status": "draft"})).json()
+        assert (await client.post(f"/sows/{sow['id']}/submit", headers=admin)).status_code == 200
+        for engagement in ("1099", "w2_contract"):
+            async with get_engine().begin() as conn:
+                consultant = str((await conn.execute(text(
+                    """insert into mytrakin.consultants (tenant_id, full_name, email, engagement, status, start_date)
+                       values (:t, :n, :e, :g, 'active', current_date) returning id"""),
+                    {"t": partner["X-Tenant-Id"], "n": f"No Offer {engagement}", "e": f"no.offer.{engagement}@example.com",
+                     "g": engagement})).scalar())
+            made = await client.post("/placements", headers=partner, json={
+                "consultant_id": consultant, "project_id": project["id"], "start_date": str(today)})
+            assert made.status_code == 409 and made.json()["error"]["code"] == "contract_required", (engagement, made.text)
     finally:
         await cleanup()
         if project:
