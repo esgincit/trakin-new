@@ -65,6 +65,10 @@ async def template_for(db, entity: str) -> str:
 
 
 async def _taken(db, entity: str, code: str) -> bool:
+    if entity == "project":
+        # Project codes are unique across every workspace; the tenant-scoped query
+        # below would not see another workspace's code (RLS), so ask the helper.
+        return bool(await db.val("select mytrakin.project_code_taken(:c)", {"c": code}))
     if entity not in _TAKEN:
         return False
     table, column = _TAKEN[entity]
@@ -85,7 +89,10 @@ async def next_code(db, entity: str, **values: Any) -> str:
     template = await template_for(db, entity)
     key = counter_key(entity, template, values)
     for _ in range(MAX_TRIES):
-        seq = await db.val("select mytrakin.next_number(:t, :k)", {"t": db.ctx.tenant_id, "k": key})
+        if entity == "project":   # one global sequence: codes are unique everywhere
+            seq = await db.val("select mytrakin.next_project_seq()")
+        else:
+            seq = await db.val("select mytrakin.next_number(:t, :k)", {"t": db.ctx.tenant_id, "k": key})
         code = format_code(template, seq, date.today(), values)
         if not await _taken(db, entity, code):
             return code
@@ -95,8 +102,11 @@ async def next_code(db, entity: str, **values: Any) -> str:
 async def preview_code(db, entity: str, **values: Any) -> str:
     """What next_code would give, without using up a number (for forms)."""
     template = await template_for(db, entity)
-    seq = await db.val("select coalesce((select value from counters where key = :k), 0)",
-                       {"k": counter_key(entity, template, values)})
+    if entity == "project":
+        seq = int(await db.val("select mytrakin.peek_project_seq()")) - 1
+    else:
+        seq = await db.val("select coalesce((select value from counters where key = :k), 0)",
+                           {"k": counter_key(entity, template, values)})
     for step in range(1, MAX_TRIES + 1):
         code = format_code(template, seq + step, date.today(), values)
         if not await _taken(db, entity, code):

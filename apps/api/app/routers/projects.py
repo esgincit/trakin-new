@@ -140,17 +140,25 @@ async def list_projects(db: TenantDb = Depends(tenant_db)):
 
 async def _activation_gate(db: TenantDb, body: ProjectIn) -> None:
     """NDA → MSA → Project (WF-03): an active project needs the customer's NDA and MSA, per the workflow switches.
-    The customer is the prime when the project comes through one, otherwise the client."""
-    customer = body.prime_company_id or body.client_company_id
-    if body.status != "active" or customer is None:
+    The customer is the prime when the project comes through one, otherwise the client. A project for our own
+    company is internal work — there is no other party to hold an agreement with, so the gate does not apply."""
+    if body.status != "active":
+        return
+    own = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    customer = body.prime_company_id if body.prime_company_id and body.prime_company_id != own else body.client_company_id
+    if customer is None or customer == own:
         return
     rules = await workflow.rules(db)
     name = await _client_name(db, customer) or "The counterparty"
     if rules["requireNDA"] and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=customer):
-        raise workflow.blocked("nda_required", f"{name} has no signed NDA — the project can't be activated yet "
+        note = await workflow.stale_note(db, kinds=("nda",), company_id=customer)
+        why = f" — {note}" if note else ""
+        raise workflow.blocked("nda_required", f"{name} has no NDA in force{why}. The project can't be activated yet "
                                                "(save it as planned, or turn off 'Require NDA' in Settings → Workflow)")
     if rules["requireMSA"] and not await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=customer):
-        raise workflow.blocked("msa_required", f"{name} has no active MSA — the project can't be activated yet "
+        note = await workflow.stale_note(db, kinds=workflow.MASTER_KINDS, company_id=customer)
+        why = f" — {note}" if note else ""
+        raise workflow.blocked("msa_required", f"{name} has no MSA in force{why}. The project can't be activated yet "
                                                "(save it as planned, or turn off 'Require MSA' in Settings → Workflow)")
 
 
@@ -303,6 +311,58 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
         raise bad_request("W-2 employees are paid through payroll — leave the AP payee empty")
     if pay_model == "self":
         body.ap_consultant_id = body.ap_consultant_id or body.consultant_id
+    # WF-05: resource contract → acceptance → timesheet. A W-2 consultant needs an active
+    # offer letter; a 1099 contractor an offer letter issued by *this* company (an offer
+    # from another company has no effect on this placement); a C2C/E2E vendor an active
+    # MSA/subcontract with the AR customer.
+    rules = await workflow.rules(db)
+    if rules["requireContract"]:
+        if pay_model == "payroll":
+            # W-2 employees need an offer letter assigned to *this* consultant record in
+            # this workspace — the same check the timesheet gate makes, so a placement is
+            # never created only to be blocked when the consultant submits a week.
+            has_contract = bool(await db.val(
+                """select exists (
+                     select 1 from agreements
+                      where tenant_id = :t and consultant_id = :c and kind = 'offer_letter'
+                        and status in ('active', 'accepted', 'out_for_signature')
+                        and coalesce(effective_on, current_date) <= current_date
+                        and coalesce(expires_on, current_date) >= current_date)""",
+                {"t": db.ctx.tenant_id, "c": body.consultant_id}))
+            if not has_contract:
+                raise workflow.blocked(
+                    "contract_required",
+                    "No active offer letter is assigned to this consultant. "
+                    "Please assign an offer letter before creating the placement.")
+        elif pay_model == "self":
+            # The offer must be ours: same workspace, same consultant record. An offer
+            # another company made to this person is not a contract with us.
+            has_contract = bool(await db.val(
+                """select exists (
+                     select 1 from agreements
+                      where tenant_id = :t and consultant_id = :c and kind = 'offer_letter'
+                        and status in ('active', 'accepted', 'out_for_signature')
+                        and coalesce(effective_on, current_date) <= current_date
+                        and coalesce(expires_on, current_date) >= current_date)""",
+                {"t": db.ctx.tenant_id, "c": body.consultant_id}))
+            if not has_contract:
+                raise workflow.blocked(
+                    "contract_required",
+                    "Placement cannot be created because this consultant does not have an offer letter "
+                    "from your company. Please assign an offer letter before proceeding.")
+        else:
+            ar_co = body.ar_company_id
+            if ar_co is None:
+                ar_co = await db.val("select prime_company_id from projects where id = :id and source_project_id is not null",
+                                     {"id": body.project_id})
+            if ar_co is not None:
+                has_contract = await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=ar_co)
+                if not has_contract:
+                    counterparty = await _client_name(db, ar_co) or "the AR customer"
+                    raise workflow.blocked(
+                        "contract_required",
+                        f"Placement cannot be created because there is no active MSA or subcontract with "
+                        f"{counterparty}. Please sign one before proceeding.")
     body.project_id = await _local_project(db, body.project_id)
     # The end client is the original company that initiated the project chain
     # (the project's client), whichever workspace places the consultant. It is

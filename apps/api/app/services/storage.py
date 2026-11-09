@@ -23,6 +23,16 @@ _LOCAL_ROOT = Path(os.environ.get("MYTRAKIN_LOCAL_STORAGE", "/tmp/mytrakin-stora
 DIRECT_LIMIT = 4 * 1024 * 1024
 MAX_UPLOAD = 25 * 1024 * 1024
 
+# Document types we accept from outside, with the bytes each file must start with:
+# the browser-supplied content type alone can be anything.
+DOC_MAGIC = {"application/pdf": b"%PDF", "image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG\r\n\x1a\n", "image/webp": b"RIFF"}
+
+
+def is_document(data: bytes, content_type: str | None) -> bool:
+    """True when the bytes really are the PDF / JPEG / PNG / WebP the upload claims to be."""
+    magic = DOC_MAGIC.get(content_type or "")
+    return magic is not None and data.startswith(magic) and (content_type != "image/webp" or data[8:12] == b"WEBP")
+
 
 def is_remote() -> bool:
     return _remote()

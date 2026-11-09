@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Chip, ErrorBox, Kpi, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, money } from "@/lib/format";
@@ -12,46 +12,69 @@ import { useApi } from "@/lib/useApi";
 
 export default function Dashboard() {
   const { workspace } = useSession();
-  const { data, error, loading, reload } = useApi("/dashboard");
+  const { data, error, loading, reload } = useApi("/dashboard", undefined, { fresh: true });
   const suggestions = useApi<any[]>("/insights");
   const router = useRouter();
+
+  // Invoices and payments change from other screens (and other people): keep the
+  // money figures live while this page is open, and refresh as soon as the tab
+  // becomes visible again. `/dashboard` is computed from `invoice_balances` on
+  // every request, so a reload always shows the latest data.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") reload();
+    };
+    const timer = setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [reload]);
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const k = data.kpis;
+  const staff = data.staff !== false;
   const max = Math.max(1, ...data.forecast.map((f: any) => Math.max(Number(f.in), Number(f.out ?? 0))));
 
   return (
     <>
-      <PageHead title="Dashboard" sub={`${workspace?.tenant.name} · what is owed to you, what you owe, and what needs attention`} />
+      <PageHead title="Dashboard" sub={staff
+        ? `${workspace?.tenant.name} · what is owed to you, what you owe, and what needs attention`
+        : `${workspace?.tenant.name} · your invoices, payments and what needs attention`} />
       <div className="grid k6">
-        <Kpi label="Clients owe us (AR)" value={money(k.ar_outstanding, true)} detail={plural(k.ar_open_count, "open invoice")} />
-        <Kpi label="Overdue AR" value={money(k.ar_overdue, true)} tone={Number(k.ar_overdue) > 0 ? "bad" : undefined}
+        <Kpi label={staff ? "Clients owe us (AR)" : "Invoices to you (AR)"} value={money(k.ar_outstanding, true)} detail={plural(k.ar_open_count, "open invoice")} />
+        <Kpi label={staff ? "Overdue AR" : "Overdue invoices"} value={money(k.ar_overdue, true)} tone={Number(k.ar_overdue) > 0 ? "bad" : undefined}
              detail={k.ar_overdue_count ? `${plural(k.ar_overdue_count, "invoice")} · oldest ${k.ar_oldest_days} days` : "Nothing overdue"} />
-        <Kpi label="Collected, last 30 days" value={money(k.collected_30d, true)} />
+        <Kpi label={staff ? "Collected, last 30 days" : "Paid, last 30 days"} value={money(k.collected_30d, true)} />
         {data.show_ap && <Kpi label="We owe vendors (AP)" value={money(k.ap_outstanding, true)} detail={plural(k.ap_open_count, "open invoice")} />}
         {data.show_ap && <Kpi label="AP on hold" value={money(k.ap_held, true)} tone={Number(k.ap_held) > 0 ? "warn" : undefined} detail="Pay-when-paid or mismatch" />}
         <Kpi label="Contracts ending soon" value={k.contracts_expiring} tone={k.contracts_expiring ? "warn" : undefined} detail="SOWs 60 days · MSAs 90 days" />
       </div>
 
       <div className="grid c2 mt">
-        <div className="card">
-          <h3>Smart suggestions</h3>
-          {suggestions.data?.length ? suggestions.data.slice(0, 8).map((s, i) => (
-            <div key={i} className="alert">
-              <Chip status={s.priority >= 85 ? "overdue" : s.priority >= 70 ? "pending" : "open"}>{s.area}</Chip>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <b>{s.title}</b>
-                <div className="muted" style={{ fontSize: 12.5 }}>{s.detail}{s.amount != null && ` · ${money(s.amount)}`}</div>
+        {staff && (
+          <div className="card">
+            <h3>Smart suggestions</h3>
+            {suggestions.data?.length ? suggestions.data.slice(0, 8).map((s, i) => (
+              <div key={i} className="alert">
+                <Chip status={s.priority >= 85 ? "overdue" : s.priority >= 70 ? "pending" : "open"}>{s.area}</Chip>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <b>{s.title}</b>
+                  <div className="muted" style={{ fontSize: 12.5 }}>{s.detail}{s.amount != null && ` · ${money(s.amount)}`}</div>
+                </div>
+                <Link className="btn sm" href={s.link}>{s.action}</Link>
               </div>
-              <Link className="btn sm" href={s.link}>{s.action}</Link>
-            </div>
-          )) : <p className="muted">All caught up.</p>}
-          <AskBox />
-        </div>
+            )) : <p className="muted">All caught up.</p>}
+            <AskBox />
+          </div>
+        )}
 
         <div className="card">
-          <h3>Cash in and out, next 6 weeks</h3>
+          <h3>{staff ? "Cash in and out, next 6 weeks" : "Payments due, next 6 weeks"}</h3>
           <div className="legend"><span><i style={{ background: "var(--brand)" }} />In (client payments due)</span>
             {data.show_ap && <span><i style={{ background: "var(--out)" }} />Out (vendor and 1099 payments)</span>}</div>
           <div className="cf">
@@ -79,17 +102,19 @@ export default function Dashboard() {
             </div>
           )) : <p className="muted">Nothing needs attention.</p>}
         </div>
-        <div className="card">
-          <h3>Timesheets missing for last week</h3>
-          {data.missing_timesheets_last_week.length ? (
-            <>
-              {data.missing_timesheets_last_week.map((c: any) => (
-                <div key={c.id} className="alert"><Chip status="not_submitted">Missing</Chip><Link href={`/consultants/${c.id}`}>{c.full_name}</Link></div>
-              ))}
-              <p className="note">Automatic reminders go out Friday, Monday and Tuesday (with HR copied).</p>
-            </>
-          ) : <p className="muted">Everyone submitted last week.</p>}
-        </div>
+        {staff && (
+          <div className="card">
+            <h3>Timesheets missing for last week</h3>
+            {data.missing_timesheets_last_week.length ? (
+              <>
+                {data.missing_timesheets_last_week.map((c: any) => (
+                  <div key={c.id} className="alert"><Chip status="not_submitted">Missing</Chip><Link href={`/consultants/${c.id}`}>{c.full_name}</Link></div>
+                ))}
+                <p className="note">Automatic reminders go out Friday, Monday and Tuesday (with HR copied).</p>
+              </>
+            ) : <p className="muted">Everyone submitted last week.</p>}
+          </div>
+        )}
       </div>
     </>
   );

@@ -16,7 +16,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError
 from ..config import get_settings
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, conflict, not_found
-from ..services import numbering, storage
+from ..services import numbering, storage, workflow
 from ..services.email import render, send_email
 from ..services.esign import combined_document, link_expiry, log_event, send_to_signer
 from ..utils import sha256_hex
@@ -75,12 +75,22 @@ async def _counterparty_company(db: TenantDb, *, agreement_id: UUID | None, sow_
 
 
 async def _admins_of(db: TenantDb, company_id: UUID | None) -> list[dict]:
-    """Who may sign for a company (owners and admins), strongest role first."""
+    """Who may sign for a company: its admins, and the company's own contact e-mail —
+    the address given when the company was created. The contact is offered first, so
+    company documents and their one-time codes go to that address unless the sender
+    picks a named admin instead."""
     if not company_id:
         return []
     rows = await db.all("select * from mytrakin.company_signing_admins(:c)", {"c": company_id})
     name = await db.val("select mytrakin.company_public_name(:c)", {"c": company_id})
-    return [{**r, "company": name, "company_id": company_id} for r in rows]
+    signers = [{**r, "company": name, "company_id": company_id} for r in rows]
+    contact = await db.one("select name, contact_email from mytrakin.company_counterparty(:c)",
+                           {"c": company_id})
+    email = (contact or {}).get("contact_email")
+    if email and all(s["email"].lower() != email.lower() for s in signers):
+        signers.insert(0, {"user_id": None, "name": contact.get("name") or name, "email": email,
+                           "company_role": "company contact", "company": name, "company_id": company_id})
+    return signers
 
 
 @router.get("/signing-parties")
@@ -97,12 +107,17 @@ async def signing_parties(
     db.ctx.require(*SENDER_ROLES)
     me = await db.one("select full_name, email from profiles where id = :u", {"u": db.ctx.user_id})
     own_id = await _own_company(db)
+    # Company mail goes to the company's own address, not the person's login: an owner
+    # running several companies must get each company's documents at that company's
+    # e-mail (sunil@x.com for X, sunil@y.com for Y).
+    own_contact = await db.val(
+        "select contact_email from mytrakin.company_counterparty(:c)", {"c": own_id}) if own_id else None
     counterparty_id = await _counterparty_company(
         db, agreement_id=agreement_id, sow_id=sow_id, amendment_id=amendment_id)
     return {
         "creator": {
             "name": (me or {}).get("full_name") or db.ctx.email,
-            "email": (me or {}).get("email") or db.ctx.email,
+            "email": own_contact or (me or {}).get("email") or db.ctx.email,
             "company": await db.val("select mytrakin.company_public_name(:c)", {"c": own_id}),
             "company_id": own_id,
         },
@@ -184,6 +199,13 @@ async def _rebuild_merged(db: TenantDb, envelope_id: UUID) -> None:
                  {"p": path, "h": sha256_hex(combined), "id": envelope_id})
 
 
+async def _require_sow_nda(db: TenantDb, sow_id: UUID) -> None:
+    """A SOW envelope is sending the SOW: its two companies need their NDA in force."""
+    company = await db.val("select company_id from sows where id = :id", {"id": sow_id})
+    own = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    await workflow.require_nda_between(db, company_id=company, other_company_id=own)
+
+
 @router.post("", status_code=201)
 async def create_envelope(
     db: TenantDb = Depends(tenant_db),
@@ -211,6 +233,8 @@ async def create_envelope(
         raise bad_request("Add at least one signer")
     if len({p.email.lower() for p in people}) != len(people):
         raise bad_request("Each signer needs a different e-mail address")
+    if sow_id:
+        await _require_sow_nda(db, sow_id)
 
     incoming: list[tuple[str, bytes]] = []
     for upload in files or []:
@@ -341,6 +365,8 @@ async def send_envelope(envelope_id: UUID, db: TenantDb = Depends(tenant_db)):
         raise not_found("Envelope")
     if env["status"] != "draft":
         raise conflict("This envelope has already been sent")
+    if env["sow_id"]:
+        await _require_sow_nda(db, env["sow_id"])
     env = await db.one("update envelopes set status = 'sent', sent_at = now(), expires_at = :exp where id = :id returning *",
                        {"id": envelope_id, "exp": link_expiry()})
     signers = await db.all("select * from envelope_signers where envelope_id = :id order by position", {"id": envelope_id})

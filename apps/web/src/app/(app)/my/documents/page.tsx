@@ -2,7 +2,7 @@
 
 import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { date, dateTime, label } from "@/lib/format";
+import { date, dateTime, effectiveStatus, label } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
 
 export default function MyDocuments() {
@@ -40,7 +40,7 @@ export default function MyDocuments() {
         <div className="card">
           <h3>My agreements and offers</h3>
           {data.agreements.length ? data.agreements.map((a: any) => (
-            <div key={a.id} className="alert"><Chip status={a.status} /><div><b>{label(a.kind)}</b> {a.code}<div className="muted" style={{ fontSize: 12.5 }}>{date(a.effective_on)} – {date(a.expires_on)}</div></div></div>
+            <div key={a.id} className="alert"><Chip status={effectiveStatus(a)} /><div><b>{label(a.kind)}</b> {a.code}<div className="muted" style={{ fontSize: 12.5 }}>{date(a.effective_on)} – {date(a.expires_on)}</div></div></div>
           )) : <p className="muted">Agreements signed with you (NDA, offer letter, contractor agreement) appear here.</p>}
         </div>
         <div className="card">

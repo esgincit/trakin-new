@@ -20,6 +20,7 @@ import orjson
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.exc import ProgrammingError
 
 from ..config import get_settings
 from ..deps import TenantDb, open_public, open_signer, open_ts_approver
@@ -326,6 +327,16 @@ async def register(
     files = files or []
     if len(files) > 6:
         raise bad_request("Attach at most 6 files")
+    uploads = []   # check every file before anything is saved
+    for f in files:
+        data = await f.read()
+        if len(data) > storage.DIRECT_LIMIT:
+            raise bad_request(f"{f.filename} is larger than 4 MB — please send a smaller scan")
+        if not storage.is_document(data, f.content_type):
+            raise bad_request(f"{f.filename} must be a PDF, JPEG, PNG or WebP file")
+        uploads.append((f, data))
+    if await _recent_registrations(db) >= REGISTRATIONS_PER_HOUR:
+        raise ApiError(429, "rate_limited", "Too many registrations from here in the last hour. Please try again later.")
     domain = email.split("@")[1].lower()
     checks = {"email_free_domain": domain in FREE_MAIL, "ein_given": bool(ein), "submitted_ip": db.ctx.ip}
     # Visitors may insert but not read registrations back, so the id is made here (no RETURNING).
@@ -336,10 +347,7 @@ async def register(
         {"id": reg["id"], "t": db.ctx.tenant_id, "k": kind, "n": name.strip(), "c": contact.strip(), "e": email, "p": phone,
          "s": state.upper() if state else None, "ein": ein, "checks": orjson.dumps(checks).decode(),
          "docs": orjson.dumps([f.filename for f in files]).decode()})
-    for f in files:
-        data = await f.read()
-        if len(data) > storage.DIRECT_LIMIT:
-            raise bad_request(f"{f.filename} is larger than 4 MB — please send a smaller scan")
+    for f, data in uploads:
         path = f"{db.ctx.tenant_id}/registrations/{reg['id']}/{_safe_name(f.filename)}"
         await storage.upload("documents", path, data, f.content_type or "application/octet-stream")
         await db.run(
@@ -353,6 +361,23 @@ async def register(
                                                                  "Our team reviews new registrations within two business days. "
                                                                  "We'll e-mail you when it is approved or if we need anything else."]))
     return {"id": reg["id"], "status": "pending"}
+
+
+# ponytail: soft limit counted per IP in the database (a simultaneous burst can slip a few past);
+# move to an edge firewall rule if bots spread across IPs.
+REGISTRATIONS_PER_HOUR = 5
+
+
+async def _recent_registrations(db: TenantDb) -> int:
+    """Registrations from this IP in the last hour, across all workspaces (0 when the IP is unknown)."""
+    if not db.ctx.ip:
+        return 0
+    try:
+        async with db.conn.begin_nested():
+            return await db.val("select mytrakin.recent_registrations(:ip)", {"ip": db.ctx.ip})
+    except ProgrammingError:   # migration 20261107000100 not applied here yet: register without the limit
+        log.warning("recent_registrations() missing: registration rate limit is off")
+        return 0
 
 
 def _safe_name(filename: str | None) -> str:

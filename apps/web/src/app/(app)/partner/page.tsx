@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Field, formValues, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -17,6 +17,28 @@ export default function PartnerHome() {
   const history = useApi<any[]>(vendor ? "/timesheets/history" : null);
   const [submitting, setSubmitting] = useState(false);
   const { run, busy } = useAction();
+
+  // Balances and statuses change when finance records a payment or a new invoice
+  // arrives: refresh this page while it is open and when the tab is focused again.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      invoices.reload();
+      placements.reload();
+      if (vendor) {
+        consultants.reload();
+        history.reload();
+      }
+    };
+    const timer = setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [vendor, invoices.reload, placements.reload, consultants.reload, history.reload]);
 
   return (
     <>

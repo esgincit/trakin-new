@@ -4,10 +4,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction, useToast } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
-import { api } from "@/lib/api";
-import { AGREEMENT_TERMS, daysLeft, label } from "@/lib/format";
+import { api, ApiError } from "@/lib/api";
+import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label } from "@/lib/format";
 import { linkFor } from "@/lib/links";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -34,7 +34,7 @@ function Contracts() {
     { key: "days_left", label: "Left", value: (r) => r.days_left, render: (r) => daysLeft(r.days_left) },
     { key: "sow_count", label: "SOWs", type: "number", hideSm: true },
     { key: "source", label: "Source", filter: true, hideSm: true, value: (r) => (r.shared ? "Received" : r.source) },
-    { key: "status", label: "Status", type: "status", filter: true },
+    { key: "status", label: "Status", type: "status", filter: true, value: effectiveStatus },
   ];
   const sowCols: Column<any>[] = [
     { key: "code", label: "SOW", render: (r) => <>{r.code}{r.shared && <Chip status="pending">Sent to you</Chip>}</> },
@@ -66,17 +66,28 @@ function Contracts() {
         { key: "tone", label: "", render: (r) => <Chip status={r.tone === "bad" ? "missing" : "pending"}>{r.tone === "bad" ? "Missing" : "Soon"}</Chip> },
         { key: "category", label: "Area", type: "label", filter: true }, { key: "who", label: "Who" }, { key: "what", label: "What" },
       ]} empty="Nothing missing. Every company has an MSA and every consultant has their agreements and policies." />}
-      {modal === "agreement" && <AgreementModal onClose={() => setModal(null)} onDone={(a) => router.push(`/contracts/agreements/${a.id}`)} />}
+      {modal === "agreement" && <AgreementModal onClose={() => setModal(null)} onDone={(a, existing) => {
+        // A new draft is sent straight to e-signature; an already-signed record goes to its detail page.
+        // Note: the backend sets MSA/subcontract status to "pending" (needs counterparty acceptance),
+        // so we must not key off the returned status — use the user's choice instead.
+        if (!existing) {
+          router.push(`/esign/new?agreement_id=${a.id}&title=${encodeURIComponent(`${label(a.kind)} ${a.code}`)}`);
+        } else {
+          router.push(`/contracts/agreements/${a.id}`);
+        }
+      }} />}
       {modal === "sow" && <SowModal onClose={() => setModal(null)} onDone={(s) => router.push(`/contracts/sows/${s.id}`)} />}
     </>
   );
 }
 
-function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: any) => void }) {
+function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: any, existing: boolean) => void }) {
   const consultants = useApi<any[]>("/consultants");
   const [kind, setKind] = useState("msa");
   const [existing, setExisting] = useState(false);
-  const { run, busy } = useAction();
+  const [error, setError] = useState<ApiError | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
   // NDAs are signed with companies (Verify → NDA → MSA) or with consultants.
   const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
   const personal = ["offer_letter", "ica"].includes(kind) || (kind === "nda" && ndaWith === "consultant");
@@ -84,6 +95,7 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
     (c.user_code ? c.full_name + " · " + c.user_code : c.full_name) + (c.email ? " · " + c.email : "");
   return (
     <Modal title="Add agreement" onClose={onClose}>
+      {error && <ErrorBox error={error} />}
       <div className="seg" style={{ marginBottom: 8 }}>
         <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (send for signature)</button>
         <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
@@ -92,8 +104,17 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
         e.preventDefault();
         const v: any = formValues(e.currentTarget);
         v.kind = kind; v.status = existing ? "active" : "draft"; v.source = existing ? "manual" : "myTrakIn";
-        const r = await run(() => api("/agreements", { body: v }), "Agreement saved");
-        if (r) onDone(r);
+        setError(null);
+        setBusy(true);
+        try {
+          const r = await api("/agreements", { body: v });
+          toast("Agreement saved");
+          if (r) onDone(r, existing);
+        } catch (e) {
+          setError(e as ApiError);
+        } finally {
+          setBusy(false);
+        }
       }}>
         <div className="fields">
           <Field label="Type" name="kind_select" as="select" value={kind} onChange={(e: any) => setKind(e.target.value)}
@@ -110,13 +131,17 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
           <Field label="You are the" name="tenant_side" as="select" options={personal ? [["employer", "Employer / buyer"], ["buyer", "Buyer"]] : [["supplier", "Supplier (you bill them)"], ["buyer", "Buyer (you pay them)"]]} />
           <Field label="Effective" name="effective_on" type="date" required />
           <Field label="Expires" name="expires_on" type="date" />
-          <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} />
-          <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} />
-          <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} />
-          <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} />
+          {kind !== "nda" && (
+            <>
+              <NetTerms label="Payment terms" name="payment_terms" required />
+              <Field label="Renewal" name="renewal" as="select" options={AGREEMENT_TERMS.renewal} />
+              <Field label="Notice period" name="notice_period" as="select" options={AGREEMENT_TERMS.notice_period} />
+              <Field label="Insurance required" name="insurance_required" as="select" options={AGREEMENT_TERMS.insurance_required} />
+            </>
+          )}
           {existing && <Field label="Signed by" name="signed_by" full />}
         </div>
-        <p className="note">The agreement number is assigned automatically. {existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, send it for e-signature from the agreement page."}</p>
+        <p className="note">The agreement number is assigned automatically. {existing ? "After saving, attach the signed PDF on the agreement page." : "After saving, it opens for e-signature."}</p>
         <button className="btn pri mt" disabled={busy}>Save agreement</button>
       </form>
     </Modal>
@@ -128,7 +153,6 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const sows = useApi<any[]>("/sows", { side: "we_bill" });
   const projects = useApi<any[]>("/projects");
   const [existing, setExisting] = useState(false);
-  const [sendNow, setSendNow] = useState(true);
   const [saving, setSaving] = useState(false);
   const { run, busy } = useAction();
   // An MSA either side recorded with one of our companies: work under it runs from here too.
@@ -138,7 +162,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   return (
     <Modal title="Add SOW / work order" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
-        <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (needs approval)</button>
+        <button className={!existing ? "on" : ""} onClick={() => setExisting(false)}>New draft (send for signature)</button>
         <button className={existing ? "on" : ""} onClick={() => setExisting(true)}>Already signed (record it)</button>
       </div>
       <form className="form" onSubmit={async (e) => {
@@ -148,14 +172,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
         v.status = existing ? "active" : "draft";
         for (const k of ["value_cap", "prior_invoiced", "prior_paid"]) if (v[k]) v[k] = Number(v[k]);
         const r = await run(() => api("/sows", { body: v }), existing ? "SOW saved" : "SOW drafted");
-        if (r) {
-          // An MSA the other workspace recorded: offer to put it in front of them at once.
-          if (!existing && sendNow) {
-            await run(() => api(`/sows/${r.id}/submit`, { method: "POST" }),
-              "Sent to the other company for approval");
-          }
-          onDone(r);
-        }
+        if (r) onDone(r);
         setSaving(false);
       }}>
         <div className="fields">
@@ -172,15 +189,8 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
           <Field label="Invoiced before myTrakIn ($)" name="prior_invoiced" type="number" step="0.01" min="0" />
           <Field label="Collected / paid before myTrakIn ($)" name="prior_paid" type="number" step="0.01" min="0" />
         </div>
-        {!existing && (
-          <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-            <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} style={{ marginTop: 4 }} />
-            <span>Send it to the other company for approval straight away
-              <span className="muted"> — until you do, it is a draft and they cannot see it</span></span>
-          </label>
-        )}
         <button className="btn pri mt" disabled={busy || saving}>
-          {existing ? "Save SOW" : sendNow ? "Save & send for approval" : "Save draft"}
+          {existing ? "Save SOW" : "Save draft"}
         </button>
       </form>
     </Modal>

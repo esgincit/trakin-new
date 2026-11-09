@@ -1,11 +1,11 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Attachments } from "@/components/Attachments";
 import { Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { date, dateTime, label } from "@/lib/format";
+import { date, dateTime, effectiveStatus, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -16,12 +16,41 @@ export default function ConsultantDetail() {
   const { data: c, error, loading, reload } = useApi(`/consultants/${id}`);
   const { run, busy } = useAction();
   const [modal, setModal] = useState<"offboard" | "edit" | null>(null);
+  // The checklist is optimistic: a click updates it at once, then the save goes out.
+  // A controlled checkbox tied straight to the loaded row reverted mid-save, so users
+  // had to click two or three times before the tick stuck.
+  const [checklist, setChecklist] = useState<any[] | null>(null);
+  useEffect(() => { setChecklist(c?.onboarding_checklist ?? null); }, [c?.onboarding_checklist]);
   const canEdit = allows(workspace, "hr", "account_manager", "legal");
   const hr = allows(workspace, "hr", "legal");
 
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
-  const done = c.onboarding_checklist.filter((x: any) => x.done).length;
+  const items: any[] = checklist ?? c.onboarding_checklist ?? [];
+  const done = items.filter((x: any) => x.done).length;
+  const allDone = items.length > 0 && done === items.length;
+
+  const toggleItem = async (i: number, next: boolean) => {
+    const previous = items;
+    setChecklist(items.map((it: any, j: number) => (j === i ? { ...it, done: next } : it)));
+    const saved = await run(() => api(`/consultants/${id}/checklist`, { body: { index: i, done: next } }));
+    setChecklist(saved?.onboarding_checklist ?? previous);
+  };
+
+  const toggleAll = async () => {
+    if (!canEdit || busy) return;
+    const target = !allDone;
+    const previous = items;
+    setChecklist(items.map((it: any) => ({ ...it, done: target })));
+    const saved = await run(async () => {
+      let last: any = null;
+      for (let i = 0; i < items.length; i++) {
+        last = await api(`/consultants/${id}/checklist`, { body: { index: i, done: target } });
+      }
+      return last;
+    });
+    setChecklist(saved?.onboarding_checklist ?? previous);
+  };
 
   return (
     <>
@@ -36,11 +65,19 @@ export default function ConsultantDetail() {
 
       <div className="grid c2">
         <div className="card">
-          <h3>Onboarding checklist · {done}/{c.onboarding_checklist.length}</h3>
-          {c.onboarding_checklist.map((item: any, i: number) => (
+          <h3>Onboarding checklist · {done}/{items.length}</h3>
+          {canEdit && !busy && (
+            <div className="row mt" style={{ marginBottom: 8 }}>
+              <input type="checkbox" checked={allDone} onChange={toggleAll} />
+              <span className="muted" style={{ marginLeft: 6, cursor: "pointer" }} onClick={toggleAll}>
+                {allDone ? "Select none" : "Select all"}
+              </span>
+            </div>
+          )}
+          {items.map((item: any, i: number) => (
             <label key={i} className="row" style={{ padding: "6px 0", color: "var(--ink)", borderBottom: "1px solid var(--line)" }}>
               <input type="checkbox" checked={item.done} disabled={!canEdit || busy}
-                     onChange={async (e) => { if (await run(() => api(`/consultants/${id}/checklist`, { body: { index: i, done: e.target.checked } }))) reload(); }} />
+                     onChange={(e) => toggleItem(i, e.target.checked)} />
               {item.item}
             </label>
           ))}
@@ -68,7 +105,7 @@ export default function ConsultantDetail() {
           ))}
           {!c.placements.length && <p className="muted">Not placed yet. Add a placement under Projects.</p>}
           <h3 className="mt">Agreements</h3>
-          {c.agreements.map((a: any) => <div key={a.id} className="alert"><Chip status={a.status} /><b>{label(a.kind)}</b> {a.code}</div>)}
+          {c.agreements.map((a: any) => <div key={a.id} className="alert"><Chip status={effectiveStatus(a)} /><b>{label(a.kind)}</b> {a.code}</div>)}
           {!c.agreements.length && <p className="muted">No NDA, offer or contractor agreement on file.</p>}
         </div>
         <div className="card">

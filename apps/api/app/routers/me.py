@@ -121,6 +121,12 @@ async def my_consultant_overview(db: TenantDb = Depends(tenant_db)):
                   (select max(paid_on) from payments where invoice_id = ar.id and status in ('completed', 'confirmed')) as customer_paid_on,
                   ap.live_status as payee_status, ap.scheduled_on as payee_scheduled_on, ap.due_on as payee_due_on,
                   (select max(paid_on) from payments where invoice_id = ap.id and status in ('completed', 'confirmed')) as payee_paid_on,
+                  ap.id as payee_invoice_id,
+                  (select pay.id from payments pay
+                    where pay.invoice_id = ap.id and pay.status = 'completed'
+                    order by pay.paid_on desc, pay.created_at desc limit 1) as payee_payment_id,
+                  (select max(pay.confirmed_at) from payments pay
+                    where pay.invoice_id = ap.id and pay.status = 'confirmed') as payee_acknowledged_at,
                   cust.name as customer, payee.name as payee
              from invoice_balances ar
              join placements p on p.id = ar.placement_id
@@ -189,9 +195,7 @@ async def my_timesheet_history(
                    e.placement_id,
                    coalesce(pr.name, 'Internal / non-billable') as project, sum(e.hours) as hours, t.decided_at,
                    tn.name as placed_by_name,
-                   (select string_agg(distinct mytrakin.company_public_name(p2.end_client_company_id), ', ')
-                      from timesheet_entries e2 left join placements p2 on p2.id = e2.placement_id
-                     where e2.timesheet_id = t.id and p2.end_client_company_id is not null) as end_client_names
+                   mytrakin.company_public_name(p.end_client_company_id) as end_client_name
               from timesheets t
              join timesheet_entries e on e.timesheet_id = t.id
              left join placements p on p.id = e.placement_id
@@ -202,7 +206,7 @@ async def my_timesheet_history(
               and (cast(:st as text) is null or t.status = :st)
               and (cast(:f as date) is null or t.week_start >= :f)
               and (cast(:u as date) is null or t.week_start <= :u)
-            group by t.id, e.placement_id, pr.name, tn.id
+            group by t.id, e.placement_id, pr.name, tn.id, p.end_client_company_id
             order by t.week_start desc, project""",
         {"c": cid, "pl": placement_id, "st": status, "f": since, "u": until},
     )

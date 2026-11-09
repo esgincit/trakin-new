@@ -29,12 +29,6 @@ export default function SowDetail() {
       <PageHead title={`${s.code} · ${s.title}`} sub={<>{label(s.side)} · {s.counterparty} · <Chip status={s.status} /> · {date(s.start_date)} – {date(s.end_date)}</>}
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
-          {!shared && canEdit && s.status === "draft" && (
-            <button className="btn pri" disabled={busy}
-              onClick={async () => { if (await run(() => api(`/sows/${id}/submit`, { method: "POST" }), "Sent to the other company for approval")) reload(); }}>
-              Send for approval
-            </button>
-          )}
           {!shared && canEdit && s.status === "rejected" && (
             <button className="btn" disabled={busy}
               onClick={async () => { if (await run(() => api(`/sows/${id}/submit`, { method: "POST" }), "Sent again for approval")) reload(); }}>
@@ -48,7 +42,7 @@ export default function SowDetail() {
             </>
           )}
           {!shared && canEdit && s.status !== "rejected" && <button className="btn" onClick={() => setAmending(true)}>Amend / extend</button>}
-          {!shared && canEdit && s.status !== "accepted" && <Link className="btn pri" href={`/esign/new?sow_id=${id}&title=${encodeURIComponent(`SOW ${s.code}`)}`}>Send for signature</Link>}
+          {!shared && canEdit && s.status === "draft" && <Link className="btn pri" href={`/esign/new?sow_id=${id}&title=${encodeURIComponent(`SOW ${s.code}`)}`}>Send for signature</Link>}
         </>} />
       {awaitingUs && (
         <div className="alert mt">

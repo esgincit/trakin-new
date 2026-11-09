@@ -378,7 +378,7 @@ async def upload_session_moa(session_id: UUID, file: UploadFile = File(), db: Te
 async def send_email_code(session_id: UUID, db: TenantDb = Depends(onboarding_db)):
     """E-mail a 6-digit code to the company e-mail (proves control of it)."""
     row = await _session(db, session_id)
-    email = row.get("company_email")
+    email = row.get("company_email") or (row.get("payload") or {}).get("details", {}).get("company_email")
     if not email:
         raise bad_request("Save the company e-mail first")
     now = datetime.now(UTC)

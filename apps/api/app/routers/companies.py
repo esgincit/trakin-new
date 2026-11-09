@@ -340,8 +340,8 @@ async def upload_w9(company_id: UUID, file: UploadFile = File(), db: TenantDb = 
     data = await file.read()
     if len(data) > MAX_W9_BYTES:
         raise bad_request("The file is larger than 4 MB")
-    if file.content_type == "application/pdf" and not data.startswith(b"%PDF"):
-        raise bad_request("That file isn't a valid PDF")
+    if not storage.is_document(data, file.content_type):
+        raise bad_request("That file isn't a valid PDF, JPEG, PNG or WebP")
 
     parsed = await w9svc.extract_w9(data, file.content_type or "application/pdf")
     ext = "pdf" if file.content_type == "application/pdf" else {"image/jpeg": "jpg", "image/png": "png"}.get(file.content_type or "", "webp")
@@ -475,8 +475,8 @@ async def upload_compliance_doc(company_id: UUID, kind: str = Form(pattern=rf"^(
     data = await file.read()
     if len(data) > MAX_W9_BYTES:
         raise bad_request("The file is larger than 4 MB")
-    if content_type == "application/pdf" and not data.startswith(b"%PDF"):
-        raise bad_request("That file isn't a valid PDF")
+    if not storage.is_document(data, content_type):
+        raise bad_request("That file isn't a valid PDF, JPEG, PNG or WebP")
 
     doc = await _store_restricted_doc(db, company_id, kind, db.ctx.user_id, data, content_type,
                                       file.filename or "")
@@ -773,10 +773,17 @@ async def propose_msa(company_id: UUID, body: CompanyMsaIn, db: TenantDb = Depen
     if counterparty is None:
         raise not_found("Counterparty company")
     if body.kind in ("msa", "subcontract") and (await workflow.rules(db))["requireNDA"]:
-        has_nda = await db.val("select mytrakin.has_company_agreement(:t, array['nda'], :c, current_date)",
-                               {"t": db.ctx.tenant_id, "c": counterparty["id"]})
-        if not has_nda and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=counterparty["id"]):
-            raise workflow.blocked("nda_required", "Sign an NDA with this company before its MSA "
+        # The NDA is between the two companies - whichever page the MSA is started from,
+        # whichever workspace recorded the NDA, and whichever column holds which side.
+        has_nda = await workflow.has_agreement_between(
+            db, company_a=company["id"], company_b=counterparty["id"], kinds=("nda",))
+        if not has_nda and not await db.val(
+                "select mytrakin.has_company_agreement(:t, array['nda'], :c, current_date)",
+                {"t": db.ctx.tenant_id, "c": counterparty["id"]}):
+            note = await workflow.stale_note(db, kinds=("nda",), company_id=counterparty["id"],
+                                             other_company_id=company["id"])
+            why = f" — {note}" if note else ""
+            raise workflow.blocked("nda_required", f"An NDA in force with this company is needed first{why} "
                                     "(or turn off 'Require NDA' in Settings → Workflow)")
     code = await numbering.next_code(db, body.kind, CLIENT=counterparty["name"])
     row = await db.one(

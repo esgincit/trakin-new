@@ -7,9 +7,9 @@ import { Attachments } from "@/components/Attachments";
 import { CheckList } from "@/components/CompanyWizard";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { CompanyForm } from "@/components/forms";
-import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, PageHead, useAction } from "@/components/ui";
+import { Avatar, Bar, Chip, ErrorBox, Field, formValues, Loading, Modal, NetTerms, PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
-import { AGREEMENT_TERMS, date, label, money, roleList } from "@/lib/format";
+import { date, effectiveStatus, label, money, roleList } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 
@@ -130,7 +130,7 @@ export default function CompanyDetail() {
           <h3>Agreements</h3>
           {c.agreements.map((a: any) => (
             <div key={a.id} className="alert click" onClick={() => router.push(`/contracts/agreements/${a.id}`)}>
-              <Chip status={a.status} /><div><b>{a.code}</b> · {label(a.kind)}<div className="muted" style={{ fontSize: 12.5 }}>{date(a.effective_on)} – {date(a.expires_on)} · {a.payment_terms ?? ""} {a.source !== "myTrakIn" && `· ${a.source}`}</div></div>
+              <Chip status={effectiveStatus(a)} /><div><b>{a.code}</b> · {label(a.kind)}<div className="muted" style={{ fontSize: 12.5 }}>{date(a.effective_on)} – {date(a.expires_on)} · {a.payment_terms ?? ""} {a.source !== "myTrakIn" && `· ${a.source}`}</div></div>
             </div>
           ))}
           {!c.agreements.length && <p className="muted">No MSA yet. <Link href="/contracts?new=agreement">Add one</Link> or send one for signature.</p>}
@@ -271,7 +271,7 @@ function CompanyMsaModal({ company, onClose, onDone }: { company: any; onClose: 
           <Field label="We are the" name="tenant_side" as="select" defaultValue="supplier" options={[["supplier", "Supplier"], ["buyer", "Buyer"]]} />
           <Field label="Effective" name="effective_on" type="date" />
           <Field label="Expires" name="expires_on" type="date" />
-          <Field label="Payment terms" name="payment_terms" as="select" options={AGREEMENT_TERMS.payment_terms} />
+          <NetTerms label="Payment terms" name="payment_terms" required />
           {existing
             ? <Field label="Signed by" name="signed_by" full />
             : <Field label="Message to the other company" name="note" as="textarea" full />}

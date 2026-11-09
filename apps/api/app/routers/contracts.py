@@ -96,9 +96,15 @@ async def add_agreement(body: AgreementIn, db: TenantDb = Depends(tenant_db)):
     if body.company_id and own_company and body.company_id == own_company:
         raise bad_request("An agreement can't be with the company itself — pick the other party")
     # Verify → NDA → MSA (WF-02): a company's MSA / subcontract needs its NDA first, unless the tenant switched that off.
+    # The NDA is between our company and that company - either side may have recorded it, in its own workspace.
     if body.kind in ("msa", "subcontract") and body.company_id and (await workflow.rules(db))["requireNDA"] \
+            and not await workflow.has_agreement_between(
+                db, company_a=own_company, company_b=body.company_id, kinds=("nda",)) \
             and not await workflow.has_active_agreement(db, kinds=("nda",), company_id=body.company_id):
-        raise workflow.blocked("nda_required", "Sign an NDA with this company before its MSA "
+        note = await workflow.stale_note(db, kinds=("nda",), company_id=body.company_id,
+                                         other_company_id=own_company)
+        why = f" — {note}" if note else ""
+        raise workflow.blocked("nda_required", f"An NDA in force with this company is needed first{why} "
                                                "(or turn off 'Require NDA' in Settings → Workflow)")
     counterparty = await db.val(
         """select coalesce((select name from mytrakin.company_counterparty(cast(:co as uuid))),
@@ -187,6 +193,36 @@ async def get_agreement(agreement_id: UUID, db: TenantDb = Depends(tenant_db)):
     return row
 
 
+class AgreementPatch(BaseModel):
+    effective_on: date | None = None
+    expires_on: date | None = None
+    payment_terms: str | None = None
+    renewal: str | None = None
+    notice_period: str | None = None
+    insurance_required: str | None = None
+    tenant_side: str | None = Field(None, pattern="^(supplier|buyer|employer)$")
+
+
+@router.patch("/agreements/{agreement_id}")
+async def edit_agreement(agreement_id: UUID, body: AgreementPatch, db: TenantDb = Depends(tenant_db)):
+    """Edit a draft agreement before it is sent for signature. Only drafts can be edited."""
+    db.ctx.require("legal", "account_manager", "finance", "hr")
+    row = await db.one(
+        "select status, kind from agreements where id = :id", {"id": agreement_id})
+    if row is None:
+        raise not_found("Agreement")
+    if row["status"] != "draft":
+        raise bad_request("Only draft agreements can be edited")
+    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    if not updates:
+        raise bad_request("No fields to update")
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    updates["id"] = agreement_id
+    await db.run(
+        f"""update agreements set {set_clause} where id = :id""", updates)
+    return await get_agreement(agreement_id, db)
+
+
 @router.get("/sows")
 async def list_sows(db: TenantDb = Depends(tenant_db), side: str | None = None):
     show_value = db.ctx.allows("finance", "legal", "account_manager")
@@ -270,6 +306,10 @@ async def add_sow(body: SowIn, db: TenantDb = Depends(tenant_db)):
     company = await db.val("select mytrakin.agreement_peer_company(:a)", {"a": body.agreement_id})
     if company is None:
         raise bad_request("This agreement has no other company on it — a SOW needs a company on both sides")
+    # Verify → NDA → MSA → SOW (WF-02/03): no SOW between the two companies until their
+    # NDA is in force, so the missing-contract error does not surface only at placement.
+    own_company = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    await workflow.require_nda_between(db, company_id=company, other_company_id=own_company)
     project_code = None
     if body.project_id:
         project_code = await db.val("select code from projects where id = :id", {"id": body.project_id})
@@ -335,6 +375,13 @@ async def submit_sow(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
     """Send a draft SOW to the other company for approval. Until this is done it is a
     draft and the other company cannot see it."""
     db.ctx.require("legal", "account_manager")
+    sow = await db.one("select company_id from sows where id = :id", {"id": sow_id})
+    if sow is None:
+        raise not_found("SOW")
+    # A SOW already saved as a draft is checked again when it is sent: the NDA may have
+    # expired, or the draft may predate this rule.
+    own_company = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+    await workflow.require_nda_between(db, company_id=sow["company_id"], other_company_id=own_company)
     await db.run("select mytrakin.submit_sow_for_approval(:s)", {"s": sow_id})
     return await get_sow(sow_id, db)
 
@@ -372,7 +419,8 @@ async def missing_items(db: TenantDb = Depends(tenant_db)):
              select 'agreement' as category, 'bad' as tone, c.name as who, 'No MSA on file' as what, 'company' as ref_type, c.id::text as ref_id
                from companies c
                where c.status <> 'inactive' and c.kinds && array['client', 'prime_vendor', 'vendor']
-                and not exists (select 1 from agreements a where a.company_id = c.id and a.status in ('active', 'accepted', 'out_for_signature'))
+                and not exists (select 1 from agreements a where a.company_id = c.id and a.status in ('active', 'accepted', 'out_for_signature')
+                                 and (a.expires_on is null or a.expires_on >= current_date))
              union all
              select 'agreement', 'bad', k.full_name,
                     case k.engagement when '1099' then 'Independent contractor agreement missing' else 'Offer letter not signed' end,
@@ -385,7 +433,8 @@ async def missing_items(db: TenantDb = Depends(tenant_db)):
              select 'agreement', 'bad', k.full_name, 'NDA not signed', 'consultant', k.id::text
                from consultants k
               where k.status <> 'former'
-                and not exists (select 1 from agreements a where a.consultant_id = k.id and a.kind = 'nda' and a.status = 'active')
+                and not exists (select 1 from agreements a where a.consultant_id = k.id and a.kind = 'nda' and a.status = 'active'
+                                 and (a.expires_on is null or a.expires_on >= current_date))
              union all
              select 'policy', 'warn', k.full_name, 'Not accepted: ' || string_agg(po.name || ' ' || po.version, ', '), 'consultant', k.id::text
                from consultants k join policies po on po.active and k.engagement = any (po.applies_to)

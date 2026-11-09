@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Security patching (2026-11-07):** Next.js 16.4.5 (fixes the October 2026 Next.js advisories) and pypdf ≥ 6.21.4.
+  The public registration form now accepts only real PDF, JPEG, PNG or WebP files (type and leading bytes checked
+  before anything is saved) and at most 5 registrations per hour from one IP (429 `rate_limited`); the W-9
+  and restricted company-document uploads use the same byte check for images as well as PDFs. CI actions are pinned to
+  commit SHAs, the migration workflow pins Supabase CLI 2.122.1, and Dependabot is on with a 5-day cooldown. Migration
+  `20261107000100_registration_rate_limit.sql`; regression test `test_public_registration_rejects_disguised_files_and_floods`.
+
+- **MSA creation recognises a live NDA between the two companies, whichever side recorded it (2026-10-31):**
+  the NDA → MSA gate asked "does this workspace have an NDA whose `company_id` is X?", so two live NDAs were
+  missed and the user was told to turn off *Require NDA*: (1) direction - an NDA keeps the other party in
+  `company_id`, so starting the MSA from that company's page looked for an NDA *with our own company*; (2)
+  workspace - when the counterparty recorded the NDA, only the shared (read-only) view had it, and
+  `has_company_agreement()` looked at the caller's own agreements and only at status `active`. Both MSA
+  creation paths (company page `POST /companies/{id}/msas` and Contracts `POST /agreements`) now ask
+  `mytrakin.agreement_in_force_between(a, b, kinds, on)`, which matches the pair by id - either column - then
+  by normalized name, across workspaces, counting `active`, `accepted` and `out_for_signature`. The refusal
+  message names the closest agreement between the pair (expired / pending / out for signature). Expired and
+  missing NDAs still block. Migration `20261031000100_nda_gate_between_companies.sql`; regression test
+  `test_nda_gate_sees_the_nda_between_the_two_companies`.
+
 - **Recoverable company rejections and smoother company setup (2026-10-26, Strike T011303-1084…1089):**
   a company the myTrakIn team rejects is now `rejected` (not `closed`) — its owner can still sign in, sees
   the reason on My companies and the company profile, fixes the details and resubmits, or creates another

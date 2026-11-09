@@ -19,9 +19,29 @@ from ..utils import money, parse_terms_days
 from . import numbering, workflow
 
 
+# A 1099 contractor is paid against their own offer letter (or ICA), not a company MSA:
+# the contract follows the person, and the placement already checked it at submission.
+PERSON_KINDS = (*workflow.MASTER_KINDS, "offer_letter")
+
+
 async def next_invoice_number(db: Db, tenant_id: Any, prefix: str) -> str:
     """AR / AP number from the tenant's numbering template (default AR-2026-0001)."""
     return await numbering.next_code(db, f"invoice_{prefix.lower()}")
+
+
+async def _payee_contract_in_force(db: Db, *, company_id: Any, consultant_id: Any, on: date) -> bool:
+    """Whether this AP payee may be invoiced and paid on this date.
+
+    A vendor company needs a master agreement (MSA / subcontract / ICA). A 1099 contractor
+    paid directly is payable against their own offer letter (or ICA) in force for that
+    person — across workspaces, since consultants keep one row per workspace."""
+    if company_id is not None:
+        return await workflow.has_active_agreement(
+            db, kinds=workflow.MASTER_KINDS, company_id=company_id, on=on)
+    if consultant_id is None:
+        return False
+    return await workflow.has_active_agreement(
+        db, kinds=PERSON_KINDS, consultant_id=consultant_id, on=on)
 
 
 async def approved_hours_by_placement(db: Db, period_start: date, period_end: date) -> list[dict]:
@@ -78,9 +98,8 @@ async def generate_invoices(db: Db, *, tenant_id: Any, user_id: Any, period_star
 
         payee = row["ap_company_id"] or row["ap_consultant_id"]
         if payee and row["pay_rate"] is not None:
-            if need_msa and not await workflow.has_active_agreement(
-                    db, kinds=workflow.MASTER_KINDS, company_id=row["ap_company_id"],
-                    consultant_id=row["ap_consultant_id"], on=period_end):
+            if need_msa and not await _payee_contract_in_force(
+                    db, company_id=row["ap_company_id"], consultant_id=row["ap_consultant_id"], on=period_end):
                 blocked.append(f"Payable for placement {row['placement_id']}: no active vendor or contractor agreement")
                 continue
             ap_amount = money(hours * row["pay_rate"])
@@ -139,10 +158,10 @@ async def check_payable(db: Db, invoice_id: Any, amount: Decimal, paid_on: date,
     if invoice["direction"] == "ap" and invoice["live_status"] in {"held", "exception"}:
         raise conflict("This vendor invoice is on hold — resolve it before paying")
     # Money received from a customer is always recorded; money paid out needs an active agreement with the payee.
-    if invoice["direction"] == "ap" and (await workflow.rules(db))["requireMSA"] and not await workflow.has_active_agreement(
-            db, kinds=workflow.MASTER_KINDS, company_id=invoice["company_id"], consultant_id=invoice["consultant_id"],
-            on=paid_on):
-        raise conflict("No active agreement with this payee — vendor payments are blocked until one is signed")
+    if invoice["direction"] == "ap" and (await workflow.rules(db))["requireMSA"] and not await _payee_contract_in_force(
+            db, company_id=invoice["company_id"], consultant_id=invoice["consultant_id"], on=paid_on):
+        what = "offer letter or contract" if invoice["company_id"] is None else "agreement"
+        raise conflict(f"No active {what} with this payee — payments are blocked until one is signed")
 
 
 async def settle(db: Db, invoice_id: Any) -> dict:

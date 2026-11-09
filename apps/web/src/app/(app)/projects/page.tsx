@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
-import { api } from "@/lib/api";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction, useToast } from "@/components/ui";
+import { api, ApiError } from "@/lib/api";
 import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -118,6 +118,8 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
   const sows = useApi<any[]>("/sows");
   const [consultantId, setConsultantId] = useState(placement?.consultant_id ?? "");
   const { run, busy } = useAction();
+  const toast = useToast();
+  const [placementError, setPlacementError] = useState("");
   const consultant = consultants.data?.find((c) => c.id === consultantId) ?? (placement ? { engagement: placement.engagement } : null) ?? null;
   const [projectId, setProjectId] = useState(placement?.project_id ?? "");
   const projClient = projects.data?.find((p) => p.id === projectId)?.client
@@ -130,11 +132,24 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
     .filter((c) => placement || true);
   // On edit the backend PATCH accepts only these fields, so send only these.
   const PATCH_FIELDS = ["role_title", "end_date", "hours_per_week", "status", "bill_rate", "pay_rate", "ar_terms", "ap_terms", "pay_when_paid"];
+  // Project options: local projects plus shared ones not already present locally (avoid duplicates).
+  const localProjectIds = new Set((projects.data ?? []).map((p) => p.id));
+  const projectOptions = [
+    ...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
+    ...(shared.data ?? [])
+      .filter((p) => !p.local_project_id && !localProjectIds.has(p.id))
+      .map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string]),
+  ];
 
   return (
     <Modal title={placement ? "Edit placement" : "New placement"} onClose={onClose}>
+      {placementError && <div className="card mt" style={{ borderColor: "var(--bad)" }}>
+        <b style={{ color: "var(--bad)" }}>Placement cannot be created</b>
+        <p className="muted" style={{ margin: "6px 0 0" }}>{placementError}</p>
+      </div>}
       <form className="form" onSubmit={async (e) => {
         e.preventDefault();
+        setPlacementError("");
         const v: any = formValues(e.currentTarget);
         for (const k of ["bill_rate", "pay_rate", "hours_per_week"]) if (v[k]) v[k] = Number(v[k]);
         v.pay_when_paid = v.pay_when_paid === "yes";
@@ -147,7 +162,13 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
           }
           if (await run(() => api(`/placements/${placement.id}`, { method: "PATCH", body }), "Placement updated")) onDone();
         } else {
-          if (await run(() => api("/placements", { body: v }), "Placement created")) onDone();
+          try {
+            await api("/placements", { body: v });
+            onDone();
+          } catch (err) {
+            setPlacementError((err as ApiError).message);
+            toast((err as ApiError).message);
+          }
         }
       }}>
         <div className="fields">
@@ -155,8 +176,7 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
                   options={pick(consultants.data, (c) => c.status !== "former",
                                 (c) => `${c.full_name}${c.user_code ? " · " + c.user_code : ""}${c.email ? " · " + c.email : ""} (${label(c.engagement)})`)} />}
           {!placement && <Field label="Project" name="project_id" as="select" required value={projectId} onChange={(e: any) => setProjectId(e.target.value)}
-                  options={[...pick(projects.data, (p) => p.status !== "completed", (p) => `${p.code} · ${p.name}`),
-                    ...(shared.data ?? []).filter((p) => !p.local_project_id).map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string])]} />}
+                  options={projectOptions} />}
           {!placement && projectId && (
             <div className="full"><label>End client</label><div className="ctl">{projClient ?? "—"}</div></div>
           )}
@@ -167,25 +187,19 @@ function PlacementModal({ placement, onClose, onDone }: { placement?: any; onClo
           {placement && <Field label="Status" name="status" as="select" defaultValue={placement.status}
                   options={[["onboarding", "Onboarding"], ["active", "Active"], ["ending", "Ending"], ["completed", "Completed"], ["ended", "Ended"]]} />}
           {!placement && <Field label="Bill to (AR customer)" name="ar_company_id" as="select" options={pick(parties, orMsa("client", "prime_vendor"), (c) => c.name)} />}
-          {!placement && <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}`)} />}
+          {!placement && <Field label="AR SOW / work order" name="ar_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_bill", (s) => `${s.code} · ${s.counterparty}${s.project_name ? ` · ${s.project_name}` : s.project ? ` · ${s.project}` : ""}`)} />}
           <Field label="Bill rate ($/h)" name="bill_rate" type="number" step="0.01" min="0" defaultValue={String(placement?.bill_rate ?? "")} />
-          <Field label="Accounts Receivable Payment Terms" name="ar_terms" as="select" defaultValue={placement?.ar_terms ?? "Net 30"} options={[
-            ["", "–"],
-            ["Net 15", "Net 15"],
-            ["Net 30", "Net 30"],
-            ["Net 45", "Net 45"],
-            ["Net 60", "Net 60"],
-          ]} />
+          <NetTerms label="Accounts Receivable Payment Terms" name="ar_terms" defaultValue={placement?.ar_terms ?? "Net 30"} />
           {!placement && ["c2c", "e2e"].includes(consultant?.engagement) && <Field label="Pay to (vendor)" name="ap_company_id" as="select" options={pick(parties, orMsa("vendor"), (c) => c.name)} />}
           {!placement && consultant && !consultant.engagement.startsWith("w2") && <>
-            <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}`)} />
+            <Field label="AP SOW / work order" name="ap_sow_id" as="select" options={pick(sows.data, (s) => s.side === "we_pay", (s) => `${s.code} · ${s.counterparty}${s.project_name ? ` · ${s.project_name}` : s.project ? ` · ${s.project}` : ""}`)} />
             <Field label="Pay rate ($/h)" name="pay_rate" type="number" step="0.01" min="0" />
-            <Field label="AP terms" name="ap_terms" placeholder="Net 30" />
+            <NetTerms label="AP terms" name="ap_terms" defaultValue={placement?.ap_terms ?? "Net 30"} />
             <Field label="Pay when paid" name="pay_when_paid" as="select" options={[["no", "No"], ["yes", "Yes — pay after the customer pays"]]} />
           </>}
           {placement && !placement.engagement?.startsWith("w2") && <>
             <Field label="Pay rate ($/h)" name="pay_rate" type="number" step="0.01" min="0" defaultValue={String(placement?.pay_rate ?? "")} />
-            <Field label="AP terms" name="ap_terms" as="select" defaultValue={placement?.ap_terms ?? ""} options={[["", "–"], ["Net 15", "Net 15"], ["Net 30", "Net 30"], ["Net 45", "Net 45"], ["Net 60", "Net 60"]]} />
+            <NetTerms label="AP terms" name="ap_terms" defaultValue={placement?.ap_terms ?? "Net 30"} />
             <Field label="Pay when paid" name="pay_when_paid" as="select" defaultValue={placement?.pay_when_paid ? "yes" : "no"} options={[["no", "No"], ["yes", "Yes — pay after the customer pays"]]} />
           </>}
         </div>

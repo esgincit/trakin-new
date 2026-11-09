@@ -15,7 +15,7 @@ const can = (...roles: Role[]) => (ws: Workspace) => allows(ws, ...roles);
 const NAV: Section[] = [
   {
     items: [
-      { href: "/dashboard", label: "Dashboard", show: staff, module: "dashboard" },
+      { href: "/dashboard", label: "Dashboard", show: (ws) => staff(ws) || ws.role === "client_user", module: "dashboard" },
       { href: "/my", label: "My work", show: (ws) => ws.role === "consultant" },
       { href: "/my/timesheet", label: "My timesheet", show: (ws) => ws.role === "consultant" },
       { href: "/my/documents", label: "Policies & documents", show: (ws) => ws.role === "consultant" },

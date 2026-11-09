@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Chip, ErrorBox, Loading, PageHead } from "@/components/ui";
+import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
+import { api } from "@/lib/api";
 import { date, daysLeft, label } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -10,6 +11,7 @@ import { useApi } from "@/lib/useApi";
 export default function MyWork() {
   const { workspace } = useSession();
   const { data, error, loading, reload } = useApi("/me/consultant");
+  const { run, busy } = useAction();
   if (loading) return <Loading rows={8} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const { me, projects, payments, to_sign, policies, documents } = data;
@@ -73,7 +75,7 @@ export default function MyWork() {
         <p className="muted" style={{ marginTop: -6 }}>Status only. Amounts and rates between companies are private to each contract.</p>
         {payments.length ? (
           <div className="tw"><table>
-            <thead><tr><th>Period</th><th>Project</th><th>Hours</th><th>Customer paid us</th><th>We pay {payments[0]?.payee ?? "you"}</th></tr></thead>
+            <thead><tr><th>Period</th><th>Project</th><th>Hours</th><th>Customer paid us</th><th>We pay {payments[0]?.payee ?? "you"}</th><th>Acknowledge</th></tr></thead>
             <tbody>{payments.map((p: any, i: number) => (
               <tr key={i}>
                 <td>{date(p.period_start)} – {date(p.period_end)}</td>
@@ -81,6 +83,14 @@ export default function MyWork() {
                 <td className="num">{Number(p.hours)}</td>
                 <td><Chip status={p.customer_status} />{p.customer_paid_on ? ` ${date(p.customer_paid_on)}` : p.due_on ? ` due ${date(p.due_on)}` : ""}</td>
                 <td>{p.payee_status ? <><Chip status={p.payee_status} />{p.payee_paid_on ? ` ${date(p.payee_paid_on)}` : p.payee_scheduled_on ? ` scheduled ${date(p.payee_scheduled_on)}` : p.payee_due_on ? ` due ${date(p.payee_due_on)}` : ""}</> : me.engagement.startsWith("w2") ? "Payroll" : "Waiting for invoice"}</td>
+                <td>
+                  {p.payee_payment_id && (
+                    <button className="btn sm" disabled={busy} onClick={async () => {
+                      if (await run(() => api(`/payments/${p.payee_payment_id}/confirm`, { method: "POST" }), "Payment acknowledged")) reload();
+                    }}>Acknowledge payment</button>
+                  )}
+                  {p.payee_acknowledged_at && <div className="muted" style={{ fontSize: 12 }}>Acknowledged {date(p.payee_acknowledged_at)}</div>}
+                </td>
               </tr>
             ))}</tbody>
           </table></div>

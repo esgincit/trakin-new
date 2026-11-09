@@ -450,7 +450,7 @@ Phase 0.4 and applied whenever the matching code is touched.
 | ID | Check | Status |
 |---|---|---|
 | SEC-01 | One-time codes use `secrets` (CSPRNG). | ✅ |
-| SEC-02 | Per-code attempt limit **and** app-level rate limits on `/v1/public/*` and every code send/verify endpoint. | 🟡 attempts only |
+| SEC-02 | Per-code attempt limit **and** app-level rate limits on `/v1/public/*` and every code send/verify endpoint. | 🟡 attempts + public registration (5/hour per IP, 2026-11-07); other public endpoints open |
 | SEC-03 | Code resend: 60 s cooldown, max 5/hour per recipient. | 🟡 |
 | SEC-04 | 5 wrong tries burn the code; constant-time compare. | 🟡 |
 | SEC-05 | Sign-up / sign-in / reset responses identical whether or not the account exists. | ❓ |
@@ -460,10 +460,10 @@ Phase 0.4 and applied whenever the matching code is touched.
 | SEC-09 | Short-lived access tokens. | ✅ |
 | SEC-10 | Strict Content-Security-Policy; consider cookie sessions. | 🟡 |
 | SEC-11 | Production deploys only from a push to `main`; PR code never runs with secrets. | 🟡 |
-| SEC-12 | Upload allow-list (types, size), server-side content sniffing, user files served as attachments, no inline SVG/HTML. | 🟡 |
+| SEC-12 | Upload allow-list (types, size), server-side content sniffing, user files served as attachments, no inline SVG/HTML. | 🟡 `storage.is_document()` checks type + leading bytes on public registration and W-9 / restricted company documents (2026-11-07); other upload paths not yet |
 | SEC-13 | Every query scoped by tenant (RLS) and by party; two-tenant test per router. | 🟡 company profile cross-tenant read fixed 2026-10-17 (migration `20261016001300`, regression test); two-tenant test per router still outstanding |
 | SEC-14 | CSV formula-injection protection. | ✅ |
-| SEC-15 | Lockfiles, `npm ci`, pinned Python versions. | 🟡 |
+| SEC-15 | Lockfiles, `npm ci`, pinned Python versions. | 🟡 Actions pinned to commit SHAs, Supabase CLI pinned, Dependabot with 5-day cooldown (2026-11-07); Python still floor-pinned only |
 | SEC-16 | One-time secret scan of the repo and its history. | ❓ |
 | SEC-17 | Every list endpoint paginated or limited. | 🟡 |
 | SEC-18 | Per-user cap on AI "Ask" usage. | ❓ |
@@ -643,6 +643,13 @@ Size: S ≤ 1 day · M 2–4 days · L 1–2 weeks. Each line is one PR.
 ## 9. Progress log (newest first — every session adds one line)
 
 Format: `YYYY-MM-DD · IDs touched · what changed · what is left / uncommitted`.
+
+- 2026-11-07 · SEC-02, SEC-12, SEC-15 · **Security patching, phase 0**: Next.js 16.3.8 → 16.4.5 (October 2026
+  advisories), pypdf floor ≥ 6.21.4; public registration checks every file's type and leading bytes before saving
+  anything and allows 5 per hour per IP (migration `20261107000100_registration_rate_limit.sql`, **apply to
+  QA and production**; until then the API logs a warning and skips the limit); W-9 / restricted documents use the same
+  check; GitHub Actions pinned to SHAs, Supabase CLI pinned to 2.122.1, Dependabot added. Left: bot check on public
+  forms (needs a Turnstile/hCaptcha key), other upload paths, full security scan, account-level hardening (owner).
 
 - 2026-10-26 · Strike T011303-1084…1089 · **Company setup + SOW rejection fixes**: platform reject now sets the
   company to new status `rejected` (was `closed`, which locked the owner out with "You don't have access");

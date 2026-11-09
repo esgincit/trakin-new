@@ -147,10 +147,17 @@ async def _end_client_recipients(db: TenantDb, tenant_id, chain: set) -> dict:
         """select * from mytrakin.ts_client_recipients(cast(:ids as uuid[]))""",
             {"ids": sorted(str(c) for c in chain)}):
         ws_emails.setdefault(r["company_id"], []).append(r["email"])
+    # The company's own contact e-mail (given when it was created) is company mail and
+    # goes to that address, not to whichever login an admin happens to use.
+    contact_emails: dict = {}
+    for cid in chain:
+        contact = await db.val("select contact_email from mytrakin.company_counterparty(:c)", {"c": cid})
+        if contact:
+            contact_emails.setdefault(cid, []).append(contact)
     for cid in chain:
         seen: set = set()
         emails: list = []
-        for e in (*rep_emails.get(cid, ()), *ws_emails.get(cid, ())):
+        for e in (*contact_emails.get(cid, ()), *rep_emails.get(cid, ()), *ws_emails.get(cid, ())):
             if e and e not in seen:
                 seen.add(e)
                 emails.append(e)
@@ -184,22 +191,49 @@ async def _send_client_approval(db: TenantDb, ts: dict, recipients: dict, timesh
                                           button=("Review & approve", f"{settings.web_origin.rstrip('/')}/approve/timesheet/{token}")))
 
 
-async def _checks(db: TenantDb, ts: dict) -> tuple[list, dict]:
-    entries = await db.all("select placement_id, work_date, hours from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
+async def _checks(db: TenantDb, consultant_id: UUID | None = None, week_start: date | None = None,
+                  timesheet_id: UUID | None = None) -> tuple[list, dict]:
+    """Run automatic checks on a timesheet's entries.
+
+    Look up entries either by a single timesheet_id (review page) or across all
+    timesheets for a consultant/week (week overview, where one consultant may have
+    multiple timesheets — one per placement — after the per-placement split).
+    """
+    if timesheet_id is not None:
+        entries = await db.all("select placement_id, work_date, hours from timesheet_entries where timesheet_id = :id", {"id": timesheet_id})
+        ts = await db.one("select consultant_id, week_start, status from timesheets where id = :id", {"id": timesheet_id})
+        consultant_id = ts["consultant_id"]
+        week_start = ts["week_start"]
+        status = ts["status"]
+    else:
+        entries = await db.all(
+            """select placement_id, work_date, hours from timesheet_entries e
+                 join timesheets t on t.id = e.timesheet_id
+                where t.consultant_id = :c and t.week_start = :ws""",
+            {"c": consultant_id, "ws": week_start})
+        ts_row = await db.one(
+            """select case when bool_or(status = 'submitted') then 'submitted'
+                          when bool_or(status = 'rejected') then 'rejected'
+                          when bool_or(status = 'draft') then 'draft'
+                          when bool_or(status = 'approved') then 'approved'
+                          else 'not_submitted' end as status
+                 from timesheets where consultant_id = :c and week_start = :ws""",
+            {"c": consultant_id, "ws": week_start})
+        status = ts_row["status"] if ts_row and ts_row["status"] else "draft"
     placements = await db.all(
         """select p.id, p.hours_per_week, p.start_date, p.end_date, p.bill_rate, s.code as sow_code,
                   (s.value_cap - b.invoiced) as sow_remaining
              from placements p left join sows s on s.id = p.ar_sow_id left join sow_burn b on b.sow_id = s.id
             where p.consultant_id = :c and p.start_date <= :we and coalesce(p.end_date, :ws) >= :ws""",
-        {"c": ts["consultant_id"], "ws": ts["week_start"], "we": ts["week_start"] + timedelta(days=6)})
+        {"c": consultant_id, "ws": week_start, "we": week_start + timedelta(days=6)})
     checks = run_checks(
-        status=ts["status"],
-        week_start=ts["week_start"],
+        status=status,
+        week_start=week_start,
         entries=[Entry(str(e["placement_id"]) if e["placement_id"] else None, e["work_date"], Decimal(e["hours"])) for e in entries],
         placements={str(p["id"]): PlacementInfo(str(p["id"]), Decimal(p["hours_per_week"]), p["start_date"], p["end_date"],
                                                 p["bill_rate"], p["sow_code"], p["sow_remaining"]) for p in placements},
-        engagement=ts["engagement"],
-        show_money=db.ctx.allows("finance"),
+        engagement=None,
+        show_money=False,
     )
     return [c.as_dict() for c in checks], summarize(checks)
 
@@ -214,21 +248,35 @@ async def _contract_gate(db: TenantDb, timesheet_id) -> None:
     rows = await db.all(
         """select distinct pr.name as project, et.pay_model, aps.code as ap_sow, aps.status as ap_status,
                   ars.code as ar_sow, ars.status as ar_status,
-                  (select o.status from agreements o where o.consultant_id = p.consultant_id and o.kind = 'offer_letter'
-                    order by o.status = 'active' desc, o.created_at desc limit 1) as offer_status
+                  (select o.status from agreements o where o.consultant_id = p.consultant_id
+                     and o.kind = 'offer_letter'
+                    order by o.status = 'active' desc, o.created_at desc limit 1) as offer_status,
+                  (select exists (
+                     select 1 from agreements o
+                      where o.consultant_id = p.consultant_id
+                        and o.kind = 'offer_letter'
+                        and o.status in ('active', 'accepted', 'out_for_signature')
+                        and coalesce(o.effective_on, current_date) <= current_date
+                        and coalesce(o.expires_on, current_date) >= current_date)) as offer_in_force
              from timesheet_entries e join placements p on p.id = e.placement_id join projects pr on pr.id = p.project_id
              join consultants c on c.id = p.consultant_id join engagement_types et on et.code = c.engagement
              left join sows aps on aps.id = p.ap_sow_id left join sows ars on ars.id = p.ar_sow_id
             where e.timesheet_id = :id""", {"id": timesheet_id})
     for r in rows:
         payroll = r["pay_model"] == "payroll"
-        contract_status = r["offer_status"] if payroll else r["ap_status"]
-        what = "offer letter" if payroll else "vendor / contractor work order"
-        if rules["requireContract"] and contract_status is None:
-            raise workflow.blocked("contract_required", f"{r['project']}: no {what} for this resource yet — add it before "
-                                                        "timesheets (or turn off 'Require contract' in Settings → Workflow)")
+        # W-2 employees and 1099 contractors both need an offer letter assigned to *this*
+        # consultant record; a C2C/E2E vendor's resource contract is the AP work order.
+        person_contract = r["pay_model"] in ("payroll", "self")
+        contract_status = r["offer_status"] if person_contract else r["ap_status"]
+        what = "offer letter" if person_contract else "vendor / contractor work order"
+        contract_ok = r["offer_in_force"] if person_contract else contract_status is not None
+        if rules["requireContract"] and not contract_ok:
+            raise workflow.blocked("contract_required", f"{r['project']}: no active {what} from your company is "
+                                                        "assigned to this consultant. Assign one before submitting the "
+                                                        "timesheet (or turn off 'Require contract' in Settings → Workflow)")
         if rules["requireAcceptance"]:
-            if contract_status is not None and contract_status != "active":
+            if contract_status is not None and contract_status != "active" \
+                    and not (person_contract and r["offer_in_force"]):
                 raise workflow.blocked("acceptance_required", f"{r['project']}: the {what} isn't accepted yet")
             if r["ar_sow"] and r["ar_status"] != "active":
                 raise workflow.blocked("acceptance_required", f"{r['project']}: client SOW {r['ar_sow']} isn't accepted yet")
@@ -242,26 +290,52 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
     ws = _sunday(week) if week else week_start(date.today())
     rows = await db.all(
         """select c.id as consultant_id, c.full_name, c.engagement, emp.name as employer,
-                  t.id, coalesce(t.status, 'not_submitted') as status, t.submitted_at, t.reject_reason, t.note,
+                  ts_agg.id, ts_agg.status, ts_agg.placed_by_approved,
+                  ts_agg.submitted_at, ts_agg.reject_reason, ts_agg.note,
                   (select string_agg(distinct pr.name, ', ') from placements p join projects pr on pr.id = p.project_id
                     where p.consultant_id = c.id and p.start_date <= cast(:ws as date) + 6
                       and coalesce(p.end_date, cast(:ws as date)) >= :ws) as projects,
-                  coalesce((select array_agg(coalesce(d.h, 0) order by dn) from generate_series(0, 6) dn
-                             left join (select (e.work_date - cast(:ws as date)) as dn, sum(e.hours) as h from timesheet_entries e
-                                         where e.timesheet_id = t.id group by 1) d using (dn)), '{0,0,0,0,0,0,0}') as days
-             from consultants c
-             left join companies emp on emp.id = c.employer_company_id
-             left join timesheets t on t.consultant_id = c.id and t.week_start = :ws
-            where c.status = 'active'
-              and (t.id is not null or exists (select 1 from placements p where p.consultant_id = c.id
-                                                and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws))
-            order by c.full_name""",
+                  coalesce(ts_agg.days, '{0,0,0,0,0,0,0}') as days
+               from consultants c
+               left join companies emp on emp.id = c.employer_company_id
+               left join lateral (
+                   -- Postgres has no min(uuid): pick the week's timesheet that most needs
+                   -- attention (submitted, then returned, then the oldest draft) so a click
+                   -- opens the one awaiting approval when a consultant has several projects.
+                   select (array_agg(t.id order by (t.status = 'submitted') desc,
+                                                 (t.status = 'rejected') desc, t.created_at))[1] as id,
+                          case when bool_or(t.status = 'submitted') then 'submitted'
+                               when bool_or(t.status = 'rejected') then 'rejected'
+                               when bool_or(t.status = 'draft') then 'draft'
+                               when bool_or(t.status = 'approved') then 'approved'
+                               else 'not_submitted' end as status,
+                          bool_or(t.placed_by_approved) as placed_by_approved,
+                          max(t.submitted_at) as submitted_at,
+                          max(t.reject_reason) as reject_reason,
+                          max(t.note) as note,
+                          (select array_agg(coalesce(dh.sum_hours, 0) order by dh.dn)
+                           from (
+                               select g.dn, coalesce(sum(e.hours), 0) as sum_hours
+                               from generate_series(0, 6) g(dn)
+                               left join timesheet_entries e on (e.work_date - cast(:ws as date)) = g.dn
+                                  and e.timesheet_id in (select id from timesheets where consultant_id = c.id and week_start = :ws)
+                               group by g.dn
+                           ) dh(dn, sum_hours)
+                          ) as days
+                   from timesheets t
+                   where t.consultant_id = c.id and t.week_start = :ws
+               ) ts_agg on true
+              where c.status = 'active'
+                -- Approved weeks are done: they move to History and no longer need an approver.
+                and (ts_agg.id is null or ts_agg.status <> 'approved')
+                and (ts_agg.id is not null or exists (select 1 from placements p where p.consultant_id = c.id
+                                                        and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws))
+              order by c.full_name""",
         {"ws": ws})
     for r in rows:
         r["total"] = sum((Decimal(h) for h in r["days"]), Decimal(0))
         if r["id"]:
-            ts = {"id": r["id"], "consultant_id": r["consultant_id"], "week_start": ws, "status": r["status"], "engagement": r["engagement"]}
-            _, r["checks"] = await _checks(db, ts)
+            _, r["checks"] = await _checks(db, consultant_id=r["consultant_id"], week_start=ws)
         else:
             r["checks"] = None
     return {"week_start": ws, "rows": rows}
@@ -270,10 +344,39 @@ async def week_overview(db: TenantDb = Depends(tenant_db), week: date | None = N
 @router.get("/history")
 async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None = None,
                   since: date | None = Query(None, alias="from"), until: date | None = Query(None, alias="to")):
-    """All weeks, one line per consultant, week and project."""
-    if not db.ctx.internal and db.ctx.role != "vendor_admin":
+    """All weeks, one line per consultant, week and project.
+
+    Internal staff and vendor admins see everything. A client_user (end client
+    representative) only sees weeks where their company is the end client on at
+    least one placement in the timesheet.
+
+    A company's own workspace never owns the weeks it approves — they belong to
+    the placing workspace, hidden by tenant isolation — so the completed weeks
+    where it was the end client are added through ts_client_history(), the
+    read-only counterpart of the pending queue.
+    """
+    if not db.ctx.internal and db.ctx.role not in ("vendor_admin", "client_user"):
         raise ApiError(403, "forbidden", "Use My timesheet for your own history")
-    return await db.all(
+
+    company_id = db.ctx.company_id
+    # For client_user, resolve the company if it isn't already on the request
+    # context (e.g. when only a company membership exists without a workspace row).
+    if db.ctx.role == "client_user" and company_id is None:
+        company_id = await db.val(
+            "select company_id from mytrakin.memberships where id = :m",
+            {"m": db.ctx.membership_id})
+        if company_id is None and db.ctx.user_id is not None:
+            company_id = await db.val(
+                "select company_id from mytrakin.company_members"
+                " where user_id = :uid and status = 'active' order by created_at desc limit 1",
+                {"uid": db.ctx.user_id})
+    # Make sure ctx_company() reflects the resolved company so RLS policies that
+    # read ctx_company() (e.g. timesheets_client_read) work correctly in this session.
+    if db.ctx.role == "client_user" and company_id is not None:
+        await db.run("select set_config('app.company_id', :cid, true)",
+                     {"cid": str(company_id)})
+
+    rows = await db.all(
         """select t.id, t.week_start, t.status, t.placed_by_approved, t.end_client_approved,
                   c.full_name, c.id as consultant_id, coalesce(pr.name, 'Internal') as project,
                   sum(e.hours) as hours, t.decided_at
@@ -282,10 +385,31 @@ async def history(db: TenantDb = Depends(tenant_db), consultant_id: UUID | None 
               left join placements p on p.id = e.placement_id left join projects pr on pr.id = p.project_id
              where (cast(:c as uuid) is null or t.consultant_id = :c)
                and (cast(:f as date) is null or t.week_start >= :f) and (cast(:u as date) is null or t.week_start <= :u)
+               and (:role <> 'client_user' or exists (
+                     select 1 from timesheet_entries e2
+                     join placements p2 on p2.id = e2.placement_id
+                    where e2.timesheet_id = t.id and p2.end_client_company_id = :co))
              group by t.id, c.id, pr.name, t.placed_by_approved, t.end_client_approved
              order by t.week_start desc, c.full_name, project
              limit 2000""",
-        {"c": consultant_id, "f": since, "u": until})
+        {"c": consultant_id, "f": since, "u": until, "role": db.ctx.role, "co": company_id})
+
+    seen = {(str(r["id"]), r["project"]) for r in rows}
+    for r in await db.all(
+            """select timesheet_id as id, week_start, status, placed_by_approved, end_client_approved,
+                      consultant as full_name, consultant_id, project, hours, decided_at
+                 from mytrakin.ts_client_history()
+                where (cast(:c as uuid) is null or consultant_id = :c)
+                  and (cast(:f as date) is null or week_start >= :f)
+                  and (cast(:u as date) is null or week_start <= :u)""",
+            {"c": consultant_id, "f": since, "u": until}):
+        key = (str(r["id"]), r["project"])
+        if key not in seen:
+            seen.add(key)
+            rows.append(r)
+    rows.sort(key=lambda r: (r["full_name"], r["project"]))
+    rows.sort(key=lambda r: r["week_start"], reverse=True)
+    return rows
 
 
 # ----------------------------------------------------------------------------- consultant
@@ -294,29 +418,62 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
     if db.ctx.role != "consultant":
         raise ApiError(403, "forbidden", "Only consultants have a personal timesheet")
     ws = _sunday(week) if week else week_start(date.today())
-    ts = await db.one("select * from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
     projects = await db.all(
-        """select p.id as placement_id, pr.name as project, p.role_title, p.hours_per_week
+        """select p.id as placement_id, pr.name as project, p.role_title, p.hours_per_week,
+                  mytrakin.company_public_name(p.end_client_company_id) as end_client
              from placements p join projects pr on pr.id = p.project_id
             where p.consultant_id = :c and p.status in ('active', 'ending', 'onboarding')
               and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws
             order by pr.name""",
         {"c": db.ctx.consultant_id, "ws": ws})
+    # One timesheet per placement after the per-placement split. Return per-timesheet
+    # details so the frontend can show independent submit buttons per project.
+    tss = await db.all("select id, status, note, placed_by_approved, end_client_approved, reject_reason, weekend_requested_at, weekend_review_note, weekend_confirmed from timesheets where consultant_id = :c and week_start = :ws",
+                       {"c": db.ctx.consultant_id, "ws": ws})
+    ts_by_placement: dict[str, dict] = {}
+    for ts in tss:
+        for e in await db.all("select placement_id from timesheet_entries where timesheet_id = :id", {"id": ts["id"]}):
+            pid = str(e["placement_id"]) if e["placement_id"] else None
+            ts_by_placement[pid] = ts
     grid: dict[str | None, list[Decimal]] = defaultdict(lambda: [Decimal(0)] * 7)
-    if ts:
+    for ts in tss:
         for e in await db.all("select placement_id, work_date, hours from timesheet_entries where timesheet_id = :id", {"id": ts["id"]}):
-            grid[str(e["placement_id"]) if e["placement_id"] else None][(e["work_date"] - ws).days] += Decimal(e["hours"])
-    rows = [{"placement_id": p["placement_id"], "project": p["project"], "hours": grid.get(str(p["placement_id"]), [Decimal(0)] * 7)}
-            for p in projects]
+            pid = str(e["placement_id"]) if e["placement_id"] else None
+            grid[pid][(e["work_date"] - ws).days] += Decimal(e["hours"])
+    rows = []
+    for p in projects:
+        pid = str(p["placement_id"])
+        ts = ts_by_placement.get(pid)
+        rows.append({"placement_id": p["placement_id"], "project": p["project"],
+                     "hours": grid.get(pid, [Decimal(0)] * 7),
+                     "timesheet_id": ts["id"] if ts else None,
+                     "ts_status": ts["status"] if ts else "draft",
+                     "ts_placed_by_approved": bool(ts["placed_by_approved"]) if ts else False,
+                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False,
+                     "ts_end_client": p["end_client"]})
     if None in grid:
-        rows.append({"placement_id": None, "project": "Internal / non-billable", "hours": grid[None]})
+        ts = ts_by_placement.get(None)
+        rows.append({"placement_id": None, "project": "Internal / non-billable", "hours": grid[None],
+                     "timesheet_id": ts["id"] if ts else None,
+                     "ts_status": ts["status"] if ts else "draft",
+                     "ts_placed_by_approved": bool(ts["placed_by_approved"]) if ts else False,
+                     "ts_end_client_approved": bool(ts["end_client_approved"]) if ts else False,
+                     "ts_end_client": None})
     # TS-10: approved time off shown per day (read-only, never saved as hours or billed).
     off = await db.all(
         """select starts_on, ends_on, kind from time_off where consultant_id = :c and status in ('approved', 'holiday')
             and starts_on <= cast(:ws as date) + 6 and ends_on >= :ws""", {"c": db.ctx.consultant_id, "ws": ws})
     time_off = [next((o["kind"] for o in off if o["starts_on"] <= ws + timedelta(days=i) <= o["ends_on"]), None) for i in range(7)]
+    # Aggregate approval state across all timesheets for this week.
+    any_submitted = any(t["status"] == "submitted" for t in tss)
+    any_approved = any(t["status"] == "approved" for t in tss)
+    status = "approved" if any_approved else ("submitted" if any_submitted else ("draft" if tss else "not_submitted"))
+    placed_by_approved = any(t["placed_by_approved"] for t in tss)
+    end_client_approved = any(t["end_client_approved"] for t in tss)
+    reject_reason = next((t["reject_reason"] for t in tss if t["reject_reason"]), None)
+    note = next((t["note"] for t in tss if t["note"]), "")
     # Company names for the approval-status panel: the placing workspace and the
-    # end client(s) on the weeks' placements (public names — cross-tenant safe).
+    # end client(s) on the weeks' placements (public names � cross-tenant safe).
     placed_by = None
     if db.ctx.tenant_id:
         placed_by = await db.val("select name from mytrakin.tenants where id = :t", {"t": db.ctx.tenant_id})
@@ -326,16 +483,17 @@ async def my_week(db: TenantDb = Depends(tenant_db), week: date | None = None):
             where p.consultant_id = :c and p.end_client_company_id is not null
               and p.start_date <= cast(:ws as date) + 6 and coalesce(p.end_date, cast(:ws as date)) >= :ws""",
         {"c": db.ctx.consultant_id, "ws": ws}) if r["name"]]
-    return {"week_start": ws, "status": ts["status"] if ts else "draft", "reject_reason": ts["reject_reason"] if ts else None,
-            "note": ts["note"] if ts else None,
-            "placed_by_approved": ts["placed_by_approved"] if ts else None,
-            "end_client_approved": ts["end_client_approved"] if ts else None,
+    # Weekend state from the most recent timesheet.
+    weekend_ts = max(tss, key=lambda t: t["id"]) if tss else None
+    return {"week_start": ws, "status": status, "reject_reason": reject_reason,
+            "note": note,
+            "placed_by_approved": placed_by_approved,
+            "end_client_approved": end_client_approved,
             "placed_by_name": placed_by, "end_client_names": end_clients,
-            "weekend_requested": bool(ts and ts["weekend_requested_at"]),
-            "weekend_review_note": ts["weekend_review_note"] if ts else None,
-            "weekend_confirmed": ts["weekend_confirmed"] if ts else None,
+            "weekend_requested": bool(weekend_ts and weekend_ts["weekend_requested_at"]),
+            "weekend_review_note": weekend_ts["weekend_review_note"] if weekend_ts else None,
+            "weekend_confirmed": weekend_ts["weekend_confirmed"] if weekend_ts else None,
             "rows": rows, "projects": projects, "time_off": time_off}
-
 
 @router.put("/mine")
 async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
@@ -348,26 +506,60 @@ async def save_my_week(body: WeekIn, db: TenantDb = Depends(tenant_db)):
     for row in body.rows:
         if row.placement_id and str(row.placement_id) not in allowed:
             raise bad_request("One of the projects isn't assigned to you")
-    ts = await db.one("select id, status, note from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
-    # Submitted/approved weeks are locked and cannot be edited. Rejected weeks can be
-    # edited and resubmitted by the consultant until they are approved.
-    if ts and ts["status"] in ("submitted", "approved"):
-        raise ApiError(409, "locked", "This week is already submitted. Ask your admin to return it if something needs to change.")
-    if ts is None:
-        ts = await db.one("insert into timesheets (tenant_id, consultant_id, week_start, note) values (:t, :c, :ws, :n) returning id, status",
-                          {"t": db.ctx.tenant_id, "c": db.ctx.consultant_id, "ws": ws, "n": body.note})
-    else:
-        # Resetting approvals and the weekend confirmation when a rejected timesheet is edited
-        await db.run("""update timesheets set note = :n, placed_by_approved = false, end_client_approved = false,
-                         weekend_confirmed = false, weekend_requested_by = null,
-                         weekend_requested_at = null, weekend_review_note = null where id = :id""",
-                     {"n": body.note, "id": ts["id"]})
-    await db.run("delete from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
-    entries = [{"t": db.ctx.tenant_id, "ts": ts["id"], "p": row.placement_id, "d": ws + timedelta(days=i), "h": h}
-               for row in body.rows for i, h in enumerate(row.hours) if h > 0]
-    if entries:
-        await db.run("""insert into timesheet_entries (tenant_id, timesheet_id, placement_id, work_date, hours)
-                        values (:t, :ts, :p, :d, :h)""", entries)
+    # Save one timesheet per placement, upserting in place: submitting one project
+    # must not stop the others being entered, and saving one project must not wipe
+    # another project's draft. Only a submitted/approved project itself is locked.
+    # Rejected projects can be edited and resubmitted until they are approved.
+    for row in body.rows:
+        existing = await db.one(
+            """select t.id, t.status from timesheets t
+                where t.consultant_id = :c and t.week_start = :ws
+                  and exists (select 1 from timesheet_entries e
+                               where e.timesheet_id = t.id
+                                 and e.placement_id is not distinct from :p)
+                order by t.created_at desc limit 1""",
+            {"c": db.ctx.consultant_id, "ws": ws, "p": row.placement_id})
+        if existing and existing["status"] in ("submitted", "approved"):
+            continue
+        # Remove only this project's days; a legacy timesheet can also hold another
+        # placement's days, which must survive.
+        if existing:
+            await db.run(
+                """delete from timesheet_entries
+                    where timesheet_id = :id and placement_id is not distinct from :p""",
+                {"id": existing["id"], "p": row.placement_id})
+        entry_rows = [{"t": db.ctx.tenant_id, "ts": None, "p": row.placement_id,
+                       "d": ws + timedelta(days=i), "h": h}
+                      for i, h in enumerate(row.hours) if h > 0]
+        if not entry_rows:
+            if existing:
+                left = await db.val("select count(*) from timesheet_entries where timesheet_id = :id",
+                                    {"id": existing["id"]})
+                if not left:
+                    await db.run("delete from timesheets where id = :id", {"id": existing["id"]})
+            continue
+        if existing:
+            left = await db.val("select count(*) from timesheet_entries where timesheet_id = :id",
+                                {"id": existing["id"]})
+            if not left:
+                tid = existing["id"]
+                await db.run("update timesheets set note = :n, updated_at = now() where id = :id",
+                             {"n": body.note, "id": tid})
+            else:
+                # The old week-wide timesheet keeps its other placement; this project
+                # gets its own timesheet now.
+                existing = None
+        if not existing:
+            ts = await db.one(
+                "insert into timesheets (tenant_id, consultant_id, week_start, note) "
+                "values (:t, :c, :ws, :n) returning id",
+                {"t": db.ctx.tenant_id, "c": db.ctx.consultant_id, "ws": ws, "n": body.note})
+            tid = ts["id"]
+        for er in entry_rows:
+            er["ts"] = tid
+        await db.run(
+            """insert into timesheet_entries (tenant_id, timesheet_id, placement_id, work_date, hours)
+               values (:t, :ts, :p, :d, :h)""", entry_rows)
     return await my_week(db, ws)
 
 
@@ -376,20 +568,53 @@ async def submit_my_week(body: Decision, db: TenantDb = Depends(tenant_db), week
     if db.ctx.role != "consultant":
         raise ApiError(403, "forbidden", "Only consultants submit timesheets")
     ws = _sunday(week)
-    ts = await db.one("select id, status, note from timesheets where consultant_id = :c and week_start = :ws", {"c": db.ctx.consultant_id, "ws": ws})
-    if ts is None:
+    tss = await db.all("select id, note from timesheets where consultant_id = :c and week_start = :ws",
+                       {"c": db.ctx.consultant_id, "ws": ws})
+    if not tss:
         raise bad_request("Enter your hours first")
+    for ts in tss:
+        if not ts["note"] or not ts["note"].strip():
+            raise bad_request("Please enter a note before submitting the timesheet.")
+        total = await db.val("select coalesce(sum(hours), 0) from timesheet_entries where timesheet_id = :id",
+                             {"id": ts["id"]})
+        if total <= 0:
+            raise bad_request("Enter your hours first")
+    # Submit each timesheet individually � each project is routed to its own
+    # placed-by company and end client for independent approval.
+    for ts in tss:
+        await _contract_gate(db, ts["id"])
+        await db.run(
+            """update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null,
+                 placed_by_approved = false, end_client_approved = false, weekend_confirmed = false,
+                 weekend_requested_by = null, weekend_requested_at = null, weekend_review_note = null
+                 where id = :id""", {"id": ts["id"]})
+    return {"id": tss[0]["id"], "status": "submitted"}
+
+
+@router.post("/{timesheet_id}/submit")
+async def submit_my_timesheet(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
+    """Submit a single timesheet (one project) for approval."""
+    if db.ctx.role != "consultant":
+        raise ApiError(403, "forbidden", "Only consultants submit timesheets")
+    ts = await db.one("select id, status, note from timesheets where id = :id and consultant_id = :c",
+                      {"id": timesheet_id, "c": db.ctx.consultant_id})
+    if ts is None:
+        raise not_found("Timesheet")
+    if ts["status"] not in ("draft", "rejected"):
+        raise ApiError(409, "not_submittable", "Only draft or rejected timesheets can be submitted")
     if not ts["note"] or not ts["note"].strip():
         raise bad_request("Please enter a note before submitting the timesheet.")
-    total = await db.val("select coalesce(sum(hours), 0) from timesheet_entries where timesheet_id = :id", {"id": ts["id"]})
+    total = await db.val("select coalesce(sum(hours), 0) from timesheet_entries where timesheet_id = :id",
+                         {"id": timesheet_id})
     if total <= 0:
         raise bad_request("Enter your hours first")
-    await _contract_gate(db, ts["id"])
-    await db.run("""update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null,
-                     placed_by_approved = false, end_client_approved = false, weekend_confirmed = false,
-                     weekend_requested_by = null, weekend_requested_at = null, weekend_review_note = null
-                     where id = :id""", {"id": ts["id"]})
-    return {"id": ts["id"], "status": "submitted"}
+    await _contract_gate(db, timesheet_id)
+    await db.run(
+        """update timesheets set status = 'submitted', submitted_at = now(), reject_reason = null,
+             placed_by_approved = false, end_client_approved = false, weekend_confirmed = false,
+             weekend_requested_by = null, weekend_requested_at = null, weekend_review_note = null
+             where id = :id""", {"id": timesheet_id})
+    return {"id": timesheet_id, "status": "submitted"}
 
 
 # ----------------------------------------------------------------------------- review
@@ -492,7 +717,13 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
              join consultants c on c.id = t.consultant_id left join companies emp on emp.id = c.employer_company_id
             where t.id = :id""", {"id": timesheet_id})
     if ts is None:
-        raise not_found("Timesheet")
+        # An approved week from the placing workspace, opened by the end client from
+        # its History: RLS hides that row here, so read it through the client helper
+        # (read-only, their own projects only).
+        shared = await db.val("select mytrakin.ts_client_history_view(:id)", {"id": timesheet_id})
+        if shared is None:
+            raise not_found("Timesheet")
+        return shared if isinstance(shared, dict) else json.loads(shared)
     lines = await db.all(
         """select e.placement_id, coalesce(pr.name, 'Internal / non-billable') as project, e.work_date, e.hours,
                   p.bill_rate, p.pay_rate, ar.name as ar_company, coalesce(ap.name, apc.full_name) as ap_payee
@@ -512,7 +743,7 @@ async def review(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
         if line["pay_rate"] is not None and line["ap_payee"]:
             preview["ap"] += Decimal(line["hours"]) * line["pay_rate"]
             preview["ap_to"].add(line["ap_payee"])
-    checks, summary = await _checks(db, ts)
+    checks, summary = await _checks(db, timesheet_id=ts["id"])
     # Approval state for the page: which end-client companies are represented here and
     # whether the week is waiting on them after the placed-by approval.
     end_clients = await _end_clients(db, ts["tenant_id"], timesheet_id)
@@ -565,6 +796,9 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     await _contract_gate(db, timesheet_id)
 
     current = await db.one("select placed_by_approved, end_client_approved from timesheets where id = :id", {"id": timesheet_id})
+    if is_placed_by and not is_end_client and current["placed_by_approved"]:
+        raise ApiError(409, "already_approved",
+                       "Your company already approved this week — no further approval is needed here.")
 
     new_pb = current["placed_by_approved"] or is_placed_by
     new_ec = current["end_client_approved"] or is_end_client
@@ -627,30 +861,36 @@ async def weekend_confirm(db: TenantDb = Depends(tenant_db), week: date = Query(
     if db.ctx.role != "consultant":
         raise ApiError(403, "forbidden", "Only consultants confirm their weekend hours")
     ws = _sunday(week)
-    ts = await db.one(
-        """select t.id, t.status, t.week_start, t.weekend_confirmed, t.weekend_requested_at, t.weekend_requested_by,
+    # One timesheet per project: confirm every submitted project of the week that
+    # was asked about (the approver asks per timesheet).
+    tss = await db.all(
+        """select t.id, t.week_start, t.weekend_confirmed, t.weekend_requested_at, t.weekend_requested_by,
                   c.full_name from timesheets t join consultants c on c.id = t.consultant_id
-            where t.consultant_id = :c and t.week_start = :ws""", {"c": db.ctx.consultant_id, "ws": ws})
-    if ts is None or ts["status"] != "submitted":
+            where t.consultant_id = :c and t.week_start = :ws and t.status = 'submitted'
+            order by t.id""", {"c": db.ctx.consultant_id, "ws": ws})
+    if not tss:
         raise ApiError(409, "not_submitted", "This week isn't awaiting approval")
-    if ts["weekend_confirmed"]:
-        return {"id": ts["id"], "weekend_confirmed": True}
-    if ts["weekend_requested_at"] is None:
+    asked = [t for t in tss if not t["weekend_confirmed"] and t["weekend_requested_at"] is not None]
+    if not asked:
+        if all(t["weekend_confirmed"] for t in tss):
+            return {"id": tss[0]["id"], "weekend_confirmed": True}
         raise bad_request("Your approver hasn't asked you to confirm weekend hours on this week")
-    await db.run(
-        "update timesheets set weekend_confirmed = true, weekend_confirmed_by = :u, weekend_confirmed_at = now() where id = :id",
-        {"u": db.ctx.user_id, "id": ts["id"]})
-    # Tell the approver who asked, so they can finish the approval.
-    to = await _user_email(db, ts["weekend_requested_by"])
-    if to:
-        settings = get_settings()
-        await send_email(db, to=to, subject=f"Weekend hours confirmed — week of {ts['week_start']}",
-                         kind="timesheet", tenant_id=db.ctx.tenant_id, ref_type="timesheet", ref_id=ts["id"],
-                         html_body=render("Weekend hours confirmed",
-                                          [f"{ts['full_name']} confirmed the weekend hours for the week of {ts['week_start']}.",
-                                           "You can approve the week now."],
-                                          button=("Review timesheet", f"{settings.web_origin.rstrip('/')}/timesheets/{ts['id']}")))
-    return {"id": ts["id"], "weekend_confirmed": True}
+    for t in asked:
+        await db.run(
+            "update timesheets set weekend_confirmed = true, weekend_confirmed_by = :u,"
+            " weekend_confirmed_at = now() where id = :id",
+            {"u": db.ctx.user_id, "id": t["id"]})
+        # Tell the approver who asked, so they can finish the approval.
+        to = await _user_email(db, t["weekend_requested_by"])
+        if to:
+            settings = get_settings()
+            await send_email(db, to=to, subject=f"Weekend hours confirmed — week of {t['week_start']}",
+                             kind="timesheet", tenant_id=db.ctx.tenant_id, ref_type="timesheet", ref_id=t["id"],
+                             html_body=render("Weekend hours confirmed",
+                                              [f"{t['full_name']} confirmed the weekend hours for the week of {t['week_start']}.",
+                                               "You can approve the week now."],
+                                              button=("Review timesheet", f"{settings.web_origin.rstrip('/')}/timesheets/{t['id']}")))
+    return {"id": asked[0]["id"], "weekend_confirmed": True}
 
 
 @router.post("/{timesheet_id}/reject")
@@ -696,14 +936,24 @@ async def reject(timesheet_id: UUID, body: Decision, db: TenantDb = Depends(tena
 async def approve_all_passing(db: TenantDb = Depends(tenant_db), week: date = Query(...)):
     """Approve every submitted timesheet for the week whose checks all pass."""
     db.ctx.require(*APPROVER_ROLES)
-    overview = await week_overview(db, _sunday(week))
+    ws = _sunday(week)
+    # Get all submitted timesheets for this week with consultant info
+    tss = await db.all(
+        """select t.id, c.full_name as consultant
+             from timesheets t
+             join consultants c on c.id = t.consultant_id
+            where t.week_start = :ws and t.status = 'submitted' and not t.placed_by_approved""",
+        {"ws": ws})
     approved, skipped = [], []
-    for r in overview["rows"]:
-        if r["status"] == "submitted" and r["checks"] and r["checks"]["result"] == "pass":
-            try:
-                await approve(r["id"], db)
-            except ApiError as exc:     # contract / acceptance missing: leave it for review
-                skipped.append(f"{r['full_name']}: {exc.message}")
+    for ts in tss:
+        try:
+            checks, summary = await _checks(db, timesheet_id=ts["id"])
+            if checks and summary.get("result") != "pass":
+                skipped.append(f"{ts['consultant']}: checks failed")
                 continue
-            approved.append(r["full_name"])
+            await approve(ts["id"], db)
+            approved.append(ts["consultant"])
+        except ApiError as exc:     # contract / acceptance missing: leave it for review
+            skipped.append(f"{ts['consultant']}: {exc.message}")
+            continue
     return {"approved": approved, "skipped": skipped}
