@@ -8,7 +8,7 @@ import { useEnabledProviders } from "@/lib/authProviders";
 export function AuthLayout({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
     <div className="auth">
-      <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><i>mT</i>myTrakIn</div>
+      <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><img src="/logo-mark.png" alt="" />myTrakIn</div>
       <div className="card">{children}</div>
       {footer}
     </div>

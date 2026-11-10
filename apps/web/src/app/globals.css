@@ -18,7 +18,7 @@ a{color:var(--brand);text-decoration:none;font-weight:600}a:hover{text-decoratio
 .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
 aside{background:var(--panel);border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;overflow:auto}
 .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;padding:4px 8px 16px}
-.logo i{width:28px;height:28px;border-radius:8px;background:var(--brand);display:grid;place-items:center;color:#fff;font-style:normal;font-size:13px}
+.logo img{width:32px;height:32px;object-fit:contain;flex:none}
 .nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--muted);text-decoration:none;cursor:pointer;font-weight:500}
 .nav a:hover{background:var(--soft);color:var(--ink)}
 .nav a.on{background:var(--brand-soft);color:var(--brand)}

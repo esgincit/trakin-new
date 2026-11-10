@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   title: { default: "myTrakIn", template: "%s · myTrakIn" },
   description: "Vendor-chain payments, timesheets, contracts and compliance for staffing companies.",
   robots: { index: false, follow: false },
-  icons: { icon: "/favicon.svg" },
+  icons: { icon: "/favicon.png", apple: "/logo-mark.png" },
 };
 
 export const viewport: Viewport = {

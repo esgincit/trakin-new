@@ -29,7 +29,7 @@ export default function Register() {
 
   return (
     <div className="auth" style={{ maxWidth: 640 }}>
-      <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><i>mT</i>myTrakIn</div>
+      <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><img src="/logo-mark.png" alt="" />myTrakIn</div>
       <div className="card">
         <h2>Register with {tenant?.name ?? "…"}</h2>
         <div className="choice mt">

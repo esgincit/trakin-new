@@ -141,7 +141,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app">
       <a href="#main" className="skip">Skip to content</a>
       <aside className={navOpen ? "open" : ""} aria-label="Main navigation">
-        <div className="logo"><i>mT</i>myTrakIn</div>
+        <div className="logo"><img src="/logo-mark.png" alt="" />myTrakIn</div>
         <nav className="nav">
           {workspace && !settingUp && NAV.map((sec, i) => {
             const items = sec.items.filter((it) => (!it.show || it.show(workspace)) && (!it.module || perm(workspace, it.module) !== "none"));
