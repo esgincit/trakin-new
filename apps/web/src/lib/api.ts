@@ -53,7 +53,7 @@ export function url(path: string, query?: Options["query"]): string {
   return u.toString();
 }
 
-/** Calls the myTrakIn API and returns parsed JSON. Errors become ApiError with a readable message. */
+/** Calls the MyTrackIn API and returns parsed JSON. Errors become ApiError with a readable message. */
 export async function api<T = any>(path: string, opts: Options = {}): Promise<T> {
   const h = await headers(opts.auth !== false);
   let body: BodyInit | undefined;
@@ -66,7 +66,7 @@ export async function api<T = any>(path: string, opts: Options = {}): Promise<T>
   try {
     res = await fetch(url(path, opts.query), { method: opts.method ?? (body ? "POST" : "GET"), headers: h, body });
   } catch {
-    throw new ApiError(0, "offline", "Can't reach myTrakIn. Check your connection and try again.");
+    throw new ApiError(0, "offline", "Can't reach MyTrackIn. Check your connection and try again.");
   }
   if (opts.raw && res.ok) return res as unknown as T;
   if (!res.ok) {

@@ -134,9 +134,9 @@ export default function SignPage() {
 function Shell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <div className="auth" style={wide ? { maxWidth: 900 } : undefined}>
-      <div className="logo" style={{ justifyContent: "center", fontSize: 18 }}><img src="/logo-mark.png" alt="" />myTrakIn e-signature</div>
+      <div className="logo" style={{ justifyContent: "center", fontSize: 18 }}><img src="/logo-mark.png" alt="MyTrackIn" />MyTrackIn e-signature</div>
       <div className="card">{children}</div>
-      <p className="muted" style={{ textAlign: "center", fontSize: 12.5 }}>Secured by myTrakIn · Your link is personal; please don't forward it.</p>
+      <p className="muted" style={{ textAlign: "center", fontSize: 12.5 }}>Secured by MyTrackIn · Your link is personal; please don't forward it.</p>
     </div>
   );
 }

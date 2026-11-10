@@ -288,14 +288,14 @@ export function CompanyWizard({ onClose, onDone, account = false, resumeId }: { 
           </div></div></div>
           <label className="row mt" style={{ alignItems: "flex-start", gap: 8 }}>
             <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} style={{ marginTop: 4 }} />
-            <span>I confirm I am authorized to register this business on myTrakIn, and the details above are true and complete.</span>
+            <span>I confirm I am authorized to register this business on MyTrackIn, and the details above are true and complete.</span>
           </label>
           <div className="row mt">
             <button className="btn" disabled={busy} onClick={() => setStep(3)}>Back</button>
             <button className="btn pri" disabled={busy || !authorized} onClick={create}>Create business</button>
           </div>
           {!authorized && <p className="note">{account
-            ? "Tick the authorization box to create your company. You become its owner; the myTrakIn team activates it after a quick review."
+            ? "Tick the authorization box to create your company. You become its owner; the MyTrackIn team activates it after a quick review."
             : "Tick the authorization box to create the business. You become its owner."}</p>}
         </>
       )}

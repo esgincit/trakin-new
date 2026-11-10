@@ -127,7 +127,7 @@ export default function AgreementDetail() {
   const canEdit = allows(workspace, "legal", "account_manager", "finance", "hr") && !shared;
   return (
     <>
-      <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{shared ? `Received from ${a.sent_by_company ?? "the other company"}` : a.counterparty} · <Chip status={effectiveStatus(a)} /> · {shared ? "Sent to your company" : a.source === "myTrakIn" ? "Created in myTrakIn" : `Recorded (${a.source})`}</>}
+      <PageHead title={`${a.code} · ${label(a.kind)}`} sub={<>{shared ? `Received from ${a.sent_by_company ?? "the other company"}` : a.counterparty} · <Chip status={effectiveStatus(a)} /> · {shared ? "Sent to your company" : a.source === "myTrakIn" ? "Created in MyTrackIn" : `Recorded (${a.source})`}</>}
         actions={<> 
           <button className="btn" onClick={() => router.back()}>Back</button>
           {canEdit && a.status === "draft" && <button className="btn" onClick={startEditing}>Edit</button>}
@@ -212,7 +212,7 @@ export default function AgreementDetail() {
                 )}
               </div>
             ))}
-            {!a.envelopes.length && <p className="muted">Not sent for e-signature in myTrakIn.</p>}
+            {!a.envelopes.length && <p className="muted">Not sent for e-signature in MyTrackIn.</p>}
           </div>
         </div>
       )}

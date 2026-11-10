@@ -1,0 +1,155 @@
+/* ==========================================================================
+   Marketing homepage (route: /). Scoped under lp-* so nothing else is touched.
+   The hero hard-codes the dark navy of the brand page like the reference
+   design; every section below uses the app tokens, so light and dark
+   themes both work.
+   ========================================================================== */
+
+/* ---- top bar ------------------------------------------------------------ */
+.lp-nav{position:sticky;top:0;z-index:40;background:var(--panel);border-bottom:1px solid var(--line)}
+.lp-navin{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:24px;padding:10px 20px;min-height:60px}
+.lp-logo{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;flex:none}
+.lp-mark{width:38px;height:38px;overflow:hidden;display:grid;place-items:center;flex:none}
+.lp-mark img{width:100%;height:100%;object-fit:contain}
+.lp-word{font-weight:800;font-size:19px;letter-spacing:-.3px}
+.lp-word b{color:var(--brand)}
+.lp-word .in{color:var(--good)}
+.lp-menu{display:flex;align-items:center;gap:4px;flex:1;justify-content:center}
+.lp-item{position:relative}
+.lp-item>a,.lp-item>button{display:inline-flex;align-items:center;gap:5px;background:none;border:0;cursor:pointer;color:var(--ink);
+  font-weight:600;font-size:14.5px;padding:10px 12px;border-radius:9px;text-decoration:none;white-space:nowrap;transition:background .15s}
+.lp-item>a:hover,.lp-item>button:hover{background:var(--soft);text-decoration:none}
+.lp-item .car{width:12px;height:12px;opacity:.55;transition:transform .15s}
+.lp-drop{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%) translateY(6px);min-width:230px;background:var(--panel);
+  border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.16);padding:8px;opacity:0;visibility:hidden;
+  transition:opacity .15s,transform .15s,visibility .15s;white-space:nowrap}
+.lp-item:hover .lp-drop,.lp-item:focus-within .lp-drop{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+.lp-item:hover .car,.lp-item:focus-within .car{transform:rotate(180deg)}
+.lp-drop a{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-radius:9px;color:var(--ink);text-decoration:none}
+.lp-drop a:hover{background:var(--soft);text-decoration:none}
+.lp-drop a b{font-size:13.5px;font-weight:700;display:block}
+.lp-drop a small{display:block;color:var(--muted);font-size:12px;font-weight:500}
+.lp-auth{display:flex;gap:10px;align-items:center;flex:none}
+.lp-ghost{display:inline-flex;align-items:center;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  border-radius:12px;padding:10px 18px;font-weight:600;font-size:14.5px;text-decoration:none;transition:background .15s,border-color .15s}
+.lp-ghost:hover{background:var(--soft);border-color:var(--muted);text-decoration:none}
+.lp-signin{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(135deg,#1d9bdd,#1287c8);color:#fff;border:0;cursor:pointer;
+  border-radius:12px;padding:10px 20px;font-weight:700;font-size:14.5px;text-decoration:none;box-shadow:0 4px 14px rgba(18,135,200,.35);transition:filter .15s}
+.lp-signin:hover{filter:brightness(1.07);text-decoration:none;color:#fff}
+.lp-signin .car{width:12px;height:12px;opacity:.8}
+.lp-demo{color:var(--ink)}
+
+/* ---- hero --------------------------------------------------------------- */
+.lp-hero{display:block;position:relative;overflow:hidden;background:#080d1c;color:#e7ecf6;text-align:center}
+.lp-hero::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(1000px 460px at 50% -120px,rgba(29,155,221,.20),transparent 65%),
+             radial-gradient(760px 420px at 88% 118%,rgba(42,161,78,.13),transparent 70%);pointer-events:none}
+.lp-heroin{position:relative;max-width:1150px;margin:0 auto;padding:88px 20px 24px}
+.lp-badge{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(122,167,255,.35);background:rgba(23,40,80,.55);
+  color:#66c4ef;font-weight:700;font-size:14px;border-radius:99px;padding:9px 18px}
+.lp-badge .spark{width:15px;height:15px}
+.lp-hero h1{margin:26px 0 0;font-size:76px;line-height:1.02;font-weight:800;letter-spacing:-2.5px;color:#fff}
+.lp-hero h1 .my{color:#4db5e8}
+.lp-hero h1 .in{color:#3fca6b}
+.lp-tag{margin:26px 0 0;font-size:26px;font-weight:800;letter-spacing:-.4px;color:#fff}
+.lp-sub{margin:18px auto 0;max-width:980px;text-align:justify;font-size:16.5px;line-height:1.75;color:#aab4cf}
+.lp-ctas{display:flex;gap:14px;justify-content:center;margin-top:34px;flex-wrap:wrap}
+.lp-cta{display:inline-flex;align-items:center;gap:9px;border-radius:14px;padding:14px 26px;font-weight:700;font-size:15.5px;text-decoration:none;transition:filter .15s,background .15s,transform .15s}
+.lp-cta:hover{text-decoration:none}
+.lp-cta.pri{background:linear-gradient(135deg,#1d9bdd,#0e74b4);color:#fff;box-shadow:0 8px 24px rgba(18,135,200,.45)}
+.lp-cta.pri:hover{filter:brightness(1.08);color:#fff}
+.lp-cta.pri .arr{transition:transform .15s}
+.lp-cta.pri:hover .arr{transform:translateX(3px)}
+.lp-cta.wht{background:#fff;color:#0c1226}
+.lp-cta.wht:hover{filter:brightness(.95);color:#0c1226}
+.lp-cta.gst{border:1px solid rgba(231,236,246,.28);color:#e7ecf6;background:rgba(255,255,255,.03)}
+.lp-cta.gst:hover{background:rgba(255,255,255,.08);color:#fff}
+
+/* ---- three product cards (start inside the dark hero) ------------------- */
+.lp-cards{position:relative;max-width:1240px;margin:54px auto 0;padding:0 20px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;text-align:left}
+.lp-card{border:1px solid rgba(231,236,246,.14);border-radius:18px;padding:26px 24px 24px;background:rgba(13,20,40,.55);backdrop-filter:blur(4px);transition:border-color .15s,transform .15s}
+.lp-card:hover{border-color:rgba(42,161,78,.55);transform:translateY(-3px)}
+.lp-card .ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:rgba(29,155,221,.16);color:#5ec7f0;margin-bottom:16px}
+.lp-card .ico svg{width:22px;height:22px}
+.lp-card h3{margin:0 0 8px;font-size:19px;font-weight:800;color:#fff;letter-spacing:-.3px}
+.lp-card p{margin:0;font-size:14px;line-height:1.65;color:#aab4cf}
+.lp-card .more{display:inline-block;margin-top:14px;color:#5ec7f0;font-weight:700;font-size:13.5px;text-decoration:none}
+.lp-card .more:hover{text-decoration:underline}
+.lp-herotail{height:74px}
+
+/* ---- generic light section ---------------------------------------------- */
+.lp-sec{background:var(--bg);color:var(--ink);padding:84px 0}
+.lp-sec.alt{background:var(--panel)}
+.lp-secin{max-width:1150px;margin:0 auto;padding:0 20px}
+.lp-eyebrow{display:inline-block;color:var(--brand);font-weight:800;font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;margin:0 0 10px}
+.lp-sec h2{margin:0 0 14px;font-size:36px;font-weight:800;letter-spacing:-1px;line-height:1.15}
+.lp-sec .lead{margin:0;color:var(--muted);font-size:16.5px;line-height:1.7;max-width:760px}
+.lp-center{text-align:center}
+.lp-center .lead{margin:0 auto}
+
+/* chain diagram */
+.lp-chain{display:flex;align-items:stretch;gap:12px;justify-content:center;flex-wrap:wrap;margin:38px 0 10px}
+.lp-node{border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:16px 20px;min-width:170px;text-align:center;box-shadow:var(--shadow)}
+.lp-node.esg{border:2px solid var(--brand);background:var(--brand-soft)}
+.lp-node .t{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.lp-node .n{font-weight:800;margin-top:3px;font-size:15px}
+.lp-node .d{color:var(--muted);font-size:12.5px;margin-top:2px}
+.lp-arrow{align-self:center;color:var(--muted);display:flex;flex-direction:column;align-items:center;min-width:96px}
+.lp-arrow b{font-size:12.5px;color:var(--ink)}
+.lp-arrow svg{width:64px;height:10px;color:var(--muted)}
+
+/* feature grid */
+.lp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+.lp-tile{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:22px;box-shadow:var(--shadow);transition:border-color .15s,transform .15s}
+.lp-tile:hover{border-color:var(--brand);transform:translateY(-2px)}
+.lp-tile .ico{color:var(--brand);width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:var(--brand-soft);margin-bottom:12px}
+.lp-tile .ico svg{width:20px;height:20px}
+.lp-tile b{display:block;font-size:15.5px;margin-bottom:6px}
+.lp-tile p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.6}
+
+/* four pillars (butterfly wings) */
+.lp-pillars{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:42px;text-align:left}
+.lp-pillars .lp-tile p{font-weight:700;color:var(--ink);font-size:14px;margin-bottom:4px}
+.lp-pillars .lp-tile small{display:block;color:var(--muted);font-size:12.5px;line-height:1.6;margin-top:2px}
+
+/* roles strip */
+.lp-roles{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-top:40px}
+.lp-role{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:18px 14px;text-align:center;box-shadow:var(--shadow)}
+.lp-role .em{font-size:26px}
+.lp-role b{display:block;margin-top:8px;font-size:14px}
+.lp-role small{color:var(--muted);font-size:11.5px;line-height:1.45;display:block;margin-top:3px}
+
+/* CTA band */
+.lp-band{background:linear-gradient(135deg,#07152a,#0e3f63 55%,#17724d);color:#fff;text-align:center;padding:72px 20px;border-radius:22px;max-width:1150px;margin:0 auto}
+.lp-band h2{margin:0 0 10px;font-size:34px;font-weight:800;letter-spacing:-.8px}
+.lp-band p{margin:0 auto 26px;color:#aab4cf;max-width:620px;font-size:15.5px;line-height:1.65}
+.lp-band .lp-cta.wht{background:#fff;color:#0c1226}
+.lp-band small{display:block;margin-top:16px;color:#7e8bb0;font-size:12.5px}
+
+/* footer */
+.lp-footer{background:var(--panel);border-top:1px solid var(--line);padding:34px 0;color:var(--muted)}
+.lp-footin{max-width:1150px;margin:0 auto;padding:0 20px;display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}
+.lp-flinks{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px}
+.lp-flinks a{color:var(--muted);text-decoration:none}
+.lp-flinks a:hover{color:var(--ink);text-decoration:underline}
+
+/* ---- responsive ----------------------------------------------------------- */
+@media (max-width:1080px){
+  .lp-hero h1{font-size:58px}
+  .lp-cards{grid-template-columns:1fr;max-width:560px}
+  .lp-grid{grid-template-columns:1fr 1fr}
+  .lp-pillars{grid-template-columns:1fr 1fr}
+  .lp-roles{grid-template-columns:repeat(3,1fr)}
+}
+@media (max-width:900px){
+  .lp-menu{display:none}
+}
+@media (max-width:640px){
+  .lp-hero h1{font-size:44px;letter-spacing:-1.5px}
+  .lp-tag{font-size:20px}
+  .lp-sub{font-size:15px}
+  .lp-grid,.lp-pillars,.lp-roles{grid-template-columns:1fr}
+  .lp-sec h2{font-size:28px}
+  .lp-heroin{padding-top:64px}
+  .lp-ghost span.txt{display:none}
+}

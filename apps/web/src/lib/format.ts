@@ -24,6 +24,20 @@ export function dateTime(v: string | null | undefined): string {
   return new Date(v).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+/** Compact relative time, the way social feeds stamp posts: "just now", "12m", "3h", "2d", then a date. */
+export function relTime(v: string | null | undefined): string {
+  if (!v) return "";
+  const sec = (Date.now() - new Date(v).getTime()) / 1000;
+  if (sec < 60) return "just now";
+  const min = sec / 60, hrs = min / 60, days = hrs / 24;
+  if (min < 60) return `${Math.floor(min)}m`;
+  if (hrs < 24) return `${Math.floor(hrs)}h`;
+  if (days < 7) return `${Math.floor(days)}d`;
+  const d = new Date(v);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+}
+
 export function label(v: string | null | undefined): string {
   if (!v) return "–";
   const special: Record<string, string> = {

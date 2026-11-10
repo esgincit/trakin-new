@@ -49,7 +49,7 @@ export default function CreateAccount() {
 
   return (
     <div className="auth">
-      <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><img src="/logo-mark.png" alt="" />myTrakIn</div>
+      <div className="logo" style={{ justifyContent: "center", fontSize: 20 }}><img src="/logo-mark.png" alt="MyTrackIn" />MyTrackIn</div>
       <div className="card">
         <h2>Create your account</h2>
         <p className="muted">One account works across every company that invites you.

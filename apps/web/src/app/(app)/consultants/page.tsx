@@ -68,7 +68,7 @@ function Consultants() {
 function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: string) => void }) {
   const [engagement, setEngagement] = useState("w2_contract");
   const vendors = useApi<any[]>("/companies", { kind: "vendor" });
-  // The consultant is someone who already has an account somewhere on myTrakIn:
+  // The consultant is someone who already has an account somewhere on MyTrackIn:
   // search every registered user by name, U-ID or e-mail, and their details come
   // from their profile. They may be new to this workspace.
   const [term, setTerm] = useState("");
@@ -132,7 +132,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
                 {looking && <p className="note" style={{ marginTop: -6 }}>Searching…</p>}
                 {!looking && term.trim().length >= 2 && !found.length && (
                   <p className="note" style={{ marginTop: -6 }}>
-                    Nobody matches “{term.trim()}”. The person needs a myTrakIn account somewhere on the platform before they can be onboarded.
+                    Nobody matches “{term.trim()}”. The person needs a MyTrackIn account somewhere on the platform before they can be onboarded.
                   </p>
                 )}
                 {found.length > 0 && (
@@ -154,7 +154,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
               </>
             )}
             <p className="note" style={{ marginTop: -6 }}>
-              Pick anyone registered on myTrakIn — their name, e-mail and mobile come from their profile, and onboarding gives them access here.
+              Pick anyone registered on MyTrackIn — their name, e-mail and mobile come from their profile, and onboarding gives them access here.
             </p>
           </div>
           <Field label="E-mail" name="email" type="email" readOnly value={person?.email ?? ""} placeholder="Filled in when you pick someone" />

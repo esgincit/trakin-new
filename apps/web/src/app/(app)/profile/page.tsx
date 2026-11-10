@@ -62,7 +62,7 @@ export default function MyProfile() {
             <Field label="Website" name="website" type="url" defaultValue={p.website ?? ""} />
             <Field label="Phone" name="phone" defaultValue={p.phone ?? ""} />
             <Field label="Open to work" name="open_to_work" as="select" defaultValue={p.open_to_work ? "yes" : "no"} options={[["no", "No"], ["yes", "Yes"]]} />
-            <Field label="Who can see my profile" name="visibility" as="select" defaultValue={p.visibility} options={[["network", "Everyone on myTrakIn"], ["company_and_connections", "My companies and connections"], ["company", "Only people at my companies"]]} />
+            <Field label="Who can see my profile" name="visibility" as="select" defaultValue={p.visibility} options={[["network", "Everyone on MyTrackIn"], ["company_and_connections", "My companies and connections"], ["company", "Only people at my companies"]]} />
             <Field label="Show e-mail and phone to connections" name="show_contact" as="select" defaultValue={p.show_contact ? "yes" : "no"} options={[["yes", "Yes"], ["no", "No"]]} />
             <Field label="About" name="about" as="textarea" defaultValue={p.about ?? ""} full />
             <Field label="Skills (comma separated)" name="skills" defaultValue={(p.skills ?? []).join(", ")} full />

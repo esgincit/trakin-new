@@ -91,9 +91,9 @@ export default function TimesheetApprovalPage() {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="auth">
-      <div className="logo" style={{ justifyContent: "center", fontSize: 18 }}><img src="/logo-mark.png" alt="" />myTrakIn timesheet approval</div>
+      <div className="logo" style={{ justifyContent: "center", fontSize: 18 }}><img src="/logo-mark.png" alt="MyTrackIn" />MyTrackIn timesheet approval</div>
       <div className="card">{children}</div>
-      <p className="muted" style={{ textAlign: "center", fontSize: 12.5 }}>Secured by myTrakIn · Your link is personal; please don't forward it.</p>
+      <p className="muted" style={{ textAlign: "center", fontSize: 12.5 }}>Secured by MyTrackIn · Your link is personal; please don't forward it.</p>
     </div>
   );
 }

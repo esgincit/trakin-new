@@ -37,7 +37,7 @@ export default function CompanyDetail() {
   const canGrantOwner = canGrantSuper || myRole === "owner";
   const taxFull = allows(workspace, "finance", "legal") || ownerLike;
   const canCompliance = ownerLike;   // restricted gov documents: only super admin/owner (+ platform, seen in its own console)
-  // Our own company is activated by the myTrakIn team, never from here (T011303-1084, 1089).
+  // Our own company is activated by the MyTrackIn team, never from here (T011303-1084, 1089).
   const own = !!workspace && workspace.tenant.company_id === id;
   const tenantStatus = own ? workspace!.tenant.status : null;
 
@@ -65,18 +65,18 @@ export default function CompanyDetail() {
       {tenantStatus === "rejected" && (
         <div className="alert" role="alert" style={{ marginBottom: 12 }}>
           <Chip status="rejected" />
-          <div style={{ flex: 1 }}><b>The myTrakIn team rejected this company</b>
+          <div style={{ flex: 1 }}><b>The MyTrackIn team rejected this company</b>
             <div className="muted" style={{ fontSize: 12.5 }}>{workspace?.tenant.decision_note ? `Reason: ${workspace.tenant.decision_note}. ` : ""}
               Correct the details below, then resubmit it for activation — or create another company from My companies.</div></div>
           {workspace?.is_owner && <button className="btn sm pri" disabled={busy} onClick={async () => {
-            if (await run(() => api("/onboarding/resubmit", { method: "POST", body: {} }), "Resubmitted — waiting for the myTrakIn team")) { await refresh(); reload(); }
+            if (await run(() => api("/onboarding/resubmit", { method: "POST", body: {} }), "Resubmitted — waiting for the MyTrackIn team")) { await refresh(); reload(); }
           }}>Resubmit for activation</button>}
         </div>
       )}
       {tenantStatus === "onboarding" && (
         <div className="alert" role="status" style={{ marginBottom: 12 }}>
           <Chip status="pending" />
-          <div><b>Waiting for the myTrakIn team to activate your company</b>
+          <div><b>Waiting for the MyTrackIn team to activate your company</b>
             <div className="muted" style={{ fontSize: 12.5 }}>Your company has been submitted for review. We&apos;ll e-mail you as soon as it&apos;s active; meanwhile you can complete its profile.</div></div>
         </div>
       )}
@@ -318,7 +318,7 @@ function ComplianceDocsCard({ c, reload }: { c: any; reload: () => void }) {
       <h3>Government documents (restricted)</h3>
       <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
         W-9, tax certificate, certificate of good standing or any government-authorised certificate.
-        Only this company's super admin / owners and the myTrakIn platform team can view these.
+        Only this company's super admin / owners and the MyTrackIn platform team can view these.
         {c.w9_status !== "verified" && " Uploading a W-9 here submits it for the platform's verification before activation."}
       </p>
       {docs.map((f: any) => (

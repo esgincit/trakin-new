@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark" | "">("");
   const toast = useToast();
-  // T011303-1089: once the myTrakIn team activates a company its owner was waiting on, say so once.
+  // T011303-1089: once the MyTrackIn team activates a company its owner was waiting on, say so once.
   useEffect(() => {
     const t = workspace?.tenant;
     if (!t?.company_id) return;
@@ -141,7 +141,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app">
       <a href="#main" className="skip">Skip to content</a>
       <aside className={navOpen ? "open" : ""} aria-label="Main navigation">
-        <div className="logo"><img src="/logo-mark.png" alt="" />myTrakIn</div>
+        <div className="logo"><img src="/logo-mark.png" alt="MyTrackIn" />MyTrackIn</div>
         <nav className="nav">
           {workspace && !settingUp && NAV.map((sec, i) => {
             const items = sec.items.filter((it) => (!it.show || it.show(workspace)) && (!it.module || perm(workspace, it.module) !== "none"));
@@ -208,11 +208,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="card">
             {workspace.tenant.status === "rejected" ? <>
               <h2>{workspace.tenant.name} was not activated</h2>
-              <p className="muted">The myTrakIn team rejected it{workspace.tenant.decision_note ? <>: “{workspace.tenant.decision_note}”</> : ""}.
+              <p className="muted">The MyTrackIn team rejected it{workspace.tenant.decision_note ? <>: “{workspace.tenant.decision_note}”</> : ""}.
                 Fix the company profile and resubmit it, or create another company from My companies.</p>
             </> : workspace.tenant.company_id ? <>
               <h2>Waiting for activation</h2>
-              <p className="muted">The myTrakIn team is reviewing {workspace.tenant.name}. We&apos;ll e-mail you as soon as it&apos;s active.
+              <p className="muted">The MyTrackIn team is reviewing {workspace.tenant.name}. We&apos;ll e-mail you as soon as it&apos;s active.
                 Meanwhile you can complete your company profile.</p>
             </> : <>
               <h2>Your company isn&apos;t set up yet</h2>

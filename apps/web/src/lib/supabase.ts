@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let client: SupabaseClient | null = null;
 
-/** The browser Supabase client. Used only for sign-in; all data goes through the myTrakIn API. */
+/** The browser Supabase client. Used only for sign-in; all data goes through the MyTrackIn API. */
 export function supabase(): SupabaseClient {
   if (!client) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
