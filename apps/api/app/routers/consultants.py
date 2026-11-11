@@ -59,7 +59,7 @@ async def consultant_candidates(db: TenantDb = Depends(tenant_db), q: str = Quer
     The exact e-mail is required, so this cannot be used to page through everybody on the platform.
     """
     db.ctx.require("hr", "account_manager", "legal")
-    return await db.all(
+    rows = await db.all(
         """select p.id as user_id, uc.code as user_code, p.full_name, p.email, p.phone,
                   (select count(*) from consultants c
                     where c.tenant_id = :t and c.user_id = p.id and c.status <> 'former') as already_consultant,
@@ -72,6 +72,10 @@ async def consultant_candidates(db: TenantDb = Depends(tenant_db), q: str = Quer
             where lower(p.email) = lower(cast(:q as text))
             limit 25""",
         {"t": db.ctx.tenant_id, "q": q.strip()})
+    for r in rows:   # contact details of people outside this workspace stay private (onboarding reads them server-side)
+        if not r["in_workspace"]:
+            r["phone"] = None
+    return rows
 
 
 class ConsultantIn(BaseModel):

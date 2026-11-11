@@ -86,7 +86,7 @@ async def test_someone_from_another_workspace_can_be_onboarded(client, auth):
                                   params={"q": "zebedee@elsewhere.example"}, headers=auth("admin"))).json()
         assert [p["user_id"] for p in found] == [user], found
         assert found[0]["in_workspace"] is False, found          # they have no access here yet
-        assert found[0]["phone"] == "+1 555 0100", found
+        assert found[0]["phone"] is None, found                  # outside the workspace: no contact details shown
 
         response = await client.post("/consultants", headers=auth("admin"), json={
             "user_id": user, "engagement": "w2_contract", "start_date": str(date.today())})

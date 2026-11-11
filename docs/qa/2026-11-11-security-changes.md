@@ -219,7 +219,8 @@ open deleted documents.
 
 **Changed:** Consultants → Onboard someone finds a person **only by their exact e-mail address**. Typing a name or part of an
 e-mail shows "Type their full e-mail address — search by name isn't available." Contact details of users from other companies
-are no longer listed.
+are no longer listed: for someone not yet in your workspace the result shows name, U-ID and e-mail only (no mobile number).
+Their mobile is still copied from their profile when you onboard them.
 
 **Local browser test:** PASS — "Ravi" found nobody and showed the hint; "ravi.kumar@example.com" found Ravi Kumar.
 
