@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Security review fixes (2026-11-11):** inviting someone who already has a login no longer sets a password for
+  them (temporary passwords only for brand-new users); 5 wrong e-signature or company e-mail codes now really cancel
+  the code; policy names and versions accept only letters, numbers, spaces, dashes and dots, and policy files must be
+  PDFs; the registration e-mail uses fixed wording; numbering templates pad {SEQ} to at most 10 digits; the CSV
+  import e-mail check stays fast on long values; drawn signatures must be real PNG images; large-file uploads can only
+  be recorded by the user the upload was issued to.
+
 - **Security patching (2026-11-07):** Next.js 16.4.5 (fixes the October 2026 Next.js advisories) and pypdf ≥ 6.21.4.
   The public registration form now accepts only real PDF, JPEG, PNG or WebP files (type and leading bytes checked
   before anything is saved) and at most 5 registrations per hour from one IP (429 `rate_limited`); the W-9

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import base64
 import io
+
+PNG_MAGIC = bytes.fromhex("89504e470d0a1a0a")
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -120,6 +122,8 @@ def build_certificate(envelope: dict, signers: list[dict], events: list[dict], d
         if signer.get("signature_type") == "drawn" and str(signer.get("signature_data", "")).startswith("data:image/png;base64,"):
             try:
                 raw = base64.b64decode(signer["signature_data"].split(",", 1)[1])
+                if not raw.startswith(PNG_MAGIC):   # only a real PNG goes to the PDF renderer (F46)
+                    raise ValueError("not a PNG")
                 pdf.image(io.BytesIO(raw), h=16)
             except Exception:  # an unreadable drawing must not block the certificate
                 pdf.cell(0, 8, "[drawn signature]", new_x="LMARGIN", new_y="NEXT")

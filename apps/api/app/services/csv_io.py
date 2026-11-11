@@ -21,7 +21,8 @@ from typing import Any
 from ..db import Db
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Dot-separated domain labels: no overlapping repeats, so long values can't make matching slow (F39).
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s.]+(?:\.[^@\s.]+)+$")
 # Sensitive rows are tagged by stable IDs, not names, so imports never mis-match:
 # companies carry Business IDs (C-0006, assigned by the onboarding trigger) and
 # people carry system user codes (U000123). Both are accepted anywhere a company
