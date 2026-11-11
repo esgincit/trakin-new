@@ -22,7 +22,8 @@ function Data() {
   const params = useSearchParams();
   const templates = useApi<any[]>("/data/templates");
   const jobs = useApi<any[]>("/data/import-jobs");
-  const [entity, setEntity] = useState(params.get("entity") ?? "companies");
+  // The link's ?entity= goes into the API path, so only a plain module key is accepted.
+  const [entity, setEntity] = useState(/^[a-z_]{1,40}$/.test(params.get("entity") ?? "") ? params.get("entity")! : "companies");
   const [file, setFile] = useState<File | null>(null);
   const [check, setCheck] = useState<any>(null);
   const [result, setResult] = useState<any>(null);

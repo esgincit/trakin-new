@@ -395,7 +395,8 @@ function Connections({ invites }: { invites: ReturnType<typeof useApi<Net>> }) {
 
 function Messages({ initial, threads: threadsHook }: { initial: string | null; threads: ReturnType<typeof useApi<any[]>> }) {
   const threads = threadsHook.data ?? [];
-  const [withId, setWithId] = useState<string | null>(initial);
+  // Only a person id from the link goes into the API path, never other text (it would change which endpoint is called).
+  const [withId, setWithId] = useState<string | null>(initial && /^[0-9a-f-]{36}$/i.test(initial) ? initial : null);
   const [q, setQ] = useState("");
   const convo = useApi<any[]>(withId ? `/network/messages/${withId}` : null);
   const person = useApi(withId && !threads.some((t: any) => t.person_id === withId) ? `/network/people/${withId}` : null);
