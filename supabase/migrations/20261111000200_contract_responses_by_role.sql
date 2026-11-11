@@ -2,7 +2,7 @@
 -- myTrakIn · 20261111 0200 · Accepting / rejecting MSAs, renewals and SOWs is role based
 --   Only admin, legal and account-manager roles can answer or request them on a
 --   company's behalf (the API route checks the same). Bodies are otherwise the
---   latest definitions (20261016001501, 20261016001500, 20261016001700).
+--   latest definitions (20261111000150 for respond_to_agreement, 20261016001500, 20261016001700).
 -- =============================================================================
 
 set search_path = mytrakin, public, extensions;
@@ -31,7 +31,9 @@ begin
   end if;
   update mytrakin.agreements
      set status = case p_decision when 'accept' then 'accepted' else 'rejected' end,
-         decided_on = now(), decided_by = mytrakin.ctx_user(), decision_note = v_note
+         decided_on = now(), decided_by = mytrakin.ctx_user(), decision_note = v_note,
+         accepted_by = case p_decision when 'accept' then mytrakin.ctx_user() end,   -- 20261111000150
+         accepted_on = case p_decision when 'accept' then now() end
    where id = p_agreement;
 end $$;
 
