@@ -152,6 +152,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const agreements = useApi<any[]>("/agreements");
   const sows = useApi<any[]>("/sows", { side: "we_bill" });
   const projects = useApi<any[]>("/projects");
+  const sharedProjects = useApi<any[]>("/projects/shared");
   const [existing, setExisting] = useState(false);
   const [saving, setSaving] = useState(false);
   const { run, busy } = useAction();
@@ -159,6 +160,17 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const pickable = (agreements.data ?? []).filter((a: any) =>
     ["msa", "subcontract", "ica"].includes(a.kind) && a.status !== "rejected" && a.status !== "expired"
       && a.status !== "terminated");
+  // Project options: our own projects plus projects assigned to us through the chain
+  // (a SOW another company sent carries its project with it — saving the SOW creates
+  // our own copy of it, linked to the same project end to end).
+  const localProjectIds = new Set((projects.data ?? []).map((p) => p.id));
+  const projectOptions: [string, string][] = [
+    ["", "–"],
+    ...(projects.data ?? []).map((p) => [p.id, `${p.code} · ${p.name}`] as [string, string]),
+    ...(sharedProjects.data ?? [])
+      .filter((p) => !p.local_project_id && !localProjectIds.has(p.id))
+      .map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string]),
+  ];
   return (
     <Modal title="Add SOW / work order" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
@@ -177,7 +189,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
       }}>
         <div className="fields">
           <Field label="SOW / work order ID" name="code" placeholder="Leave blank to number it automatically" />
-          <Field label="Project" name="project_id" as="select" options={[["", "–"], ...(projects.data ?? []).map((p) => [p.id, `${p.code} · ${p.name}`] as [string, string])]} />
+          <Field label="Project" name="project_id" as="select" options={projectOptions} />
           <Field label="Under agreement" name="agreement_id" as="select" required
             options={[["", "Choose…"], ...pickable.map((a: any) => [a.id, `${a.code} · ${a.counterparty}${a.shared ? " (their MSA)" : ""}`] as [string, string])]} />
           <Field label="Side" name="side" as="select" options={[["we_bill", "We bill (client SOW)"], ["we_pay", "We pay (vendor / 1099 work order)"]]} />

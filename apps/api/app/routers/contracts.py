@@ -335,11 +335,17 @@ async def add_sow(body: SowIn, db: TenantDb = Depends(tenant_db)):
     await workflow.require_nda_between(db, company_id=company, other_company_id=own_company)
     project_code = None
     if body.project_id:
+        # A project assigned to us through the chain lives in the assigner's workspace —
+        # the same rule as placements: it gets our own local copy here (linked by
+        # source_project_id) instead of "Project not found", so a SOW passed down the
+        # chain stays attached to the same project end to end.
+        from .projects import _local_project
+        body.project_id = await _local_project(db, body.project_id)
         project_code = await db.val("select code from projects where id = :id", {"id": body.project_id})
-        if project_code is None:
-            raise not_found("Project")
     if body.flows_from_sow_id:
         upstream = await db.one("select end_date from sows where id = :id", {"id": body.flows_from_sow_id})
+        if upstream is None:   # an upstream SOW assigned to us through the chain — visible via the shared view
+            upstream = await db.one("select end_date from mytrakin.shared_sows() where id = :id", {"id": body.flows_from_sow_id})
         if upstream and body.end_date > upstream["end_date"]:
             raise bad_request("A vendor SOW can't run past the client SOW it supports")
     # Client SOWs and vendor / contractor work orders (the resource contract) have their own numbering.
