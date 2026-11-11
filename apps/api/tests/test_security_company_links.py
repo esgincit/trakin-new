@@ -146,7 +146,7 @@ async def test_a_rejected_msa_later_marked_accepted_by_the_sender_does_not_count
                    t=home, code=f"MSA-{uuid.uuid4().hex[:6]}", c=foreign_co)
     async with get_engine().begin() as conn:
         tenant = (await conn.execute(text("select tenant_id from mytrakin.companies where id = :c"), {"c": foreign_co})).scalar()
-        await conn.execute(text("select mytrakin.begin_request(:u, :t, 'member')"), {"u": member, "t": tenant})
+        await conn.execute(text("select mytrakin.begin_request(:u, :t, 'legal')"), {"u": member, "t": tenant})
         await conn.execute(text("select mytrakin.respond_to_agreement(:a, 'reject', 'Not working with you')"), {"a": aid})
     assert await _q("select status from mytrakin.agreements where id = :a", a=aid) == "rejected"
 
@@ -162,7 +162,7 @@ async def test_a_rejected_msa_later_marked_accepted_by_the_sender_does_not_count
                        values (:t, :code, 'subcontract', :c, 'buyer', 'pending') returning id""",
                     t=home, code=f"SUB-{uuid.uuid4().hex[:6]}", c=foreign_co)
     async with get_engine().begin() as conn:
-        await conn.execute(text("select mytrakin.begin_request(:u, :t, 'member')"), {"u": member, "t": tenant})
+        await conn.execute(text("select mytrakin.begin_request(:u, :t, 'legal')"), {"u": member, "t": tenant})
         await conn.execute(text("select mytrakin.respond_to_agreement(:a, 'accept')"), {"a": aid2})
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is True
 
@@ -320,3 +320,19 @@ async def test_end_client_acts_only_on_weeks_of_its_own_placements(client):
     assert str(ts) in {str(r["timesheet_id"]) for r in (await client.get("/timesheets/client-queue", headers=rep)).json()}
     link = await client.post(f"/timesheets/{ts}/client-link", headers=rep)
     assert link.status_code == 200, link.text
+
+
+async def test_an_acceptance_stops_counting_once_the_agreement_leaves_force():
+    """Leaving accepted/active clears who accepted it, so a later status change can't bring the acceptance back."""
+    home = await _home()
+    co = await _local_company(f"Clears {uuid.uuid4().hex[:6]}")
+    aid = await _q("""insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, status)
+                      values (:t, :code, 'msa', :c, 'buyer', 'pending') returning id""",
+                   t=home, code=f"MSA-{uuid.uuid4().hex[:6]}", c=co)
+    user = await _q("select id from auth.users limit 1")
+    await _q("update mytrakin.agreements set status = 'accepted', accepted_by = :u, accepted_on = now() where id = :a returning id",
+             u=user, a=aid)
+    assert await _q("select accepted_by from mytrakin.agreements where id = :a", a=aid) == user
+    await _q("update mytrakin.agreements set status = 'terminated' where id = :a returning id", a=aid)
+    await _q("update mytrakin.agreements set status = 'accepted' where id = :a returning id", a=aid)
+    assert await _q("select accepted_by from mytrakin.agreements where id = :a", a=aid) is None

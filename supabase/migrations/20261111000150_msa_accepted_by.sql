@@ -83,3 +83,21 @@ language sql stable security definer set search_path = mytrakin, public, extensi
      and (p_consultant is null
           or exists (select 1 from mytrakin.consultants k where k.id = p_consultant and k.tenant_id = p_tenant))
 $$;
+
+-- An acceptance only proves a relationship while the agreement is in force: leaving accepted/active
+-- (expiry, termination, rejection, back to draft) clears it, so no later status change can revive it.
+create or replace function mytrakin.agreements_clear_acceptance() returns trigger
+language plpgsql set search_path = mytrakin, public, extensions as $$
+begin
+  if new.status not in ('accepted', 'active') then
+    new.accepted_by := null;
+    new.accepted_on := null;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists agreements_clear_acceptance on mytrakin.agreements;
+create trigger agreements_clear_acceptance
+  before update of status on mytrakin.agreements
+  for each row when (new.status is distinct from old.status)
+  execute function mytrakin.agreements_clear_acceptance();
