@@ -10,6 +10,9 @@
   (representatives and consultants deactivated, staff keep access). Cross-workspace views (shared agreements, SOWs,
   end-client timesheets, invoices billed to us) count a representative's company only when it is the workspace's
   own record, and the workspace's own company only for its staff. Migration `20261111000100_membership_company_links.sql`.
+- **An MSA records who accepted it (2026-11-11):** `agreements.accepted_by/accepted_on` are written only when the
+  other company accepts in myTrakIn (cleared on a reject); only that counts as the other company confirming the
+  relationship — a rejected MSA later marked accepted on paper does not. Migration `20261111000200_msa_accepted_by.sql`.
 - **Two timesheet approvals stay separate (2026-11-11):** the end client's approval no longer also records the
   placing company's approval; it comes after the placing company's approver (409 `awaiting_placed_by` before that),
   and an end client can only approve, link or decide weeks whose hours are on its own placements.

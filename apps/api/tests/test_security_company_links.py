@@ -105,7 +105,7 @@ async def test_a_company_with_an_accepted_msa_can_be_linked():
                    t=other, code=f"MSA-{uuid.uuid4().hex[:6]}", c=own_co)
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is False
     await _q("""update mytrakin.agreements set status = 'accepted',
-                       decided_by = (select id from auth.users where email = 'admin@example.com')
+                       accepted_by = (select id from auth.users where email = 'admin@example.com')
                  where id = :a returning id""", a=aid)
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is True
 
@@ -120,7 +120,7 @@ async def test_an_msa_the_other_company_never_confirmed_does_not_count():
                       values (:t, :code, 'msa', :c, 'supplier', 'active', 'imported') returning id""",
                    t=home, code=f"MSA-{uuid.uuid4().hex[:6]}", c=foreign_co)
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is False
-    await _q("update mytrakin.agreements set status = 'accepted', decided_by = :d where id = :a returning id",
+    await _q("update mytrakin.agreements set status = 'accepted', accepted_by = :d where id = :a returning id",
              d=admin, a=aid)
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is False
     # Accepted by a member of that company: now it counts.
@@ -128,7 +128,42 @@ async def test_an_msa_the_other_company_never_confirmed_does_not_count():
     await _q("""insert into mytrakin.company_members (tenant_id, company_id, user_id, company_role, status)
                 select tenant_id, id, :u, 'admin', 'active' from mytrakin.companies where id = :c returning id""",
              u=member, c=foreign_co)
-    await _q("update mytrakin.agreements set decided_by = :d where id = :a returning id", d=member, a=aid)
+    await _q("update mytrakin.agreements set accepted_by = :d where id = :a returning id", d=member, a=aid)
+    assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is True
+
+
+async def test_a_rejected_msa_later_marked_accepted_by_the_sender_does_not_count(client):
+    """The other company rejected our MSA; recording a paper acceptance on our side
+    afterwards is no proof that it works with us."""
+    _, foreign_co, _ = await _other_workspace("Rejecting")
+    home = await _home()
+    member = await _q("insert into auth.users (email) values (:e) returning id", e=f"rj-{uuid.uuid4().hex[:6]}@links.example")
+    await _q("""insert into mytrakin.company_members (tenant_id, company_id, user_id, company_role, status)
+                select tenant_id, id, :u, 'admin', 'active' from mytrakin.companies where id = :c returning id""",
+             u=member, c=foreign_co)
+    aid = await _q("""insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, status)
+                      values (:t, :code, 'msa', :c, 'supplier', 'pending') returning id""",
+                   t=home, code=f"MSA-{uuid.uuid4().hex[:6]}", c=foreign_co)
+    async with get_engine().begin() as conn:
+        tenant = (await conn.execute(text("select tenant_id from mytrakin.companies where id = :c"), {"c": foreign_co})).scalar()
+        await conn.execute(text("select mytrakin.begin_request(:u, :t, 'member')"), {"u": member, "t": tenant})
+        await conn.execute(text("select mytrakin.respond_to_agreement(:a, 'reject', 'Not working with you')"), {"a": aid})
+    assert await _q("select status from mytrakin.agreements where id = :a", a=aid) == "rejected"
+
+    paper = await client.post("/acceptances", headers=await _user("legal"), json={
+        "entity_type": "agreement", "entity_id": str(aid), "accepted_by": "Someone (on paper)"})
+    assert paper.status_code == 201, paper.text
+    assert await _q("select status from mytrakin.agreements where id = :a", a=aid) == "accepted"
+    assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is False
+
+    # A real accept by that company's own person does count.
+    await _q("update mytrakin.agreements set status = 'terminated' where id = :a returning id", a=aid)
+    aid2 = await _q("""insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, status)
+                       values (:t, :code, 'subcontract', :c, 'buyer', 'pending') returning id""",
+                    t=home, code=f"SUB-{uuid.uuid4().hex[:6]}", c=foreign_co)
+    async with get_engine().begin() as conn:
+        await conn.execute(text("select mytrakin.begin_request(:u, :t, 'member')"), {"u": member, "t": tenant})
+        await conn.execute(text("select mytrakin.respond_to_agreement(:a, 'accept')"), {"a": aid2})
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is True
 
 
