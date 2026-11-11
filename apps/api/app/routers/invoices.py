@@ -125,7 +125,7 @@ async def client_payable(db: TenantDb = Depends(tenant_db)):
     rows = [_hide({**m, "direction": "ap"}, db.ctx) for m in await db.all("select * from mytrakin.client_payables()")]
     if not db.ctx.sees_bill_rate:      # what the client is billed is hidden from consultants and other roles (RULE-02)
         for r in rows:
-            for col in ("amount", "balance", "hours", "rate", "paid"):
+            for col in ("amount", "balance", "rate", "paid"):
                 if col in r:
                     r[col] = None
     return rows
@@ -533,11 +533,11 @@ async def payment_flow(db: TenantDb = Depends(tenant_db), only_open: bool = True
             r["ap_amount"] = r["ap_balance"] = None
     if not db.ctx.sees_bill_rate:      # the client's bill amounts are hidden from consultants and other roles (RULE-02)
         for r in rows:
-            r["ar_amount"] = r["ar_balance"] = r["hours"] = None
+            r["ar_amount"] = r["ar_balance"] = None
     mirror = await db.all("select * from mytrakin.client_payable_flow(:o)", {"o": only_open})
     if not db.ctx.sees_bill_rate:
         for m in mirror:
-            m["ap_amount"] = m["ap_balance"] = m["hours"] = None
+            m["ap_amount"] = m["ap_balance"] = None
     try:
         own = (await db.all(
             """select coalesce(mytrakin.company_public_name((select t.company_id from mytrakin.tenants t where t.id = mytrakin.ctx_tenant())),

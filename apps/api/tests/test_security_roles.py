@@ -64,7 +64,7 @@ async def test_contract_sql_functions_check_the_role(user_ids, role, allowed):
 async def test_consultant_does_not_see_client_bill_amounts(client, auth):
     for path in ("/payment-flow?only_open=false", "/invoices/client-payable"):
         rows = (await client.get(path, headers=auth("consultant"))).json()
-        assert all(r.get("ar_amount") is None and r.get("ar_balance") is None and r.get("hours") is None
+        assert all(r.get("ar_amount") is None and r.get("ar_balance") is None
                    and r.get("amount") is None for r in rows), path
     admin_rows = (await client.get("/payment-flow?only_open=false", headers=auth("admin"))).json()
     assert any(r.get("ar_amount") is not None for r in admin_rows)

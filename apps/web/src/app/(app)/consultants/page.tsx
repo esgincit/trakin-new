@@ -132,7 +132,9 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
                 {looking && <p className="note" style={{ marginTop: -6 }}>Searching…</p>}
                 {!looking && term.trim().length >= 2 && !found.length && (
                   <p className="note" style={{ marginTop: -6 }}>
-                    Nobody matches “{term.trim()}”. The person needs a MyTrackIn account somewhere on the platform before they can be onboarded.
+                    {term.includes("@")
+                      ? <>Nobody has a MyTrackIn account with “{term.trim()}”. They need an account before they can be onboarded.</>
+                      : <>Type their full e-mail address — search by name isn't available.</>}
                   </p>
                 )}
                 {found.length > 0 && (
@@ -154,7 +156,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
               </>
             )}
             <p className="note" style={{ marginTop: -6 }}>
-              Pick anyone registered on MyTrackIn — their name, e-mail and mobile come from their profile, and onboarding gives them access here.
+              Find the person by their exact e-mail address — their name, e-mail and mobile come from their profile, and onboarding gives them access here.
             </p>
           </div>
           <Field label="E-mail" name="email" type="email" readOnly value={person?.email ?? ""} placeholder="Filled in when you pick someone" />

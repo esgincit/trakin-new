@@ -131,18 +131,23 @@ async def list_policies(db: TenantDb = Depends(tenant_db)):
     return rows
 
 
+POLICY_NAME = re.compile(r"[A-Za-z0-9 .-]+")
+
+
 @router.post("/policies", status_code=201)
 async def add_policy(
     db: TenantDb = Depends(tenant_db),
-    # ponytail: letters, numbers, spaces, dashes, dots only (team rule, pending the naming standard)
-    name: str = Form(min_length=2, max_length=200, pattern=r"^[A-Za-z0-9 .\-]+$"),
-    version: str = Form(min_length=1, max_length=20, pattern=r"^[A-Za-z0-9 .\-]+$"),
+    name: str = Form(min_length=2, max_length=200),
+    version: str = Form(min_length=1, max_length=20),
     effective_on: date = Form(),
     applies_to: str = Form("w2_fulltime,w2_contract,c2c,e2e,1099", description="Comma-separated engagement types"),
     file: UploadFile | None = File(None),
 ):
     """Publish a policy (or a new version). Older versions of the same policy are retired."""
     db.ctx.require("hr", "legal")
+    # ponytail: letters, numbers, spaces, dashes, dots only (team rule, pending the naming standard)
+    if not (POLICY_NAME.fullmatch(name) and POLICY_NAME.fullmatch(version)):
+        raise bad_request("Policy names and versions can only use letters, numbers, spaces, dashes (-) and dots (.)")
     groups = [g.strip() for g in applies_to.split(",") if g.strip()]
     known = {r["code"] for r in await db.all("select code from engagement_types where is_active")}
     if not groups or any(g not in known for g in groups):

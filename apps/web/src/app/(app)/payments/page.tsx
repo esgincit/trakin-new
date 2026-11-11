@@ -42,7 +42,7 @@ export default function PaymentFlow() {
               <div>
                 <b>{r.consultant}</b>
                 <div className="muted" style={{ fontSize: 12.5 }}>{r.project} · {date(r.period_start)} – {date(r.period_end)}</div>
-                <div className="muted" style={{ fontSize: 12.5 }}>{Number(r.hours)} h · {label(r.engagement)}</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>{r.hours == null ? "—" : `${Number(r.hours)} h`} · {label(r.engagement)}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   {r.end_client ? <>End client <b>{r.end_client}</b></> : null}
                   {r.placed_by ? <>{r.end_client ? " · " : ""}Placed by <b>{r.placed_by}</b></> : null}
@@ -63,7 +63,7 @@ export default function PaymentFlow() {
               <div>
                 <b>{r.consultant}</b>
                 <div className="muted" style={{ fontSize: 12.5 }}>{r.project} · {date(r.period_start)} – {date(r.period_end)}</div>
-                <div className="muted" style={{ fontSize: 12.5 }}>{Number(r.hours)} h · {label(r.engagement)}</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>{r.hours == null ? "—" : `${Number(r.hours)} h`} · {label(r.engagement)}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   {r.end_client ? <>End client <b>{r.end_client}</b></> : null}
                   {r.placed_by ? <>{r.end_client ? " · " : ""}Placed by <b>{r.placed_by}</b></> : null}

@@ -27,7 +27,7 @@ async def test_policy_names_are_plain_text_and_files_must_be_pdfs(client, auth):
     pdf = ("p.pdf", b"%PDF-1.4\n%%EOF", "application/pdf")
     bad = await client.post("/policies", headers=admin, data={**form, "name": "x/../../y", "version": "1"},
                             files={"file": pdf})
-    assert bad.status_code == 422, bad.text
+    assert bad.status_code == 400 and "letters, numbers" in bad.text, bad.text
     not_pdf = await client.post("/policies", headers=admin, data={**form, "name": "Leave Policy", "version": "2.0"},
                                 files={"file": ("p.pdf", b"<html>", "application/pdf")})
     assert not_pdf.status_code == 400, not_pdf.text
