@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Sign-in and account rules (2026-11-11):** a suspended company can still sign in and view, but every change is refused
+  with "This company is suspended. Contact the myTrakIn admin." (platform admins exempt). Pending invitations
+  (workspace and company) are claimed only once the invited e-mail address is confirmed (at sign-up or when confirmed
+  later; migration `20261111000300`). Only an owner can demote or remove another owner; a platform admin can still
+  replace a company's owner. Changing the password needs the current password plus the new one typed twice. After
+  sign-in people go only to pages inside myTrakIn, and login error messages use our own wording, never text from the address.
+
 - **Security patching (2026-11-07):** Next.js 16.4.5 (fixes the October 2026 Next.js advisories) and pypdf ≥ 6.21.4.
   The public registration form now accepts only real PDF, JPEG, PNG or WebP files (type and leading bytes checked
   before anything is saved) and at most 5 registrations per hour from one IP (429 `rate_limited`); the W-9
