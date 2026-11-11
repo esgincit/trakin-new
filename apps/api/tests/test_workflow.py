@@ -103,7 +103,7 @@ async def _agreement(client, auth, code: str) -> str:
     return next(a["id"] for a in (await client.get("/agreements", headers=auth("admin"))).json() if a["code"] == code)
 
 
-async def test_sow_under_project_with_one_or_many_resources(client, auth):
+async def test_sow_under_project_consumes_on_first_resource(client, auth):
     admin = auth("admin")
     atlas = await _company(client, auth, "Atlas Foods Corp.")
     msa = await _agreement(client, auth, "MSA-AF-ESG")
@@ -118,23 +118,36 @@ async def test_sow_under_project_with_one_or_many_resources(client, auth):
     assert multi.json()["project_id"] == project["id"] and multi.json()["code"].startswith("SOW-")
     single = (await client.post(f"/projects/{project['id']}/sows", headers=admin, json={**sow_body, "title": "QA"})).json()
 
-    for name in ("Grace Okafor", "Priya Nair"):        # two W-2 resources on one SOW
-        added = await client.post(f"/sows/{multi.json()['id']}/resources", headers=admin, json={
-            "consultant_id": await _consultant(client, auth, name), "start_date": "2026-11-02", "ar_company_id": atlas,
-            "bill_rate": 90})
-        assert added.status_code == 201, added.text
+    # One assignment per SOW (T011303-1128): the first resource consumes it, a second is refused.
+    first = await client.post(f"/sows/{multi.json()['id']}/resources", headers=admin, json={
+        "consultant_id": await _consultant(client, auth, "Grace Okafor"), "start_date": "2026-11-02", "ar_company_id": atlas,
+        "bill_rate": 90})
+    assert first.status_code == 201, first.text
+    second = await client.post(f"/sows/{multi.json()['id']}/resources", headers=admin, json={
+        "consultant_id": await _consultant(client, auth, "Priya Nair"), "start_date": "2026-11-02", "ar_company_id": atlas,
+        "bill_rate": 90})
+    assert second.status_code == 409 and "already been assigned" in second.text, second.text
     one = await client.post(f"/sows/{single['id']}/resources", headers=admin, json={
         "consultant_id": await _consultant(client, auth, "Grace Okafor"), "start_date": "2026-11-02"})
     assert one.status_code == 201, one.text
-    assert len((await client.get(f"/sows/{multi.json()['id']}/resources", headers=admin)).json()) == 2
+    assert len((await client.get(f"/sows/{multi.json()['id']}/resources", headers=admin)).json()) == 1
     assert len((await client.get(f"/sows/{single['id']}/resources", headers=admin)).json()) == 1
 
     wrong = await client.post(f"/sows/{single['id']}/resources", headers=admin, json={
         "consultant_id": await _consultant(client, auth, "Priya Nair"), "start_date": "2026-11-02",
         "project_id": other["id"]})
-    assert wrong.status_code == 400, wrong.text
+    assert wrong.status_code == 400, wrong.text   # the resource must be on the SOW's own project
+    consumed = await client.post(f"/sows/{single['id']}/resources", headers=admin, json={
+        "consultant_id": await _consultant(client, auth, "Priya Nair"), "start_date": "2026-11-02"})
+    assert consumed.status_code == 409 and "already been assigned" in consumed.text, consumed.text
     detail = (await client.get(f"/projects/{project['id']}", headers=admin)).json()
     assert {s["id"] for s in detail["sows"]} >= {multi.json()["id"], single["id"]}
+
+    # The consumed SOWs disappear from the available list; role comes from the placement.
+    listed = (await client.get("/sows", headers=admin)).json()
+    mine = {r["id"]: r for r in listed if not r.get("shared")}
+    assert mine[multi.json()["id"]]["assigned"] and mine[single.json()["id"]]["assigned"]
+    assert mine[multi.json()["id"]]["role_name"], "role falls back to the SOW title"
 
 
 # ---------------------------------------------------------------------------- WF-02/03 NDA → MSA → project, AGR-09

@@ -262,6 +262,26 @@ where (cast(:side as text) is null or s.side = :side)
         for k in ("value_cap", "invoiced", "collected_or_paid", "remaining", "burn_pct"):
             r[k] = None
     rows += incoming
+    # Consumption (T011303-1128): an SOW is a slot for one engagement. It is consumed once a
+    # placement references it (assigned to a consultant) or a downstream SOW flows from it
+    # (assigned to another company). Consumed SOWs stop appearing in assignment pickers.
+    consumed = {
+        r["sow_id"]: r["role"]
+        for r in await db.all(
+            """with refs as (
+                 select p.ar_sow_id as sow_id, p.role_title as role from placements p where p.ar_sow_id is not null
+                 union all
+                 select p.ap_sow_id, p.role_title from placements p where p.ap_sow_id is not null
+                 union all
+                 select ds.flows_from_sow_id, null from sows ds where ds.flows_from_sow_id is not null)
+               select sow_id, (array_remove(array_agg(role), null))[1] as role
+                 from refs group by sow_id""")
+    }
+    for r in rows:
+        role = consumed.get(r["id"])
+        r["assigned"] = r["id"] in consumed
+        # The role shown for the SOW: the placement's role when there is one, else the SOW's own title.
+        r["role_name"] = role or r.get("title")
     if not show_value:
         for r in rows:
             for k in ("value_cap", "invoiced", "collected_or_paid", "remaining"):

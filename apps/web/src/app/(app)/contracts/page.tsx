@@ -7,7 +7,7 @@ import { DataTable, type Column } from "@/components/DataTable";
 import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, SubTabIcon, useAction, useToast } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { api, ApiError } from "@/lib/api";
-import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label } from "@/lib/format";
+import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label, sowLabel } from "@/lib/format";
 import { linkFor } from "@/lib/links";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -185,7 +185,9 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
           <Field label="Start" name="start_date" type="date" required />
           <Field label="End" name="end_date" type="date" required />
           <Field label="Value ceiling ($)" name="value_cap" type="number" step="0.01" min="0" />
-          <Field label="Supports client SOW (vendor SOWs)" name="flows_from_sow_id" as="select" options={[["", "–"], ...(sows.data ?? []).map((s: any) => [s.id, `${s.code}${s.project ? ` · ${s.project}` : ""}${s.project_name ? ` – ${s.project_name}` : ""}`] as [string, string])]} />
+          <Field label="Work order SOWs (client SOW this supports)" name="flows_from_sow_id" as="select"
+            options={[["", "–"], ...(sows.data ?? []).filter((s: any) => !s.assigned)
+              .map((s: any) => [s.id, sowLabel(s)] as [string, string])]} />
           <Field label="Invoiced before MyTrackIn ($)" name="prior_invoiced" type="number" step="0.01" min="0" />
           <Field label="Collected / paid before MyTrackIn ($)" name="prior_paid" type="number" step="0.01" min="0" />
         </div>

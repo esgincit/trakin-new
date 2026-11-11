@@ -72,6 +72,19 @@ export function playsRole(company: { kind?: string | null; kinds?: string[] | nu
   return wanted.some((w) => roles.includes(w));
 }
 
+/** An SOW picker option: "CODE · Project · Role", dropping segments that repeat or are missing.
+ *  The role is the placement's role when there is one, else the SOW's own title (the role it was
+ *  raised for), so projects with several SOWs read unambiguously (T011303-1128). */
+export function sowLabel(s: { code?: string | null; title?: string | null; project?: string | null; project_name?: string | null; role_name?: string | null; counterparty?: string | null }): string {
+  const parts = [s.code];
+  const project = s.project_name || s.project;
+  if (project) parts.push(project);
+  const role = s.role_name || s.title;
+  if (role && role !== project) parts.push(role);
+  if (!project && s.counterparty) parts.push(s.counterparty);
+  return parts.filter((p, i) => p && parts.indexOf(p) === i).join(" · ");
+}
+
 const TONES: Record<string, string> = {
   paid: "good", approved: "good", active: "good", signed: "good", completed: "good", valid: "good", accepted: "good", ok: "good",
   open: "brand", sent: "brand", submitted: "brand", scheduled: "brand", ready_to_pay: "brand", viewed: "brand", onboarding: "brand",
