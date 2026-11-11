@@ -776,13 +776,38 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
     # in-app (its representative is a member of this workspace) or through a personal
     # approval link sent to its own workspace's timesheet managers. Without any
     # reachable end client, the placing company's approval is final.
-    chain = {r["cid"] for r in await db.all(
+    raw_chain = {r["cid"] for r in await db.all(
         """select distinct p.end_client_company_id as cid
              from timesheet_entries e join placements p on p.id = e.placement_id
             where e.timesheet_id = :id and p.end_client_company_id is not null""", {"id": timesheet_id})}
     own = await db.val("select company_id from mytrakin.tenants where id = :t", {"t": ts["tenant_id"]})
-    chain.discard(own)
+    # TS-12: when the placed-by company and the end client are the same company, the
+    # end-client approval step is redundant — the placed-by approval is final and the
+    # week flows straight to invoicing (AR/AP per the consultant's engagement type).
+    self_clients: set = {own} if own in raw_chain else set()
+    chain = raw_chain - self_clients
     recipients = await _end_client_recipients(db, ts["tenant_id"], chain)
+    # A workspace can also act as its own end client through a company record it
+    # manages (its account profile may not be linked yet). When every person who
+    # could approve for such a company is one of this workspace's own approvers —
+    # the very people who just approved as the placed-by — asking them again adds
+    # nothing, so the step is auto-approved. An external client's contact or
+    # workspace people never appear here, so their approval is still required.
+    if chain:
+        staff_emails = {r["email"] for r in await db.all(
+            """select p.email from memberships m join profiles p on p.id = m.user_id
+                where m.tenant_id = :t and m.status = 'active' and m.user_id is not null
+                  and m.role in ('tenant_admin', 'finance', 'account_manager', 'legal', 'hr', 'approver')""",
+            {"t": ts["tenant_id"]})}
+        for cid, emails in recipients.items():
+            if emails and staff_emails and set(emails) <= staff_emails:
+                self_clients.add(cid)
+        if self_clients - {own}:
+            log = logging.getLogger("mytrakin.timesheets")
+            log.info("timesheet %s: placed-by company is also the end client — end-client approval auto-approved",
+                     timesheet_id)
+    chain -= self_clients
+    recipients = {cid: e for cid, e in recipients.items() if cid not in self_clients}
     end_clients = chain & {r["company_id"] for r in await db.all(
         """select distinct m.company_id from mytrakin.memberships m
             where m.tenant_id = :t and m.status = 'active' and m.company_id is not null""",
@@ -807,6 +832,11 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
 
     new_pb = current["placed_by_approved"] or is_placed_by
     new_ec = current["end_client_approved"] or is_end_client
+    # Every end client on this week is the placed-by company itself: mark their step
+    # approved automatically. (When only some are self, those are dropped from the
+    # request list above and the remaining external client still approves.)
+    if raw_chain and raw_chain <= self_clients:
+        new_ec = True
     # Weeks with no reachable end client finalise on the placing company's approval alone.
     new_status = "approved" if new_pb and (new_ec or not recipients) else "submitted"
 
