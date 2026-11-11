@@ -80,10 +80,10 @@ async def invite(body: InviteIn, db: TenantDb = Depends(tenant_db)):
 
     temp_password: str | None = None
     existing_user = await db.val("select id from profiles where email = :e", {"e": body.email})
-    if body.create_login:
-        temp_password = await _provision_login(str(body.email), existing_user)
-        if existing_user is None:
-            existing_user = await db.val("select id from profiles where email = :e", {"e": body.email})
+    # F3: never touch an existing account's password; they sign in with their own credentials.
+    if body.create_login and existing_user is None:
+        temp_password = await _provision_login(str(body.email))
+        existing_user = await db.val("select id from profiles where email = :e", {"e": body.email})
     if existing_user and await db.val("select 1 from memberships where user_id = :u", {"u": existing_user}):
         raise conflict("This person is already a user in this company")
     row = await db.one(
@@ -116,11 +116,11 @@ async def invite(body: InviteIn, db: TenantDb = Depends(tenant_db)):
     return row
 
 
-async def _provision_login(email: str, user_id: UUID | None) -> str:
-    """Create a confirmed password login through the Supabase Auth Admin API (sends no e-mail).
+async def _provision_login(email: str) -> str:
+    """Create a confirmed password login for a brand-new user through the Supabase Auth Admin API (sends no e-mail).
 
-    Someone who already started signing up is confirmed and given a fresh temporary
-    password instead. Returns the temporary password.
+    Only ever creates a new auth user: an existing account is never given a new password (F3).
+    Returns the temporary password.
     """
     settings = get_settings()
     if not settings.supabase_url or not settings.supabase_service_role_key:
@@ -131,19 +131,13 @@ async def _provision_login(email: str, user_id: UUID | None) -> str:
                "Authorization": f"Bearer {settings.supabase_service_role_key}", "Content-Type": "application/json"}
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            if user_id is None:
-                created = await client.post(base, headers=headers,
-                                            json={"email": email, "password": temp_password, "email_confirm": True})
-                if created.status_code in (200, 201):
-                    return temp_password
-            else:
-                updated = await client.put(f"{base}/{user_id}", headers=headers,
-                                           json={"email_confirm": True, "password": temp_password})
-                if updated.status_code == 200:
-                    return temp_password
-            raise bad_request("Couldn't create their login — they may already have one; ask them to sign in")
+            created = await client.post(base, headers=headers,
+                                        json={"email": email, "password": temp_password, "email_confirm": True})
     except httpx.HTTPError as exc:
         raise bad_request("Couldn't reach sign-in to create their login — try again") from exc
+    if created.status_code in (200, 201):
+        return temp_password
+    raise bad_request("They already have a myTrakIn login — send the invitation and they sign in with their own password")
 
 
 @router.patch("/users/{membership_id}")

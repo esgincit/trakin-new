@@ -71,6 +71,11 @@ def _body(code: str, message: str) -> dict:
     return {"error": {"code": code, "message": message}}
 
 
+def kept_error(exc: ApiError) -> AppJSONResponse:
+    """Return (not raise) an error so the request's transaction still commits, e.g. a wrong-code counter (F13/F14)."""
+    return AppJSONResponse(_body(exc.code, exc.message), status_code=exc.status)
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError):

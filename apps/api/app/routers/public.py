@@ -24,7 +24,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from ..config import get_settings
 from ..deps import TenantDb, open_public, open_signer, open_ts_approver
-from ..errors import ApiError, bad_request, conflict, not_found
+from ..errors import ApiError, bad_request, conflict, kept_error, not_found
 from ..services import storage
 from ..services.email import render, send_email
 from ..services.esign import ESIGN_DISCLOSURE, build_certificate, log_event, seal, send_to_signer
@@ -134,7 +134,7 @@ async def verify(body: CodeIn, request: Request, db: TenantDb = Depends(signer_d
         raise ApiError(429, "too_many_attempts", "Too many wrong codes. Ask for a new one.")
     if not hmac.compare_digest(me["otp_hash"], sha256_hex(f"{me['id']}:{body.code}")):
         await db.run("update envelope_signers set otp_attempts = otp_attempts + 1 where id = :id", {"id": me["id"]})
-        raise bad_request("That code isn't right. Check the latest e-mail and try again.", "code_wrong")
+        return kept_error(bad_request("That code isn't right. Check the latest e-mail and try again.", "code_wrong"))
     await db.run("update envelope_signers set verified_at = now(), otp_hash = null where id = :id", {"id": me["id"]})
     await _event(db, env, me, "verified", request, {"method": "email_otp"})
     return {"verified": True}
