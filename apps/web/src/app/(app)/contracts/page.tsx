@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction, useToast } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, SubTabIcon, useAction, useToast } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { api, ApiError } from "@/lib/api";
 import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label } from "@/lib/format";
@@ -56,9 +56,9 @@ function Contracts() {
           <button className="btn pri" onClick={() => setModal("agreement")}>Add agreement</button>
         </>} />
       <div className="tabs">
-        <button className={tab === "agreements" ? "on" : ""} onClick={() => setTab("agreements")}>Agreements</button>
-        <button className={tab === "sows" ? "on" : ""} onClick={() => setTab("sows")}>SOWs & work orders</button>
-        <button className={tab === "missing" ? "on" : ""} onClick={() => setTab("missing")}>Missing & expiring</button>
+        <button className={tab === "agreements" ? "on" : ""} onClick={() => setTab("agreements")}><SubTabIcon tabKey="agreements" label="Agreements" />Agreements</button>
+        <button className={tab === "sows" ? "on" : ""} onClick={() => setTab("sows")}><SubTabIcon tabKey="sows" label="SOWs" />SOWs &amp; work orders</button>
+        <button className={tab === "missing" ? "on" : ""} onClick={() => setTab("missing")}><SubTabIcon tabKey="missing" label="Missing" />Missing &amp; expiring</button>
       </div>
       {tab === "agreements" && <><ErrorBox error={agreements.error} /><DataTable id="agreements" rows={agreements.data} columns={agreementCols} onRowClick={(r) => router.push(`/contracts/agreements/${r.id}`)} toolbar={<DataButtons entity="agreements" label="agreements" />} /></>}
       {tab === "sows" && <><ErrorBox error={sows.error} /><DataTable id="sows" rows={sows.data} columns={sowCols} onRowClick={(r) => router.push(`/contracts/sows/${r.id}`)} toolbar={<DataButtons entity="sows" label="SOWs" />} /></>}

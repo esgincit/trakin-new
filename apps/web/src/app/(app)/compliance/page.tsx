@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, Drawer, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, Drawer, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, dateTime, daysLeft, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
@@ -23,7 +23,7 @@ function Compliance() {
   return (
     <>
       <PageHead title="Compliance" sub="Work authorization, I-9 reverification, expiring documents, policies and new registrations. Reminders go out automatically." />
-      <div className="tabs">{tabs.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t}</button>)}</div>
+      <div className="tabs">{tabs.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}><SubTabIcon tabKey={k} label={t} />{t}</button>)}</div>
       {tab === "documents" && <Documents />}
       {tab === "work_auth" && <WorkAuth />}
       {tab === "policies" && <Policies />}

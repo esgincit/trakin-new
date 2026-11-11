@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction, useToast } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, SubTabIcon, useAction, useToast } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { label, playsRole } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -51,8 +51,8 @@ export default function Projects() {
           <button className="btn pri" onClick={() => setModal("placement")}>New placement</button>
         </>} />
       <div className="tabs">
-        <button className={tab === "projects" ? "on" : ""} onClick={() => setTab("projects")}>Projects</button>
-        <button className={tab === "placements" ? "on" : ""} onClick={() => setTab("placements")}>Placements</button>
+        <button className={tab === "projects" ? "on" : ""} onClick={() => setTab("projects")}><SubTabIcon tabKey="projects" label="Projects" />Projects</button>
+        <button className={tab === "placements" ? "on" : ""} onClick={() => setTab("placements")}><SubTabIcon tabKey="placements" label="Placements" />Placements</button>
       </div>
       {tab === "projects" ? (
         <><ErrorBox error={projects.error} retry={projects.reload} />

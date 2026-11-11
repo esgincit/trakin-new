@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { DataTable } from "@/components/DataTable";
-import { Chip, Drawer, ErrorBox, Field, formValues, Kpi, Loading, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, Drawer, ErrorBox, Field, formValues, Kpi, Loading, Modal, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, dateTime, label, money } from "@/lib/format";
 import { useSession } from "@/lib/session";
@@ -31,10 +31,10 @@ export default function Platform() {
     <>
       <PageHead title="Platform admin" sub="Every company on MyTrackIn, how the platform is growing, and the money moving through it." />
       <div className="tabs">
-        <button className={tab === "overview" ? "on" : ""} onClick={() => setTab("overview")}>Overview</button>
-        <button className={tab === "companies" ? "on" : ""} onClick={() => setTab("companies")}>Companies</button>
-        <button className={tab === "queue" ? "on" : ""} onClick={() => setTab("queue")}>Waiting for activation{waiting ? ` (${waiting})` : ""}</button>
-        <button className={tab === "admins" ? "on" : ""} onClick={() => setTab("admins")}>Platform admins</button>
+        <button className={tab === "overview" ? "on" : ""} onClick={() => setTab("overview")}><SubTabIcon tabKey="overview" label="Overview" />Overview</button>
+        <button className={tab === "companies" ? "on" : ""} onClick={() => setTab("companies")}><SubTabIcon tabKey="companies" label="Companies" />Companies</button>
+        <button className={tab === "queue" ? "on" : ""} onClick={() => setTab("queue")}><SubTabIcon tabKey="queue" label="Waiting" />Waiting for activation{waiting ? ` (${waiting})` : ""}</button>
+        <button className={tab === "admins" ? "on" : ""} onClick={() => setTab("admins")}><SubTabIcon tabKey="admins" label="Admins" />Platform admins</button>
       </div>
 
       {tab === "overview" && <Overview m={m} openQueue={() => setTab("queue")} />}

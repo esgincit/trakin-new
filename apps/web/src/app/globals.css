@@ -69,7 +69,10 @@ tr.click:hover td{background:var(--soft)}
 .chip.violet{background:var(--violet-soft);color:var(--violet)}
 .masked{color:var(--muted);letter-spacing:2px}
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;overflow-x:auto}
-.tabs button{border:0;background:none;padding:9px 12px;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button{display:inline-flex;align-items:center;gap:7px;border:0;background:none;padding:9px 12px;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button .tab-ico{display:inline-grid;place-items:center;opacity:.7;flex:none}
+.tabs button.on .tab-ico{opacity:1}
+.tabs button:hover .tab-ico{opacity:.95}
 .tabs button.on{color:var(--brand);border-color:var(--brand)}
 .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .toolbar .grow{flex:1}

@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataTable, type Column } from "@/components/DataTable";
-import { ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { ErrorBox, Field, formValues, ImportButton, Modal, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { allows, isStaff, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -59,9 +59,9 @@ function Invoices() {
           </>
         )} />
       <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={direction === "ar"} className={direction === "ar" ? "on" : ""} onClick={() => setDirection("ar")}>Client invoices (AR)</button>
-        <button role="tab" aria-selected={direction === "ap"} className={direction === "ap" ? "on" : ""} onClick={() => setDirection("ap")}>Vendor & 1099 invoices (AP)</button>
-        {isStaff(workspace?.role) && <button role="tab" aria-selected={credits} className={credits ? "on" : ""} onClick={() => setDirection("credits")}>Credit notes</button>}
+        <button role="tab" aria-selected={direction === "ar"} className={direction === "ar" ? "on" : ""} onClick={() => setDirection("ar")}><SubTabIcon tabKey="ar" label="Client invoices" />Client invoices (AR)</button>
+        <button role="tab" aria-selected={direction === "ap"} className={direction === "ap" ? "on" : ""} onClick={() => setDirection("ap")}><SubTabIcon tabKey="ap" label="Vendor invoices" />Vendor &amp; 1099 invoices (AP)</button>
+        {isStaff(workspace?.role) && <button role="tab" aria-selected={credits} className={credits ? "on" : ""} onClick={() => setDirection("credits")}><SubTabIcon tabKey="credits" label="Credit notes" />Credit notes</button>}
       </div>
       <ErrorBox error={error} retry={reload} />
       {credits ? (

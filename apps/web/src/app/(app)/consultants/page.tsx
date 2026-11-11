@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { label } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -55,7 +55,7 @@ function Consultants() {
           <button className="btn pri" onClick={() => setAdding(true)}>Onboard someone</button>
         </>} />
       <div className="tabs">
-        {TABS.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t}</button>)}
+        {TABS.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}><SubTabIcon tabKey={k || "all_people"} label={t} />{t}</button>)}
       </div>
       <ErrorBox error={error} retry={reload} />
       <DataTable id={`consultants-${tab}`} rows={data} columns={columns} onRowClick={(r) => router.push(`/consultants/${r.id}`)}
