@@ -127,7 +127,17 @@ async def _second_step(conn, claims: Claims) -> None:
         raise ApiError(403, "mfa_required", "You turned on two-step verification — enter your code to continue.")
 
 
-def _gate(request: Request, state) -> None:
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
+def _suspended(request: Request, status: str | None, ctx: Ctx) -> None:
+    """A suspended company can still sign in and look around; nothing can be changed. Platform admins are exempt."""
+    if status == "suspended" and request.method not in SAFE_METHODS and not ctx.is_platform_admin:
+        raise ApiError(403, "company_suspended", "This company is suspended. Contact the myTrakIn admin.")
+
+
+def _gate(request: Request, state, ctx: Ctx) -> None:
+    _suspended(request, state["status"], ctx)
     if state["status"] == "onboarding" and not request.url.path.startswith(PENDING_OK):
         raise ApiError(403, "pending_activation",
                        "Your company is waiting for activation by the myTrakIn team. "
@@ -155,7 +165,7 @@ async def tenant_db(request: Request, claims: Claims = Depends(current_claims)) 
         await _second_step(conn, claims)
         state = await _account_state(conn, ctx)
         ctx.is_owner = bool(state["is_owner"])
-        _gate(request, state)
+        _gate(request, state, ctx)
         ctx.permissions = permissions.effective(state["role_permissions"], state["permission_overrides"])
         ctx.extra["custom_role"] = state["custom_role"]
         permissions.check(ctx.permissions, request.method, request.url.path, is_owner=ctx.is_owner)
@@ -203,6 +213,7 @@ async def onboarding_db(request: Request, claims: Claims = Depends(current_claim
         ctx = Ctx(user_id=claims.user_id, tenant_id=row["tenant_id"], role=row["role"], email=claims.email,
                   company_id=row["company_id"], consultant_id=row["consultant_id"],
                   membership_id=row["membership_id"], is_platform_admin=row["is_platform_admin"], ip=ip, user_agent=ua)
+        _suspended(request, await conn.scalar(text("select status from mytrakin.tenants where id = :t"), {"t": ctx.tenant_id}), ctx)
         if ctx.membership_id is not None:
             # "Last active" for the users list and the owner console; written at most every 5 minutes.
             await conn.execute(text("""update mytrakin.memberships set last_active_at = now()

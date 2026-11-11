@@ -714,6 +714,8 @@ async def update_member(company_id: UUID, member_id: UUID, body: MemberPatch, db
         raise bad_request("Nothing to change")
     if target["company_role"] == "super_admin" and not (db.ctx.allows("tenant_admin") or role == "super_admin"):
         raise forbidden("Only a Super Admin can change a Super Admin")
+    if target["company_role"] == "owner" and not _privileged_granter(db, role):
+        raise forbidden("Only an owner can change another owner")
     if fields.get("company_role") == "super_admin" and not (db.ctx.allows("tenant_admin") or role == "super_admin"):
         raise forbidden("Only a Super Admin can grant that role")
     if fields.get("company_role") == "owner" and not _privileged_granter(db, role):
@@ -740,6 +742,8 @@ async def remove_member(company_id: UUID, member_id: UUID, db: TenantDb = Depend
         raise not_found("Member")
     if target["company_role"] == "super_admin" and not (db.ctx.allows("tenant_admin") or role == "super_admin"):
         raise forbidden("Only a Super Admin can remove a Super Admin")
+    if target["company_role"] == "owner" and not _privileged_granter(db, role):
+        raise forbidden("Only an owner can remove another owner")
     if target["company_role"] in ("owner", "super_admin") and await _active_owners(db, company_id, exclude=member_id) < 1:
         raise bad_request("A company needs at least one active owner — assign another first")
     await db.run("update company_members set status = 'removed' where id = :m", {"m": member_id})
