@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Old prototype removed (2026-11-11):** the unused Express server and HTML mockup (`backend/`, `frontend/`), the root
+  `package.json`, the old database scripts in `scripts/*.mjs` and the old `supabase/*.sql` files are gone. The app is
+  `apps/api` + `apps/web` + `supabase/migrations`; the old files remain in git history (commit 9824e73).
+
 - **Security review fixes (2026-11-11):** inviting someone who already has a login no longer sets a password for
   them (temporary passwords only for brand-new users); 5 wrong e-signature or company e-mail codes now really cancel
   the code; policy names and versions accept only letters, numbers, spaces, dashes and dots, and policy files must be
