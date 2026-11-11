@@ -31,6 +31,13 @@
   get 403. Amounts of invoices other workspaces sent us are shown to finance/admin only, like our own AP.
 - **Signing admins of a company are listed only to workspaces that work with it (2026-11-11):** before that the
   sender uses the company's contact address.
+- **Role-based access fixes (2026-11-11):** accepting or rejecting MSAs, renewals and SOWs (and asking for a renewal) is
+  limited to admin, legal and account-manager roles, in the API and in the database functions (migration
+  `20261111000200_contract_responses_by_role.sql`). The payment flow and client payables hide the client's bill amounts
+  and hours from roles that do not see bill rates. Import and export follow the per-module permissions; the placements
+  export blanks pay rates for account managers and the companies export blanks EINs for non-finance roles. Credit notes
+  follow the Invoices permission. `/me/documents/{id}/link` follows the Compliance permission and refuses deleted files.
+  The consultant picker finds a person only by exact e-mail address. Tests: `test_security_roles.py`.
 
 - **Security patching (2026-11-07):** Next.js 16.4.5 (fixes the October 2026 Next.js advisories) and pypdf ≥ 6.21.4.
   The public registration form now accepts only real PDF, JPEG, PNG or WebP files (type and leading bytes checked

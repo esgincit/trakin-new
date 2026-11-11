@@ -80,7 +80,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
   useEffect(() => {
     if (person) return;
     const q = term.trim();
-    if (q.length < 2) { setFound([]); return; }
+    if (!q.includes("@")) { setFound([]); return; }
     let live = true;
     setLooking(true);
     const t = setTimeout(() => {
@@ -126,7 +126,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
               </div>
             ) : (
               <>
-                <input id="who" className="ctl" autoFocus value={term} placeholder="Name, U-ID or e-mail"
+                <input id="who" className="ctl" autoFocus value={term} placeholder="Their exact e-mail address"
                   onChange={(e) => setTerm(e.target.value)} role="combobox" aria-expanded={found.length > 0}
                   aria-controls="who-list" autoComplete="off" />
                 {looking && <p className="note" style={{ marginTop: -6 }}>Searching…</p>}

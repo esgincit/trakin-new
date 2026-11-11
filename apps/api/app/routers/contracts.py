@@ -142,6 +142,7 @@ class RenewalDecisionIn(BaseModel):
 @router.post("/agreements/{agreement_id}/respond")
 async def respond_to_agreement(agreement_id: UUID, body: RespondIn, db: TenantDb = Depends(tenant_db)):
     """The company an MSA was sent to accepts it (it comes into force) or rejects it with a note."""
+    db.ctx.require("legal", "account_manager")
     await db.run("select mytrakin.respond_to_agreement(:a, :d, :n)",
                  {"a": agreement_id, "d": "accept" if body.decision == "accept" else "reject", "n": body.note})
     return await get_agreement(agreement_id, db)
@@ -150,6 +151,7 @@ async def respond_to_agreement(agreement_id: UUID, body: RespondIn, db: TenantDb
 @router.post("/agreements/{agreement_id}/renewals", status_code=201)
 async def request_renewal(agreement_id: UUID, body: RenewalIn, db: TenantDb = Depends(tenant_db)):
     """Either company asks to renew an MSA until a new end date. The other company accepts or declines."""
+    db.ctx.require("legal", "account_manager")
     rid = await db.val("select mytrakin.request_renewal(:a, :e, :n)",
                        {"a": agreement_id, "e": body.expires_on, "n": body.note})
     return {"id": rid, "status": "pending"}
@@ -158,6 +160,7 @@ async def request_renewal(agreement_id: UUID, body: RenewalIn, db: TenantDb = De
 @router.post("/agreements/renewals/{renewal_id}/respond")
 async def respond_to_renewal(renewal_id: UUID, body: RenewalDecisionIn, db: TenantDb = Depends(tenant_db)):
     """Accept a renewal (the end date moves to the one proposed) or decline it with a note."""
+    db.ctx.require("legal", "account_manager")
     await db.run("select mytrakin.respond_to_renewal(:r, :d, :n)",
                  {"r": renewal_id, "d": "accept" if body.decision == "accept" else "decline", "n": body.note})
     return {"id": renewal_id, "decision": body.decision}
@@ -390,6 +393,7 @@ async def submit_sow(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
 async def respond_to_sow(sow_id: UUID, body: SowDecisionIn, db: TenantDb = Depends(tenant_db)):
     """The company a SOW was sent to approves it (it comes into force) or turns it down
     with a reason."""
+    db.ctx.require("legal", "account_manager")
     await db.run("select mytrakin.respond_to_sow(:s, :d, :n)",
                  {"s": sow_id, "d": body.decision, "n": body.note})
     return await get_sow(sow_id, db)

@@ -19,7 +19,7 @@ MODULES: dict[str, tuple[str, tuple[str, ...]]] = {
     "projects": ("Projects & placements", ("/projects", "/placements")),
     "consultants": ("Consultants", ("/consultants",)),
     "timesheets": ("Timesheets", ("/timesheets",)),
-    "invoices": ("Invoices & payments", ("/invoices", "/vendor-invoices", "/payment-flow", "/payment-runs", "/payments")),
+    "invoices": ("Invoices & payments", ("/invoices", "/vendor-invoices", "/payment-flow", "/payment-runs", "/payments", "/credit-notes")),
     "pay": ("Payroll, expenses, time off & 1099", ("/expenses", "/form-1099", "/payroll", "/referrals", "/time-off")),
     "compliance": ("Compliance & policies", ("/compliance", "/files", "/policies", "/registrations", "/reminder-rules")),
     "data": ("Import & export", ("/data",)),
@@ -47,9 +47,14 @@ def check(perms: dict[str, str], method: str, path: str, *, is_owner: bool) -> N
     need = required(method, path)
     if need is None or is_owner:
         return
-    module, action = need
+    require_module(perms, need[0], need[1])
+
+
+def require_module(perms: dict[str, str], module: str, action: str, *, is_owner: bool = False) -> None:
+    """Raise unless the user's level for `module` allows `action` (read / write)."""
     have = perms.get(module, "write")
-    if LEVELS.index(have) < LEVELS.index(action):
-        label = MODULES[module][0]
-        raise ApiError(403, "no_permission",
-                       f"You have view-only access to {label}." if have == "read" else f"You don't have access to {label}.")
+    if is_owner or LEVELS.index(have) >= LEVELS.index(action):
+        return
+    label = MODULES[module][0]
+    raise ApiError(403, "no_permission",
+                   f"You have view-only access to {label}." if have == "read" else f"You don't have access to {label}.")

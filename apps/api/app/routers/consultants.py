@@ -47,8 +47,8 @@ async def engagement_types(db: TenantDb = Depends(tenant_db)):
 
 @router.get("/candidates")
 async def consultant_candidates(db: TenantDb = Depends(tenant_db), q: str = Query(..., min_length=2, max_length=120)):
-    """Any registered myTrakIn user, to pick from when onboarding a consultant.
-    Search by name, U-ID or e-mail; every result shows its U-ID.
+    """A registered myTrakIn user, to pick from when onboarding a consultant.
+    Found only by their exact e-mail address, so other companies' people cannot be browsed.
 
     A consultant must be someone who already has an account somewhere on the platform:
     their name, e-mail and mobile come from their profile rather than being typed again,
@@ -56,8 +56,7 @@ async def consultant_candidates(db: TenantDb = Depends(tenant_db), q: str = Quer
     workspace. `already_consultant` flags the ones on the books here already,
     `in_workspace` the ones who already have access here in some other role.
 
-    A term is required (2 characters or more) so this cannot be used to page through
-    everybody on the platform.
+    The exact e-mail is required, so this cannot be used to page through everybody on the platform.
     """
     db.ctx.require("hr", "account_manager", "legal")
     return await db.all(
@@ -70,13 +69,7 @@ async def consultant_candidates(db: TenantDb = Depends(tenant_db), q: str = Quer
                               where cm.tenant_id = :t and cm.user_id = p.id and cm.status = 'active') as in_workspace
              from profiles p
              left join user_codes uc on uc.user_id = p.id
-            where p.full_name ilike '%' || cast(:q as text) || '%'
-               or p.email ilike '%' || cast(:q as text) || '%'
-               or uc.code ilike '%' || cast(:q as text) || '%'
-            order by case when uc.code = cast(:q as text)
-                             or p.email ilike cast(:q as text) || '%'
-                             or p.full_name ilike cast(:q as text) || '%' then 0 else 1 end,
-                     p.full_name nulls last
+            where lower(p.email) = lower(cast(:q as text))
             limit 25""",
         {"t": db.ctx.tenant_id, "q": q.strip()})
 
