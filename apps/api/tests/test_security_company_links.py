@@ -61,22 +61,23 @@ async def _user(role: str, company_id=None) -> dict[str, str]:
 
 
 # ----------------------------------------------------------------------------- invite / DB guard
-async def test_invite_links_only_companies_and_consultants_of_this_workspace(client, auth):
+async def test_invite_links_only_companies_and_consultants_of_this_workspace(client):
     _, foreign_co, foreign_consultant = await _other_workspace("Invite Target")
-    refused = await client.post("/users", headers=auth("admin"), json={
+    admin = await _user("tenant_admin")
+    refused = await client.post("/users", headers=admin, json={
         "email": f"rep-{uuid.uuid4().hex[:6]}@links.example", "role": "client_user", "company_id": str(foreign_co)})
     assert refused.status_code == 400, refused.text
-    refused = await client.post("/users", headers=auth("admin"), json={
+    refused = await client.post("/users", headers=admin, json={
         "email": f"k-{uuid.uuid4().hex[:6]}@links.example", "role": "consultant",
         "consultant_id": str(foreign_consultant)})
     assert refused.status_code == 400, refused.text
 
     own = await _local_company("Own Client")
-    ok = await client.post("/users", headers=auth("admin"), json={
+    ok = await client.post("/users", headers=admin, json={
         "email": f"rep-{uuid.uuid4().hex[:6]}@links.example", "role": "client_user", "company_id": str(own)})
     assert ok.status_code == 201, ok.text
     own_consultant = await _q("select consultant_id from mytrakin.memberships where invited_email = 'ravi.kumar@example.com'")
-    ok = await client.post("/users", headers=auth("admin"), json={
+    ok = await client.post("/users", headers=admin, json={
         "email": f"k-{uuid.uuid4().hex[:6]}@links.example", "role": "consultant", "consultant_id": str(own_consultant)})
     assert ok.status_code == 201, ok.text
 
@@ -103,8 +104,55 @@ async def test_a_company_with_an_accepted_msa_can_be_linked():
                       values (:t, :code, 'msa', :c, 'buyer', 'pending') returning id""",
                    t=other, code=f"MSA-{uuid.uuid4().hex[:6]}", c=own_co)
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is False
-    await _q("update mytrakin.agreements set status = 'accepted' where id = :a returning id", a=aid)
+    await _q("""update mytrakin.agreements set status = 'accepted',
+                       decided_by = (select id from auth.users where email = 'admin@example.com')
+                 where id = :a returning id""", a=aid)
     assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is True
+
+
+async def test_an_msa_the_other_company_never_confirmed_does_not_count():
+    """An MSA we record ourselves (imported / 'active', or 'accepted' by one of our own
+    people) is no proof that the other company works with us."""
+    _, foreign_co, _ = await _other_workspace("Unconfirmed")
+    home = await _home()
+    admin = await _q("select id from auth.users where email = 'admin@example.com'")
+    aid = await _q("""insert into mytrakin.agreements (tenant_id, code, kind, company_id, tenant_side, status, source)
+                      values (:t, :code, 'msa', :c, 'supplier', 'active', 'imported') returning id""",
+                   t=home, code=f"MSA-{uuid.uuid4().hex[:6]}", c=foreign_co)
+    assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is False
+    await _q("update mytrakin.agreements set status = 'accepted', decided_by = :d where id = :a returning id",
+             d=admin, a=aid)
+    assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is False
+    # Accepted by a member of that company: now it counts.
+    member = await _q("insert into auth.users (email) values (:e) returning id", e=f"cp-{uuid.uuid4().hex[:6]}@links.example")
+    await _q("""insert into mytrakin.company_members (tenant_id, company_id, user_id, company_role, status)
+                select tenant_id, id, :u, 'admin', 'active' from mytrakin.companies where id = :c returning id""",
+             u=member, c=foreign_co)
+    await _q("update mytrakin.agreements set decided_by = :d where id = :a returning id", d=member, a=aid)
+    assert await _q("select mytrakin.membership_link_ok(:t, :c, null)", t=home, c=foreign_co) is True
+
+
+async def test_signer_rows_typed_by_a_sender_do_not_unlock_a_companys_admins():
+    _, foreign_co, _ = await _other_workspace("Signers Of")
+    home = await _home()
+    member = await _q("insert into auth.users (email) values (:e) returning id", e=f"adm-{uuid.uuid4().hex[:6]}@links.example")
+    await _q("""insert into mytrakin.company_members (tenant_id, company_id, user_id, company_role, status)
+                select tenant_id, id, :u, 'admin', 'active' from mytrakin.companies where id = :c returning id""",
+             u=member, c=foreign_co)
+    env = await _q("""insert into mytrakin.envelopes (tenant_id, number, title, status)
+                      values (:t, :n, 'Typed signer', 'completed') returning id""", t=home, n=f"ENV-{uuid.uuid4().hex[:6]}")
+    await _q("""insert into mytrakin.envelope_signers (tenant_id, envelope_id, position, name, email, company_id, status)
+                values (:t, :e, 1, 'Anyone', 'anyone@links.example', :c, 'signed') returning id""",
+             t=home, e=env, c=foreign_co)
+    async with get_engine().connect() as conn:
+        uid = (await conn.execute(text("select id from auth.users where email = 'admin@example.com'"))).scalar()
+        await conn.execute(text("select mytrakin.begin_request(:u, :t, 'legal')"), {"u": uid, "t": home})
+        rows = (await conn.execute(text("select * from mytrakin.company_signing_admins(:c)"), {"c": foreign_co})).all()
+        local = (await conn.execute(text(
+            "select count(*) from mytrakin.company_signing_admins((select id from mytrakin.companies where name = 'BrightPath Tech LLC'))"))).scalar()
+        await conn.rollback()
+    assert rows == []
+    assert local > 0          # a company record of our own workspace still lists its admins
 
 
 async def test_consultant_login_link_never_touches_another_workspaces_record():
@@ -151,7 +199,7 @@ async def test_cross_workspace_helpers_trust_only_this_workspaces_companies():
 
 
 # ----------------------------------------------------------------------------- payments
-async def test_only_finance_records_a_payment_on_another_workspaces_invoice(client, auth):
+async def test_only_finance_records_a_payment_on_another_workspaces_invoice(client):
     invoice = uuid.uuid4()
     for role in ("viewer", "approver", "hr"):
         r = await client.post(f"/invoices/{invoice}/client-payment", headers=await _user(role),
@@ -162,7 +210,7 @@ async def test_only_finance_records_a_payment_on_another_workspaces_invoice(clie
                           json={"amount": "10", "paid_on": date.today().isoformat(), "method": "ACH"})
     assert r.status_code == 403, r.text
     # Finance gets past the role check (this invoice simply doesn't exist).
-    r = await client.post(f"/invoices/{invoice}/client-payment", headers=auth("finance"),
+    r = await client.post(f"/invoices/{invoice}/client-payment", headers=await _user("finance"),
                           json={"amount": "10", "paid_on": date.today().isoformat(), "method": "ACH"})
     assert r.status_code == 404, r.text
 

@@ -3,8 +3,8 @@
 ## Unreleased
 
 - **A user's company link must be a company the workspace works with (2026-11-11):** inviting a vendor or client
-  contact accepts only one of the workspace's own company records, or a company of another workspace that accepted
-  an MSA / subcontract with it; a consultant login links only to the workspace's own consultant record (a vendor
+  contact accepts only one of the workspace's own company records, or a company of another workspace that itself
+  confirmed an MSA / subcontract with it (accepted by that company's own people, not just recorded by us); a consultant login links only to the workspace's own consultant record (a vendor
   company can still invite its 1099 contractor, who sees only their own timesheets, contracts and documents there).
   The database enforces the same rule on every insert and link change, and existing links that fail it were removed
   (representatives and consultants deactivated, staff keep access). Cross-workspace views (shared agreements, SOWs,

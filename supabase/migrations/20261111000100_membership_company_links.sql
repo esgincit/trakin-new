@@ -8,11 +8,12 @@
 --
 --     company_id     a company record of this workspace (companies.tenant_id = the
 --                    membership's tenant), or a company of another workspace that this
---                    workspace has an MSA / subcontract with which that company ACCEPTED
---                    (status accepted or active; an MSA with a company always starts
---                    'pending' and only the counterparty can accept it). Drafts, pending
---                    or rejected agreements, NDAs and SOWs (which the sender can record
---                    as active on its own) do not count.
+--                    workspace has an MSA / subcontract with that the OTHER side confirmed:
+--                    either we sent it and a person of that company (its company member,
+--                    or staff of the workspace that is that company) accepted it, or that
+--                    company's own workspace sent it to our company and it was accepted.
+--                    Drafts, pending, rejected, imported or manually 'active' agreements,
+--                    NDAs and SOWs (which a sender can record on its own) do not count.
 --     consultant_id  a consultant record of this workspace. A vendor company may invite
 --                    its 1099 contractor this way; the contractor's consultant role only
 --                    reaches their own timesheets, contracts and documents there.
@@ -44,9 +45,23 @@ language sql stable security definer set search_path = mytrakin, public, extensi
                  join mytrakin.tenants at on at.id = a.tenant_id
                  join mytrakin.tenants mine on mine.id = p_tenant
                 where a.kind in ('msa', 'subcontract') and a.status in ('accepted', 'active')
-                  and ((a.tenant_id = p_tenant and a.company_id = p_company)
-                    or (a.company_id = p_company and coalesce(a.initiator_company_id, at.company_id) = mine.company_id)
-                    or (a.company_id = mine.company_id and coalesce(a.initiator_company_id, at.company_id) = p_company))))
+                  and a.decided_by is not null
+                  and (
+                    -- We sent it: someone of THAT company (its member, or staff of the
+                    -- workspace that is that company) accepted it.
+                    (a.tenant_id = p_tenant and a.company_id = p_company
+                     and (exists (select 1 from mytrakin.company_members cm
+                                   where cm.company_id = p_company and cm.user_id = a.decided_by
+                                     and cm.status = 'active')
+                          or exists (select 1 from mytrakin.memberships dm
+                                       join mytrakin.tenants dt on dt.id = dm.tenant_id
+                                      where dt.company_id = p_company and dm.user_id = a.decided_by
+                                        and dm.status = 'active'
+                                        and dm.role in ('tenant_admin', 'finance', 'account_manager', 'legal', 'hr'))))
+                    -- That company's own workspace sent it to our company and we accepted.
+                 or (a.tenant_id <> p_tenant and at.company_id = p_company
+                     and coalesce(a.initiator_company_id, p_company) = p_company
+                     and a.company_id = mine.company_id))))
      and (p_consultant is null
           or exists (select 1 from mytrakin.consultants k where k.id = p_consultant and k.tenant_id = p_tenant))
 $$;
@@ -319,8 +334,9 @@ end $$;
 
 -- 8. Signing admins of a company: only for a workspace that works with it -------------
 -- A workspace works with a company when it is one of its own records, a company the
--- caller acts for, a company with an accepted MSA / subcontract with this workspace, or
--- a company whose signer already signed one of this workspace's envelopes. Before that,
+-- caller acts for, or a company with a confirmed MSA / subcontract with this workspace
+-- (membership_link_ok). Signer rows of envelopes are typed by the sender and prove
+-- nothing, so they do not count. Before that,
 -- the sender uses the company's public contact address (company_counterparty()).
 -- Representatives are listed only from the company's own workspace.
 create or replace function mytrakin.company_signing_admins(p_company_id uuid)
@@ -329,10 +345,7 @@ language sql stable security definer set search_path = mytrakin, public, extensi
   with related as (
     select (exists (select 1 from mytrakin.companies c where c.id = p_company_id and c.tenant_id = mytrakin.ctx_tenant())
          or p_company_id = any (mytrakin.my_company_ids())
-         or mytrakin.membership_link_ok(mytrakin.ctx_tenant(), p_company_id, null)
-         or exists (select 1 from mytrakin.envelope_signers s
-                     where s.tenant_id = mytrakin.ctx_tenant() and s.company_id = p_company_id
-                       and s.status = 'signed')) as ok
+         or mytrakin.membership_link_ok(mytrakin.ctx_tenant(), p_company_id, null)) as ok
   ),
   admins as (
     select cm.user_id,
