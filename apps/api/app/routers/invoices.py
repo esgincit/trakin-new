@@ -110,8 +110,8 @@ async def list_invoices(db: TenantDb = Depends(tenant_db), direction: str = Quer
     out = [_hide(r, db.ctx) for r in rows]
     if direction == "ap" and db.ctx.tenant_id is not None:
         # What other workspaces (e.g. our placing company/vendor-chain) invoice US for —
-        # read-only mirror; this tenant is the billed party, so the amount is ours to see.
-        out.extend({**m, "party": m["placed_by"], "direction": "ap"}
+        # read-only mirror; this tenant is the billed party. Amounts are AP money: finance only.
+        out.extend(_hide({**m, "party": m["placed_by"], "direction": "ap"}, db.ctx)
                    for m in await db.all("select * from mytrakin.client_payables()"))
     return out
 
@@ -122,7 +122,7 @@ async def client_payable(db: TenantDb = Depends(tenant_db)):
     Shown under the AP tab and the payment flow; no editing or payments here."""
     if db.ctx.tenant_id is None or db.ctx.role in ("public", "anonymous"):
         raise ApiError(403, "forbidden", "Open a workspace to see its payables")
-    return await db.all("select * from mytrakin.client_payables()")
+    return [_hide({**m, "direction": "ap"}, db.ctx) for m in await db.all("select * from mytrakin.client_payables()")]
 
 
 @router.get("/invoices/{invoice_id}")
@@ -134,7 +134,13 @@ async def get_invoice(invoice_id: UUID, db: TenantDb = Depends(tenant_db)):
         shared = await db.val("select mytrakin.client_payable_detail(:id)", {"id": invoice_id})
         if shared is None:
             raise not_found("Invoice")
-        return shared if isinstance(shared, dict) else json.loads(shared)
+        shared = shared if isinstance(shared, dict) else json.loads(shared)
+        if not db.ctx.allows("finance"):
+            # What we owe another workspace is AP money: finance-only, like our own AP (RULE-02).
+            for k in ("amount", "rate", "paid", "balance", "credited"):
+                shared[k] = None
+            shared["payments"], shared["credits"] = [], []
+        return shared
     # Consultants never see what the client is billed (RULE-02); a 1099 contractor may open their own payable only.
     if db.ctx.role == "consultant" and not (row["direction"] == "ap" and await db.val(
             "select consultant_id = :c from invoices where id = :id", {"c": db.ctx.consultant_id, "id": invoice_id})):
@@ -299,14 +305,16 @@ async def _notify_provider_of_client_payment(db: TenantDb, invoice_id: UUID, res
 async def client_payment(invoice_id: UUID, body: ClientPaymentIn, db: TenantDb = Depends(tenant_db)):
     """The company an invoice was sent to records the payment it made (full or partial).
     The invoice stays in the placing company's workspace, which acknowledges the payment."""
-    if db.ctx.role in ("consultant", "public", "anonymous"):
-        raise ApiError(403, "forbidden", "Only the company billed on the invoice can record this payment")
+    if not db.ctx.allows("finance"):
+        raise ApiError(403, "forbidden", "Only finance can record a payment")
     res = await db.val(
         "select mytrakin.client_record_payment(:i, :a, :d, :m, :r, :u)",
         {"i": invoice_id, "a": body.amount, "d": body.paid_on, "m": body.method,
          "r": body.reference, "u": db.ctx.user_id})
     res = res if isinstance(res, dict) else json.loads(res)
     err = res.get("error")
+    if err == "forbidden":
+        raise ApiError(403, "forbidden", "Only finance can record a payment")
     if err == "not_found":
         raise not_found("Invoice")
     if err == "not_ours":

@@ -787,18 +787,23 @@ async def approve(timesheet_id: UUID, db: TenantDb = Depends(tenant_db)):
         """select distinct m.company_id from mytrakin.memberships m
             where m.tenant_id = :t and m.status = 'active' and m.company_id is not null""",
         {"t": ts["tenant_id"]})}
-    is_placed_by = db.ctx.tenant_id is not None and ts["tenant_id"] == db.ctx.tenant_id
-    is_end_client = db.ctx.company_id is not None and db.ctx.company_id in end_clients
+    # The two approvals are separate: the placing company's staff (approver roles) give the
+    # placed-by approval; the end client's representative (client_user) gives the end-client
+    # approval, only for weeks on its own placements and only after the placed-by approval.
+    is_end_client = db.ctx.role == "client_user" and db.ctx.company_id in end_clients
+    is_placed_by = (not is_end_client and db.ctx.tenant_id is not None and ts["tenant_id"] == db.ctx.tenant_id)
     if not is_placed_by and not is_end_client:
         raise ApiError(403, "forbidden", "Your company is not part of this timesheet's placement chain")
-    if is_placed_by and not is_end_client:
+    if is_placed_by:
         db.ctx.require(*APPROVER_ROLES)
-    await _contract_gate(db, timesheet_id)
-
     current = await db.one("select placed_by_approved, end_client_approved from timesheets where id = :id", {"id": timesheet_id})
-    if is_placed_by and not is_end_client and current["placed_by_approved"]:
+    if is_placed_by and current["placed_by_approved"]:
         raise ApiError(409, "already_approved",
                        "Your company already approved this week — no further approval is needed here.")
+    if is_end_client and not current["placed_by_approved"]:
+        raise ApiError(409, "awaiting_placed_by",
+                       "The placing company approves this week first — it comes to you after that.")
+    await _contract_gate(db, timesheet_id)
 
     new_pb = current["placed_by_approved"] or is_placed_by
     new_ec = current["end_client_approved"] or is_end_client

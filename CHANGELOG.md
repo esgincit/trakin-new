@@ -15,6 +15,22 @@
   later; migration `20261111000300`). Only an owner can demote or remove another owner; a platform admin can still
   replace a company's owner. Changing the password needs the current password plus the new one typed twice. After
   sign-in people go only to pages inside myTrakIn, and login error messages use our own wording, never text from the address.
+- **A user's company link must be a company the workspace works with (2026-11-11):** inviting a vendor or client
+  contact accepts only one of the workspace's own company records, or a company of another workspace that itself
+  confirmed an MSA / subcontract with it (accepted by that company's own people, not just recorded by us); a consultant login links only to the workspace's own consultant record (a vendor
+  company can still invite its 1099 contractor, who sees only their own timesheets, contracts and documents there).
+  The database enforces the same rule on every insert and link change, and existing links that fail it were removed
+  (representatives and consultants deactivated, staff keep access). Cross-workspace views (shared agreements, SOWs,
+  end-client timesheets, invoices billed to us) count a representative's company only when it is the workspace's
+  own record, and the workspace's own company only for its staff. Migration `20261111000100_membership_company_links.sql`.
+- **Two timesheet approvals stay separate (2026-11-11):** the end client's approval no longer also records the
+  placing company's approval; it comes after the placing company's approver (409 `awaiting_placed_by` before that),
+  and an end client can only approve, link or decide weeks whose hours are on its own placements.
+- **Only finance records payments on another workspace's invoice (2026-11-11):** `POST /invoices/{id}/client-payment`
+  needs finance or admin (also checked in the database); viewers, approvers, HR, external contacts and consultants
+  get 403. Amounts of invoices other workspaces sent us are shown to finance/admin only, like our own AP.
+- **Signing admins of a company are listed only to workspaces that work with it (2026-11-11):** before that the
+  sender uses the company's contact address.
 
 - **Security patching (2026-11-07):** Next.js 16.4.5 (fixes the October 2026 Next.js advisories) and pypdf ≥ 6.21.4.
   The public registration form now accepts only real PDF, JPEG, PNG or WebP files (type and leading bytes checked

@@ -77,6 +77,11 @@ async def invite(body: InviteIn, db: TenantDb = Depends(tenant_db)):
         raise bad_request("Choose the company this person represents")
     if body.role == "consultant" and body.consultant_id is None:
         raise bad_request("Choose the consultant record this login belongs to")
+    # Only a company this workspace works with, and only its own consultant records
+    # (the database enforces the same rule: mytrakin.membership_link_ok).
+    if not await db.val("select mytrakin.membership_link_ok(:t, :co, :con)",
+                        {"t": db.ctx.tenant_id, "co": body.company_id, "con": body.consultant_id}):
+        raise bad_request("Pick a company or consultant from this workspace's own lists")
 
     temp_password: str | None = None
     existing_user = await db.val("select id from profiles where email = :e", {"e": body.email})
