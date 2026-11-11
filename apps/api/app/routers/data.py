@@ -17,6 +17,7 @@ from fastapi.responses import Response
 from sqlalchemy.exc import DBAPIError
 
 from ..deps import TenantDb, tenant_db
+from ..permissions import require_module
 from ..errors import ApiError, bad_request, forbidden, not_found
 from ..services.csv_io import TEMPLATES, parse, to_csv, validate
 
@@ -24,6 +25,20 @@ router = APIRouter(prefix="/data", tags=["import & export"])
 
 MAX_IMPORT_BYTES = 4 * 1024 * 1024     # Vercel request bodies are limited to 4.5 MB
 MAX_IMPORT_ROWS = 5000
+
+# The module (owner-configurable permission) each import / export belongs to.
+MODULE_OF = {"companies": "companies", "consultants": "consultants", "projects": "projects", "placements": "projects",
+             "agreements": "contracts", "sows": "contracts", "ar_invoices": "invoices", "ap_invoices": "invoices",
+             "payments": "invoices", "timesheets": "timesheets", "tracked_documents": "compliance", "payroll": "pay",
+             "audit": "audit", "users": "users"}
+
+
+def _module_ok(ctx, key: str, action: str) -> bool:
+    try:
+        require_module(ctx.permissions, MODULE_OF[key], action, is_owner=ctx.is_owner)
+        return True
+    except ApiError:
+        return False
 
 
 def _csv_response(text: str, filename: str) -> Response:
@@ -35,7 +50,7 @@ def _csv_response(text: str, filename: str) -> Response:
 @router.get("/templates")
 async def templates(db: TenantDb = Depends(tenant_db)):
     return [
-        {"key": t.key, "label": t.label, "can_import": db.ctx.allows(*t.roles),
+        {"key": t.key, "label": t.label, "can_import": db.ctx.allows(*t.roles) and _module_ok(db.ctx, t.key, "write"),
          "columns": [{"name": c.name, "required": c.required, "kind": c.kind, "choices": list(c.choices)} for c in t.columns]}
         for t in TEMPLATES.values()
     ]
@@ -56,6 +71,7 @@ async def import_csv(key: str, file: UploadFile = File(), dry_run: bool = Query(
         raise not_found("Template")
     if not db.ctx.allows(*template.roles):
         raise forbidden("Your role can't import this data")
+    require_module(db.ctx.permissions, MODULE_OF[key], "write", is_owner=db.ctx.is_owner)
 
     raw = await file.read()
     if len(raw) > MAX_IMPORT_BYTES:
@@ -236,7 +252,15 @@ async def export_csv(key: str, db: TenantDb = Depends(tenant_db)):
     roles, sql = EXPORTS[key]
     if not db.ctx.allows(*roles):
         raise forbidden("Your role can't export this data")
+    require_module(db.ctx.permissions, MODULE_OF[key], "read", is_owner=db.ctx.is_owner)
     rows = await db.all(sql)
+    # Same masking as the screens: EIN for finance only, rates by role (RULE-02).
+    hide = {"EIN": not db.ctx.allows("finance"), "AP pay rate": not db.ctx.sees_pay_rate,
+            "AR bill rate": not db.ctx.sees_bill_rate}
+    for r in rows:
+        for col, hidden in hide.items():
+            if hidden and col in r:
+                r[col] = None
     header = list(rows[0].keys()) if rows else _header_for(key)
     return _csv_response(to_csv([header, *[list(r.values()) for r in rows]]), f"mytrakin-{key}-{date.today():%Y-%m-%d}.csv")
 
