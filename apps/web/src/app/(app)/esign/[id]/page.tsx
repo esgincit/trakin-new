@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { Chip, ErrorBox, Loading, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Loading, PageHead, useAction, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { dateTime, label } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
@@ -13,6 +13,7 @@ export default function EnvelopeDetail() {
   const { workspace } = useSession();
   const { data: env, error, loading, reload } = useApi(`/envelopes/${id}`);
   const { run, busy } = useAction();
+  const toast = useToast();
   if (loading) return <Loading rows={6} />;
   if (error) return <ErrorBox error={error} retry={reload} />;
   const canSend = allows(workspace, "legal", "account_manager", "finance", "hr");
@@ -28,8 +29,22 @@ export default function EnvelopeDetail() {
         actions={<>
           <button className="btn" onClick={() => router.back()}>Back</button>
           <button className="btn" onClick={open}>{env.status === "completed" ? "Download signed PDF" : "View document"}</button>
-          {canSend && env.status === "draft" && <button className="btn pri" disabled={busy} onClick={async () => { if (await run(() => api(`/envelopes/${id}/send`, { method: "POST" }), "Sent")) reload(); }}>Send</button>}
-          {canSend && env.status === "sent" && <button className="btn" disabled={busy} onClick={async () => { if (await run(() => api(`/envelopes/${id}/remind`, { method: "POST" }), "Reminder sent")) reload(); }}>Remind now</button>}
+          {canSend && env.status === "draft" && <button className="btn pri" disabled={busy} onClick={async () => {
+            const r = await run(() => api<any>(`/envelopes/${id}/send`, { method: "POST" }), "Sent");
+            if (r) {
+              const failed = (r.delivery?.failed ?? []).join(", ");
+              if (failed) toast(`Sent, but the e-mail to ${failed} was NOT delivered — check this environment's e-mail settings (RESEND_API_KEY or SMTP). "Remind now" retries.`);
+              reload();
+            }
+          }}>Send</button>}
+          {canSend && env.status === "sent" && <button className="btn" disabled={busy} onClick={async () => {
+            const r = await run(() => api<any>(`/envelopes/${id}/remind`, { method: "POST" }), "Reminder sent");
+            if (r) {
+              const failed = (r.undelivered ?? []).join(", ");
+              if (failed) toast(`The reminder e-mail to ${failed} was NOT delivered — check this environment's e-mail settings (RESEND_API_KEY or SMTP).`);
+              reload();
+            }
+          }}>Remind now</button>}
           {canSend && ["draft", "sent"].includes(env.status) && <button className="btn" disabled={busy} onClick={async () => {
             const reason = prompt("Why are you voiding this envelope?");
             if (reason && await run(() => api(`/envelopes/${id}/void`, { body: { reason } }), "Voided")) reload();

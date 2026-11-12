@@ -43,8 +43,8 @@ async def log_event(db: Db, *, tenant_id: Any, envelope_id: Any, signer_id: Any,
     )
 
 
-async def send_to_signer(db: Db, *, envelope: dict, signer: dict, sender_name: str, is_reminder: bool = False) -> None:
-    """Create a fresh signing link for the signer and e-mail it."""
+async def send_to_signer(db: Db, *, envelope: dict, signer: dict, sender_name: str, is_reminder: bool = False) -> bool:
+    """Create a fresh signing link for the signer and e-mail it. Returns whether the e-mail was delivered."""
     token = new_token()
     await db.run(
         """update envelope_signers set token_hash = :h, status = case when status = 'waiting' then 'sent' else status end,
@@ -61,8 +61,8 @@ async def send_to_signer(db: Db, *, envelope: dict, signer: dict, sender_name: s
          "You'll confirm your e-mail with a one-time code before signing. The link is personal — please don't forward it."],
         button=("Review and sign", signing_link(token)),
     )
-    await send_email(db, to=signer["email"], subject=subject, html_body=html_body, kind="esign",
-                     tenant_id=envelope["tenant_id"], ref_type="envelope", ref_id=envelope["id"])
+    return await send_email(db, to=signer["email"], subject=subject, html_body=html_body, kind="esign",
+                            tenant_id=envelope["tenant_id"], ref_type="envelope", ref_id=envelope["id"])
 
 
 def link_expiry() -> datetime:

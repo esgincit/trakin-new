@@ -127,7 +127,11 @@ async def send_email(
             log.exception("e-mail to %s failed (smtp %s)", recipients, settings.email_host)
             status = "failed"
     else:
-        log.info("E-MAIL (not sent, no RESEND_API_KEY / EMAIL_HOST) to=%s subject=%s", recipients, subject)
+        # No provider in this environment: the message never left the building. Record
+        # that honestly — the envelope page and API responses surface it to the sender.
+        log.warning("e-mail NOT sent (no RESEND_API_KEY / EMAIL_HOST configured) to=%s subject=%s",
+                    recipients, subject)
+        status = "skipped"
 
     if db is not None and inserted is not None:
         await db.run("select mytrakin.mark_notification(:id, :s)", {"s": status, "id": inserted})
