@@ -92,7 +92,8 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
   const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
   const personal = ["offer_letter", "ica"].includes(kind) || (kind === "nda" && ndaWith === "consultant");
   const consultantName = (c: any) =>
-    (c.user_code ? c.full_name + " · " + c.user_code : c.full_name) + (c.email ? " · " + c.email : "");
+    (c.user_code ? c.full_name + " · " + c.user_code : c.full_name) + (c.email ? " · " + c.email : "")
+    + (c.engagement ? " · " + label(c.engagement) : "");
   return (
     <Modal title="Add agreement" onClose={onClose}>
       {error && <ErrorBox error={error} />}
