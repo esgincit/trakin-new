@@ -355,7 +355,9 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
             if ar_co is None:
                 ar_co = await db.val("select prime_company_id from projects where id = :id and source_project_id is not null",
                                      {"id": body.project_id})
-            if ar_co is not None:
+            own_co = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+            # A self-engagement bills our own company — it cannot hold an MSA with itself (T011303-1131).
+            if ar_co is not None and ar_co != own_co:
                 has_contract = await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=ar_co)
                 if not has_contract:
                     counterparty = await _client_name(db, ar_co) or "the AR customer"

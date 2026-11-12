@@ -50,6 +50,7 @@ async def approved_hours_by_placement(db: Db, period_start: date, period_end: da
         """
         select p.id as placement_id, p.consultant_id, p.ar_company_id, p.ar_sow_id, p.bill_rate, p.ar_terms,
                p.ap_company_id, p.ap_consultant_id, p.ap_sow_id, p.pay_rate, p.ap_terms, p.pay_when_paid,
+               p.end_client_company_id,
                sum(e.hours) as hours
           from timesheet_entries e
           join timesheets t on t.id = e.timesheet_id and t.status = 'approved'
@@ -73,13 +74,24 @@ async def generate_invoices(db: Db, *, tenant_id: Any, user_id: Any, period_star
     created: list[dict] = []
     blocked: list[str] = []
     need_msa = (await workflow.rules(db))["requireMSA"]
+    # Self-engagement (T011303-1131): when the end client is our own company, the customer
+    # we bill is ourselves — an internal engagement can't hold an MSA with itself, and the
+    # placement may leave AR blank because there is no external customer.
+    own_company = await db.val("select company_id from tenants where id = :t", {"t": tenant_id})
     for row in await approved_hours_by_placement(db, period_start, period_end):
-        if row["bill_rate"] is None or row["ar_company_id"] is None:
+        ar_company = row["ar_company_id"]
+        if ar_company is None and row["end_client_company_id"] == own_company:
+            ar_company = own_company
+        if row["bill_rate"] is None or ar_company is None:
+            if row["end_client_company_id"] == own_company:
+                blocked.append("Internal placement: no bill rate set — not invoiced"
+                               if row["bill_rate"] is None else "Internal placement: no customer to bill")
             continue
         # AGR-09 / WF-01: no invoice to a customer without an active MSA (unless the tenant switched the rule off).
-        if need_msa and not await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS,
-                                                                company_id=row["ar_company_id"], on=period_end):
-            name = await db.val("select name from companies where id = :id", {"id": row["ar_company_id"]})
+        # Our own company is the exception — it is the customer on an internal engagement.
+        if need_msa and ar_company != own_company and not await workflow.has_active_agreement(
+                db, kinds=workflow.MASTER_KINDS, company_id=ar_company, on=period_end):
+            name = await db.val("select name from companies where id = :id", {"id": ar_company})
             blocked.append(f"{name}: no active MSA — not invoiced")
             continue
         hours = Decimal(row["hours"])
@@ -90,7 +102,7 @@ async def generate_invoices(db: Db, *, tenant_id: Any, user_id: Any, period_star
                                      hours, rate, amount, issued_on, due_on, terms, status, created_by)
                values (:t, :n, 'ar', :pl, :co, :sow, :ps, :pe, :h, :r, :a, :iss, :due, :terms, 'draft', :u)
                returning id, number, amount""",
-            {"t": tenant_id, "n": ar_number, "pl": row["placement_id"], "co": row["ar_company_id"], "sow": row["ar_sow_id"],
+            {"t": tenant_id, "n": ar_number, "pl": row["placement_id"], "co": ar_company, "sow": row["ar_sow_id"],
              "ps": period_start, "pe": period_end, "h": hours, "r": row["bill_rate"], "a": ar_amount, "iss": issue_on,
              "due": issue_on + timedelta(days=parse_terms_days(row["ar_terms"])), "terms": row["ar_terms"], "u": user_id},
         )
