@@ -31,7 +31,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from ..config import get_settings
 from ..deps import TenantDb, onboarding_db, tenant_db, user_db
-from ..errors import ApiError, bad_request, conflict, forbidden, not_found
+from ..errors import ApiError, bad_request, conflict, forbidden, kept_error, not_found
 from ..services import storage
 from ..services import w9 as w9svc
 from ..services.email import render, send_email
@@ -425,7 +425,7 @@ async def verify_email_code(session_id: UUID, body: OtpIn, db: TenantDb = Depend
     if not match:
         await db.run("update onboarding_sessions set email_otp_attempts = email_otp_attempts + 1 where id = :id",
                      {"id": session_id})
-        raise bad_request("That code isn't right. Check the latest e-mail and try again.", "code_wrong")
+        return kept_error(bad_request("That code isn't right. Check the latest e-mail and try again.", "code_wrong"))
     await db.run(
         """update onboarding_sessions
               set email_verified_at = :now, email_verified_for = company_email,

@@ -28,14 +28,15 @@ _TAKEN = {"project": ("projects", "code"), "sow": ("sows", "code"), "contract": 
           **{k: ("agreements", "code") for k in ("msa", "subcontract", "ica", "nda", "offer_letter")}}
 # ponytail: codes only collide with numbers already in use (imports, hand-typed); 50 skips is plenty.
 MAX_TRIES = 50
-_TOKEN = re.compile(r"\{([A-Z]+)(?::(\d+))?\}")
+_TOKEN = re.compile(r"\{([A-Z]+)(?::(\d{1,2}))?\}")
+MAX_SEQ_WIDTH = 10
 
 
 def format_code(template: str, seq: int, today: date, values: dict[str, Any]) -> str:
     def sub(m: re.Match) -> str:
         name, width = m.group(1), m.group(2)
         builtin = {"YEAR": f"{today:%Y}", "YY": f"{today:%y}", "MM": f"{today:%m}", "YYYYMM": f"{today:%Y%m}",
-                   "SEQ": str(seq).zfill(int(width or 0))}
+                   "SEQ": str(seq).zfill(min(int(width or 0), MAX_SEQ_WIDTH))}
         if name in builtin:
             return builtin[name]
         if name in values:
@@ -53,6 +54,8 @@ def validate(templates: Any) -> dict[str, str]:
             raise ValueError(f"Bad numbering entry for '{entity}'")
         if "{SEQ" not in template:
             raise ValueError(f"The {entity} template needs {{SEQ}} so numbers stay unique")
+        if any(int(w) > MAX_SEQ_WIDTH for w in re.findall(r"\{SEQ:(\d+)\}", template)):
+            raise ValueError(f"The {entity} template can pad {{SEQ}} to at most {MAX_SEQ_WIDTH} digits")
         format_code(template, 1, date.today(), dict.fromkeys(PLACEHOLDERS, "X"))
     return templates
 

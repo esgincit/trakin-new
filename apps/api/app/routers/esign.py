@@ -370,12 +370,21 @@ async def send_envelope(envelope_id: UUID, db: TenantDb = Depends(tenant_db)):
     env = await db.one("update envelopes set status = 'sent', sent_at = now(), expires_at = :exp where id = :id returning *",
                        {"id": envelope_id, "exp": link_expiry()})
     signers = await db.all("select * from envelope_signers where envelope_id = :id order by position", {"id": envelope_id})
+    delivered: list[str] = []
+    undelivered: list[str] = []
     for signer in signers[:1] if env["sequential"] else signers:
-        await send_to_signer(db, envelope=env, signer=signer, sender_name=env["sent_by_name"] or "myTrakIn")
+        if await send_to_signer(db, envelope=env, signer=signer, sender_name=env["sent_by_name"] or "myTrakIn"):
+            delivered.append(signer["email"])
+        else:
+            undelivered.append(signer["email"])
     await _mark_parent(db, env, "out_for_signature")
     await _notify_counterparty(db, env)
     result = await get_envelope(envelope_id, db)
     result["notified"] = await _last_notified(db, envelope_id)
+    # Delivery truth for the sender: the envelope is out, but if the e-mail never left
+    # the building (no provider configured in this environment, provider rejected the
+    # message), say so instead of showing a success that hides the failure.
+    result["delivery"] = {"sent": delivered, "failed": undelivered}
     return result
 
 
@@ -434,9 +443,14 @@ async def remind(envelope_id: UUID, db: TenantDb = Depends(tenant_db)):
         raise conflict("Only envelopes that are out for signature can be reminded")
     waiting = await db.all("select * from envelope_signers where envelope_id = :id and status in ('sent', 'viewed') order by position",
                            {"id": envelope_id})
+    delivered: list[str] = []
+    undelivered: list[str] = []
     for signer in waiting:
-        await send_to_signer(db, envelope=env, signer=signer, sender_name=env["sent_by_name"] or "myTrakIn", is_reminder=True)
-    return {"reminded": [s["email"] for s in waiting]}
+        if await send_to_signer(db, envelope=env, signer=signer, sender_name=env["sent_by_name"] or "myTrakIn", is_reminder=True):
+            delivered.append(signer["email"])
+        else:
+            undelivered.append(signer["email"])
+    return {"reminded": delivered, "undelivered": undelivered}
 
 
 class VoidIn(BaseModel):

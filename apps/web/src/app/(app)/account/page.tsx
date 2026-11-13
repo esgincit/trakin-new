@@ -5,14 +5,14 @@ import { PageHead, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import { useSession } from "@/lib/session";
-import { supabase } from "@/lib/supabase";
+import { passwordIsRight, supabase } from "@/lib/supabase";
 
 /** Account & security: password, two-step verification, sign-in sessions, preferences and e-mail settings. */
 export default function Account() {
   const sb = supabase();
   const { session, me, refresh } = useSession();
   const [factors, setFactors] = useState<any[]>([]);
-  const [pw, setPw] = useState({ a: "", b: "" });
+  const [pw, setPw] = useState({ cur: "", a: "", b: "" });
   const { run, busy } = useAction();
   const prefs = me?.profile?.preferences ?? {};
 
@@ -33,14 +33,22 @@ export default function Account() {
       <div className="grid c2">
         <div className="card form">
           <h3>Password</h3>
-          <p className="muted">Optional — you can always sign in with an e-mail code. Use at least 12 characters with letters and numbers.</p>
+          <p className="muted">Optional — you can always sign in with an e-mail code. If you already have a password, enter it first. Use at least 12 characters with letters and numbers.</p>
+          <label htmlFor="cp">Current password</label>
+          <input id="cp" className="ctl" type="password" autoComplete="current-password" value={pw.cur} onChange={(e) => setPw({ ...pw, cur: e.target.value })} />
           <label htmlFor="np">New password</label>
           <input id="np" className="ctl" type="password" autoComplete="new-password" value={pw.a} onChange={(e) => setPw({ ...pw, a: e.target.value })} />
-          <label htmlFor="np2">Repeat</label>
+          <label htmlFor="np2">Retype new password</label>
           <input id="np2" className="ctl" type="password" autoComplete="new-password" value={pw.b} onChange={(e) => setPw({ ...pw, b: e.target.value })} />
-          <button className="btn pri mt" disabled={busy || !strong || pw.a !== pw.b} onClick={async () => {
-            const ok = await run(async () => { const { error } = await sb.auth.updateUser({ password: pw.a }); if (error) throw error; return true; }, "Password changed");
-            if (ok) setPw({ a: "", b: "" });
+          <button className="btn pri mt" disabled={busy || !pw.cur || !strong || pw.a !== pw.b} onClick={async () => {
+            const ok = await run(async () => {
+              // Prove it is really the account holder: the current password must be right first.
+              const email = session?.user.email;
+              if (!email) throw new Error("Your account has no e-mail address to check the password against.");
+              if (!(await passwordIsRight(email, pw.cur))) throw new Error("The current password isn't right.");
+              const { error } = await sb.auth.updateUser({ password: pw.a }); if (error) throw error; return true;
+            }, "Password changed");
+            if (ok) setPw({ cur: "", a: "", b: "" });
           }}>Change password</button>
           {pw.a && !strong && <p className="note">Too weak: 12+ characters, letters and numbers.</p>}
         </div>

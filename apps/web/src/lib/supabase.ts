@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let client: SupabaseClient | null = null;
 
-/** The browser Supabase client. Used only for sign-in; all data goes through the myTrakIn API. */
+/** The browser Supabase client. Used only for sign-in; all data goes through the MyTrackIn API. */
 export function supabase(): SupabaseClient {
   if (!client) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,4 +13,12 @@ export function supabase(): SupabaseClient {
     });
   }
   return client;
+}
+
+/** Checks a password without touching the signed-in session (no storage, no refresh). */
+export async function passwordIsRight(email: string, password: string): Promise<boolean> {
+  const c = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  const { error } = await c.auth.signInWithPassword({ email, password });
+  return !error;
 }

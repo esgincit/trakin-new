@@ -45,7 +45,7 @@ async def _membership(user_id: str) -> dict | None:
 
 
 async def test_candidates_are_registered_people_with_their_uid(client, auth):
-    """The picker finds people by name, U-ID or e-mail, each result showing its U-ID."""
+    """The picker finds a person by exact e-mail address, the result showing the U-ID."""
     async with get_engine().begin() as conn:
         codes = dict((await conn.execute(text(
             """select email, uc.code from mytrakin.profiles p
@@ -58,17 +58,11 @@ async def test_candidates_are_registered_people_with_their_uid(client, auth):
                                  params={"q": DEMO["consultant"]}, headers=auth("admin"))).json()
     assert [p["user_code"] for p in by_email] == [codes[DEMO["consultant"]]], by_email
 
-    # Search by U-ID.
-    by_uid = (await client.get("/consultants/candidates",
-                               params={"q": codes[DEMO["finance"]]}, headers=auth("admin"))).json()
-    assert [p["email"] for p in by_uid] == [DEMO["finance"]], by_uid
-
-    # Search by name, and every result carries a U-ID and the details onboarding needs.
-    by_name = (await client.get("/consultants/candidates",
-                                params={"q": "@example.com"}, headers=auth("admin"))).json()
-    assert by_name, by_name
-    assert all(p["user_code"] and p["user_id"] and p["email"] for p in by_name), by_name
-    assert {p["email"] for p in by_name} >= set(codes), by_name
+    # Not by U-ID, by name or by part of an e-mail: only the exact e-mail address finds a person.
+    for q in (codes[DEMO["finance"]], "Ravi", "@example.com", "ravi.kumar"):
+        assert (await client.get("/consultants/candidates", params={"q": q}, headers=auth("admin"))).json() == [], q
+    assert [p["user_code"] for p in (await client.get(
+        "/consultants/candidates", params={"q": DEMO["consultant"].upper()}, headers=auth("admin"))).json()] == [codes[DEMO["consultant"]]]
 
     # Nobody else.
     assert (await client.get("/consultants/candidates",
@@ -80,7 +74,7 @@ async def test_candidates_are_registered_people_with_their_uid(client, auth):
 
     # Not a role that onboards people.
     assert (await client.get("/consultants/candidates",
-                             params={"q": "@example.com"}, headers=auth("consultant"))).status_code == 403
+                             params={"q": DEMO["consultant"]}, headers=auth("consultant"))).status_code == 403
 
 
 async def test_someone_from_another_workspace_can_be_onboarded(client, auth):
@@ -89,10 +83,10 @@ async def test_someone_from_another_workspace_can_be_onboarded(client, auth):
     user = await _new_person("zebedee", "Zebedee Stranger", phone="+1 555 0100")
     try:
         found = (await client.get("/consultants/candidates",
-                                  params={"q": "Zebedee"}, headers=auth("admin"))).json()
+                                  params={"q": "zebedee@elsewhere.example"}, headers=auth("admin"))).json()
         assert [p["user_id"] for p in found] == [user], found
         assert found[0]["in_workspace"] is False, found          # they have no access here yet
-        assert found[0]["phone"] == "+1 555 0100", found
+        assert found[0]["phone"] is None, found                  # outside the workspace: no contact details shown
 
         response = await client.post("/consultants", headers=auth("admin"), json={
             "user_id": user, "engagement": "w2_contract", "start_date": str(date.today())})
@@ -107,7 +101,7 @@ async def test_someone_from_another_workspace_can_be_onboarded(client, auth):
 
         # They now have access here, as a consultant.
         again = (await client.get("/consultants/candidates",
-                                  params={"q": "Zebedee"}, headers=auth("admin"))).json()
+                                  params={"q": "zebedee@elsewhere.example"}, headers=auth("admin"))).json()
         assert again[0]["in_workspace"] is True, again
         membership = await _membership(user)
         assert membership["role"] == "consultant" and membership["status"] == "active", membership
@@ -156,14 +150,14 @@ async def test_only_roles_that_onboard_people_may_search(client, auth):
     async def set_role(role: str) -> None:
         async with get_engine().begin() as conn:
             await conn.execute(text("update mytrakin.memberships set role = :r where user_id = "
-                                    "(select user_id from mytrakin.profiles where email = :e)"),
+                                    "(select id from mytrakin.profiles where email = :e)"),
                                {"r": role, "e": DEMO["finance"]})
 
     try:
         assert (await client.get("/consultants/candidates",
                                  params={"q": "@example.com"}, headers=auth("finance"))).status_code == 403
         assert (await client.get("/consultants/candidates",
-                                 params={"q": "@example.com"}, headers=auth("consultant"))).status_code == 403
+                                 params={"q": DEMO["consultant"]}, headers=auth("consultant"))).status_code == 403
         await set_role("hr")
         assert (await client.get("/consultants/candidates",
                                  params={"q": "@example.com"}, headers=auth("finance"))).status_code == 200

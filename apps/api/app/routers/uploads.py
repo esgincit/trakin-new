@@ -55,6 +55,19 @@ def can_attach(ctx, owner_type: str, owner_id: UUID) -> bool:
     return False
 
 
+def _upload_sig(user_id, prefix: str, nonce: str) -> str:
+    """Ties an attachment key to the user it was issued to; /files/confirm only accepts keys it can re-derive (F17)."""
+    s = get_settings()
+    key = (s.supabase_service_role_key or s.cron_secret or "local-development").encode()
+    return hmac.new(key, f"{user_id}:{prefix}{nonce}".encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def issued_to_caller(ctx, path: str) -> bool:
+    prefix, _, leaf = path.rpartition("/")
+    nonce, sig = leaf[:12], leaf[12:28]
+    return len(leaf) > 29 and leaf[28] == "-" and hmac.compare_digest(sig, _upload_sig(ctx.user_id, prefix + "/", nonce))
+
+
 def _local_token(bucket: str, path: str) -> str:
     key = (get_settings().cron_secret or "local-development").encode()
     return hmac.new(key, f"{bucket}/{path}".encode(), hashlib.sha256).hexdigest()
@@ -73,7 +86,8 @@ async def start_upload(body: UploadIn, request: Request, db: TenantDb = Depends(
         if not can_attach(db.ctx, body.owner_type, body.owner_id):
             raise forbidden()
         bucket = "documents"
-        path = f"{db.ctx.tenant_id}/{body.owner_type}/{body.owner_id}/{secrets.token_hex(6)}-{safe_name(body.filename)}"
+        prefix, nonce = f"{db.ctx.tenant_id}/{body.owner_type}/{body.owner_id}/", secrets.token_hex(6)
+        path = f"{prefix}{nonce}{_upload_sig(db.ctx.user_id, prefix, nonce)}-{safe_name(body.filename)}"
 
     url = await storage.signed_upload_url(bucket, path)
     if url is None:   # local development

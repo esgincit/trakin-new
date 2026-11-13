@@ -3,6 +3,8 @@ waiting for approval, file attachments, reminder rules and the e-mail log."""
 
 from __future__ import annotations
 
+import re
+
 from datetime import date
 from uuid import UUID
 
@@ -13,6 +15,7 @@ from pydantic import BaseModel, Field
 from ..deps import TenantDb, tenant_db
 from ..errors import bad_request, conflict, forbidden, not_found
 from ..services import storage
+from .uploads import issued_to_caller
 from ..services.email import render, send_email
 from ..utils import sha256_hex
 
@@ -128,6 +131,9 @@ async def list_policies(db: TenantDb = Depends(tenant_db)):
     return rows
 
 
+POLICY_NAME = re.compile(r"[A-Za-z0-9 .-]+")
+
+
 @router.post("/policies", status_code=201)
 async def add_policy(
     db: TenantDb = Depends(tenant_db),
@@ -139,6 +145,9 @@ async def add_policy(
 ):
     """Publish a policy (or a new version). Older versions of the same policy are retired."""
     db.ctx.require("hr", "legal")
+    # ponytail: letters, numbers, spaces, dashes, dots only (team rule, pending the naming standard)
+    if not (POLICY_NAME.fullmatch(name) and POLICY_NAME.fullmatch(version)):
+        raise bad_request("Policy names and versions can only use letters, numbers, spaces, dashes (-) and dots (.)")
     groups = [g.strip() for g in applies_to.split(",") if g.strip()]
     known = {r["code"] for r in await db.all("select code from engagement_types where is_active")}
     if not groups or any(g not in known for g in groups):
@@ -148,8 +157,11 @@ async def add_policy(
         data = await file.read()
         if len(data) > MAX_FILE_BYTES:
             raise bad_request("Policy PDFs can be at most 4 MB — compress the PDF and try again")
-        path = f"{db.ctx.tenant_id}/policies/{name.lower().replace(' ', '-')}-{version}.pdf"
-        await storage.upload("documents", path, data, file.content_type or "application/pdf", upsert=True)
+        if not storage.is_document(data, "application/pdf"):
+            raise bad_request("Policies must be PDF files")
+        slug = re.sub(r"[^a-z0-9.-]+", "-", f"{name}-{version}".lower()).replace("..", ".").strip("-.")
+        path = f"{db.ctx.tenant_id}/policies/{slug}.pdf"
+        await storage.upload("documents", path, data, "application/pdf", upsert=True)
     await db.run("update policies set active = false where name = :n and active", {"n": name})
     return await db.one(
         """insert into policies (tenant_id, name, version, effective_on, applies_to, file_path)
@@ -315,7 +327,8 @@ class ConfirmIn(BaseModel):
 @router.post("/files/confirm", status_code=201)
 async def confirm_upload(body: ConfirmIn, db: TenantDb = Depends(tenant_db)):
     """Record a file the browser uploaded straight to storage (see /uploads)."""
-    if not body.path.startswith(f"{db.ctx.tenant_id}/{body.owner_type}/{body.owner_id}/") or ".." in body.path:
+    if (not body.path.startswith(f"{db.ctx.tenant_id}/{body.owner_type}/{body.owner_id}/") or ".." in body.path
+            or not issued_to_caller(db.ctx, body.path)):
         raise forbidden("That upload doesn't belong to this record")
     await _refuse_shared_agreement(db, body.owner_type, body.owner_id)
     data = await storage.download("documents", body.path)

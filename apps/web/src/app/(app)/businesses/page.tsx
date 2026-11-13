@@ -56,7 +56,7 @@ export default function Businesses() {
   if (loading) return <Loading rows={6} />;
   return (
     <>
-      <PageHead title="My companies" sub="Every company you created or belong to. A new company is reviewed and activated by the myTrakIn team."
+      <PageHead title="My companies" sub="Every company you created or belong to. A new company is reviewed and activated by the MyTrackIn team."
         actions={<button className="btn pri" onClick={() => setCreating(true)}>Create your company</button>} />
       <ErrorBox error={error} retry={reload} />
       {!data?.length ? <p className="muted">No companies yet. Create your company to get started — companies you're invited to appear here too.</p> : (
@@ -89,7 +89,7 @@ export default function Businesses() {
               </div>
               {b.tenant_status === "rejected" && (
                 <p className="err" style={{ fontSize: 12.5, marginBottom: 0 }}>
-                  Rejected by the myTrakIn team{b.decision_note ? `: “${b.decision_note}”` : ""}. Open it to fix the details and resubmit.
+                  Rejected by the MyTrackIn team{b.decision_note ? `: “${b.decision_note}”` : ""}. Open it to fix the details and resubmit.
                 </p>
               )}
             </div>

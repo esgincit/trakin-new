@@ -24,6 +24,20 @@ export function dateTime(v: string | null | undefined): string {
   return new Date(v).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+/** Compact relative time, the way social feeds stamp posts: "just now", "12m", "3h", "2d", then a date. */
+export function relTime(v: string | null | undefined): string {
+  if (!v) return "";
+  const sec = (Date.now() - new Date(v).getTime()) / 1000;
+  if (sec < 60) return "just now";
+  const min = sec / 60, hrs = min / 60, days = hrs / 24;
+  if (min < 60) return `${Math.floor(min)}m`;
+  if (hrs < 24) return `${Math.floor(hrs)}h`;
+  if (days < 7) return `${Math.floor(days)}d`;
+  const d = new Date(v);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+}
+
 export function label(v: string | null | undefined): string {
   if (!v) return "–";
   const special: Record<string, string> = {
@@ -56,6 +70,19 @@ export function roleList(company: { kind?: string | null; kinds?: string[] | nul
 export function playsRole(company: { kind?: string | null; kinds?: string[] | null } | null | undefined, ...wanted: string[]): boolean {
   const roles = company?.kinds?.length ? company.kinds : company?.kind ? [company.kind] : [];
   return wanted.some((w) => roles.includes(w));
+}
+
+/** An SOW picker option: "CODE · Project · Role", dropping segments that repeat or are missing.
+ *  The role is the placement's role when there is one, else the SOW's own title (the role it was
+ *  raised for), so projects with several SOWs read unambiguously (T011303-1128). */
+export function sowLabel(s: { code?: string | null; title?: string | null; project?: string | null; project_name?: string | null; role_name?: string | null; counterparty?: string | null }): string {
+  const parts = [s.code];
+  const project = s.project_name || s.project;
+  if (project) parts.push(project);
+  const role = s.role_name || s.title;
+  if (role && role !== project) parts.push(role);
+  if (!project && s.counterparty) parts.push(s.counterparty);
+  return parts.filter((p, i) => p && parts.indexOf(p) === i).join(" · ");
 }
 
 const TONES: Record<string, string> = {

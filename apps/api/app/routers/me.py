@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
+from .. import permissions
 from ..deps import TenantDb, tenant_db, user_db
 from ..errors import ApiError, bad_request, not_found
 from ..services import storage
@@ -270,7 +271,9 @@ async def request_time_off(body: TimeOffIn, db: TenantDb = Depends(tenant_db)):
 async def my_document_link(document_id: UUID, db: TenantDb = Depends(tenant_db)):
     from ..services import storage
 
-    doc = await db.one("select storage_path from documents where id = :d", {"d": document_id})
+    # Same rule as /files/{id}/link: the Compliance module's permission applies, and deleted files stay deleted.
+    permissions.require_module(db.ctx.permissions, "compliance", "read", is_owner=db.ctx.is_owner)
+    doc = await db.one("select storage_path from documents where id = :d and deleted_at is null", {"d": document_id})
     if doc is None:
         raise not_found("Document")
     return {"url": await storage.signed_url("documents", doc["storage_path"])}

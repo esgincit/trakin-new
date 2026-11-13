@@ -42,13 +42,15 @@ export default function PaymentFlow() {
               <div>
                 <b>{r.consultant}</b>
                 <div className="muted" style={{ fontSize: 12.5 }}>{r.project} · {date(r.period_start)} – {date(r.period_end)}</div>
-                <div className="muted" style={{ fontSize: 12.5 }}>{Number(r.hours)} h · {label(r.engagement)}</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>{r.hours == null ? "—" : `${Number(r.hours)} h`} · {label(r.engagement)}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   {r.end_client ? <>End client <b>{r.end_client}</b></> : null}
                   {r.placed_by ? <>{r.end_client ? " · " : ""}Placed by <b>{r.placed_by}</b></> : null}
                 </div>
               </div>
               <div className="pipe">
+                <div className="hop ghost" aria-hidden />
+                <div className="hop ghost" aria-hidden />
                 <div className={`hop ${tone(r.ap_status)}`}>
                   <div className="who">{r.own_company || "You"} → {r.payee}</div>
                   <div className="amt">{money(r.ap_amount)}</div>
@@ -61,19 +63,21 @@ export default function PaymentFlow() {
               <div>
                 <b>{r.consultant}</b>
                 <div className="muted" style={{ fontSize: 12.5 }}>{r.project} · {date(r.period_start)} – {date(r.period_end)}</div>
-                <div className="muted" style={{ fontSize: 12.5 }}>{Number(r.hours)} h · {label(r.engagement)}</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>{r.hours == null ? "—" : `${Number(r.hours)} h`} · {label(r.engagement)}</div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   {r.end_client ? <>End client <b>{r.end_client}</b></> : null}
                   {r.placed_by ? <>{r.end_client ? " · " : ""}Placed by <b>{r.placed_by}</b></> : null}
                 </div>
               </div>
               <div className="pipe">
-                {r.end_client && r.end_client !== r.customer && (
+                {r.end_client && r.end_client !== r.customer ? (
                   <div className="hop mute">
                     <div className="who">{r.end_client} → {r.customer}</div>
                     <div className="amt masked">••••</div>
                     <div className="st">Not tracked</div>
                   </div>
+                ) : (
+                  <div className="hop ghost" aria-hidden />
                 )}
                 <Link href={`/invoices/${r.ar_id}`} className={`hop ${tone(r.ar_status)}`} style={{ color: "inherit", fontWeight: 400 }}>
                   <div className="who">{r.customer} → {r.own_company || "you"} · AR {r.ar_number}</div>

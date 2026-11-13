@@ -10,6 +10,7 @@ Every signing step records the signer's IP address, device and approximate locat
 from __future__ import annotations
 
 import asyncio
+import base64
 import hmac
 import logging
 from collections.abc import AsyncIterator
@@ -24,7 +25,7 @@ from sqlalchemy.exc import ProgrammingError
 
 from ..config import get_settings
 from ..deps import TenantDb, open_public, open_signer, open_ts_approver
-from ..errors import ApiError, bad_request, conflict, not_found
+from ..errors import ApiError, bad_request, conflict, kept_error, not_found
 from ..services import storage
 from ..services.email import render, send_email
 from ..services.esign import ESIGN_DISCLOSURE, build_certificate, log_event, seal, send_to_signer
@@ -134,7 +135,7 @@ async def verify(body: CodeIn, request: Request, db: TenantDb = Depends(signer_d
         raise ApiError(429, "too_many_attempts", "Too many wrong codes. Ask for a new one.")
     if not hmac.compare_digest(me["otp_hash"], sha256_hex(f"{me['id']}:{body.code}")):
         await db.run("update envelope_signers set otp_attempts = otp_attempts + 1 where id = :id", {"id": me["id"]})
-        raise bad_request("That code isn't right. Check the latest e-mail and try again.", "code_wrong")
+        return kept_error(bad_request("That code isn't right. Check the latest e-mail and try again.", "code_wrong"))
     await db.run("update envelope_signers set verified_at = now(), otp_hash = null where id = :id", {"id": me["id"]})
     await _event(db, env, me, "verified", request, {"method": "email_otp"})
     return {"verified": True}
@@ -167,6 +168,14 @@ async def document(db: TenantDb = Depends(signer_db)):
                     headers={"Content-Disposition": f'inline; filename="{env["number"]}.pdf"', "Cache-Control": "no-store"})
 
 
+def _is_png_data_url(value: str) -> bool:
+    prefix = "data:image/png;base64,"
+    try:
+        return value.startswith(prefix) and base64.b64decode(value[len(prefix):], validate=True).startswith(PNG_MAGIC)
+    except ValueError:
+        return False
+
+
 class SignIn(BaseModel):
     signature_type: str = Field(pattern="^(typed|drawn)$")
     signature_data: str = Field(min_length=2, max_length=400_000)
@@ -181,7 +190,7 @@ async def sign(body: SignIn, request: Request, db: TenantDb = Depends(signer_db)
         raise bad_request("Verify your e-mail and accept electronic signing first", "not_ready")
     if not body.agree:
         raise bad_request("Tick the box to confirm you intend to sign")
-    if body.signature_type == "drawn" and not body.signature_data.startswith("data:image/png;base64,"):
+    if body.signature_type == "drawn" and not _is_png_data_url(body.signature_data):
         raise bad_request("A drawn signature must be a PNG image")
     if body.signature_type == "typed" and len(body.signature_data) > 120:
         raise bad_request("A typed signature can be at most 120 characters")
@@ -357,7 +366,7 @@ async def register(
              "h": sha256_hex(data)})
     await send_email(db, to=email, subject="We received your registration", kind="registration", tenant_id=db.ctx.tenant_id,
                      ref_type="registration", ref_id=reg["id"],
-                     html_body=render("Thanks for registering", [f"We received the registration for {name}.",
+                     html_body=render("Thanks for registering", ["We received your registration.",
                                                                  "Our team reviews new registrations within two business days. "
                                                                  "We'll e-mail you when it is approved or if we need anything else."]))
     return {"id": reg["id"], "status": "pending"}

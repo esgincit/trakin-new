@@ -21,7 +21,7 @@ export function Acceptance({ entityType, entityId, canRecord, onRecorded, active
             <div className="muted" style={{ fontSize: 12.5 }}>{dateTime(a.accepted_at)}{a.note && ` · ${a.note}`}</div></div>
         </div>
       )) : active
-        ? <p className="muted">Recorded as already signed outside myTrakIn — no acceptance details were captured.</p>
+        ? <p className="muted">Recorded as already signed outside MyTrackIn — no acceptance details were captured.</p>
         : <p className="muted">Not accepted yet. Send it for e-signature, or record acceptance given on paper or by e-mail.</p>}
       {canRecord && (
         <button className="btn sm mt" disabled={busy} onClick={async () => {

@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..config import get_settings
 from ..deps import TenantDb, tenant_db
-from ..errors import bad_request, not_found
+from ..errors import bad_request, conflict, not_found
 from ..services import numbering, workflow
 from ..services.email import render, send_email
 from ..utils import week_start
@@ -355,7 +355,9 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
             if ar_co is None:
                 ar_co = await db.val("select prime_company_id from projects where id = :id and source_project_id is not null",
                                      {"id": body.project_id})
-            if ar_co is not None:
+            own_co = await db.val("select company_id from tenants where id = :t", {"t": db.ctx.tenant_id})
+            # A self-engagement bills our own company — it cannot hold an MSA with itself (T011303-1131).
+            if ar_co is not None and ar_co != own_co:
                 has_contract = await workflow.has_active_agreement(db, kinds=workflow.MASTER_KINDS, company_id=ar_co)
                 if not has_contract:
                     counterparty = await _client_name(db, ar_co) or "the AR customer"
@@ -364,6 +366,18 @@ async def create_placement(body: PlacementIn, db: TenantDb = Depends(tenant_db))
                         f"Placement cannot be created because there is no active MSA or subcontract with "
                         f"{counterparty}. Please sign one before proceeding.")
     body.project_id = await _local_project(db, body.project_id)
+    # One assignment per SOW (T011303-1128): a work order is a slot for exactly one
+    # engagement. Once a placement or a downstream SOW consumes it, it is no longer
+    # available — the picker hides it, and the API refuses a second assignment.
+    # The AR and AP contracts on one placement are different SOWs, so each is checked on its own.
+    for sow_id in {body.ar_sow_id, body.ap_sow_id} - {None}:
+        taken = await db.val(
+            """select exists (select 1 from placements where :sow in (ar_sow_id, ap_sow_id))
+                    or exists (select 1 from sows where flows_from_sow_id = :sow)""",
+            {"sow": sow_id})
+        if taken:
+            sow_code = await db.val("select code from sows where id = :id", {"id": sow_id})
+            raise conflict(f"SOW {sow_code or ''} has already been assigned — pick an available SOW for this placement".strip())
     # The end client is the original company that initiated the project chain
     # (the project's client), whichever workspace places the consultant. It is
     # never the placing company's own company.
@@ -413,7 +427,7 @@ async def sow_resources(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
 
 @router.post("/sows/{sow_id}/resources", status_code=201)
 async def add_sow_resource(sow_id: UUID, body: ResourceIn, db: TenantDb = Depends(tenant_db)):
-    """Put a consultant on a SOW: one SOW can carry one or many resources (WF-04)."""
+    """Put a consultant on a SOW: one SOW carries one resource (T011303-1128) — once taken, it is consumed."""
     sow = await db.one("select id, side, project_id from sows where id = :id", {"id": sow_id})
     if sow is None:
         raise not_found("SOW")

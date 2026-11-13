@@ -4,10 +4,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, useAction, useToast } from "@/components/ui";
+import { Bar, Chip, ErrorBox, Field, formValues, ImportButton, Modal, NetTerms, PageHead, SubTabIcon, useAction, useToast } from "@/components/ui";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { api, ApiError } from "@/lib/api";
-import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label } from "@/lib/format";
+import { AGREEMENT_TERMS, daysLeft, effectiveStatus, label, sowLabel } from "@/lib/format";
 import { linkFor } from "@/lib/links";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
@@ -56,9 +56,9 @@ function Contracts() {
           <button className="btn pri" onClick={() => setModal("agreement")}>Add agreement</button>
         </>} />
       <div className="tabs">
-        <button className={tab === "agreements" ? "on" : ""} onClick={() => setTab("agreements")}>Agreements</button>
-        <button className={tab === "sows" ? "on" : ""} onClick={() => setTab("sows")}>SOWs & work orders</button>
-        <button className={tab === "missing" ? "on" : ""} onClick={() => setTab("missing")}>Missing & expiring</button>
+        <button className={tab === "agreements" ? "on" : ""} onClick={() => setTab("agreements")}><SubTabIcon tabKey="agreements" label="Agreements" />Agreements</button>
+        <button className={tab === "sows" ? "on" : ""} onClick={() => setTab("sows")}><SubTabIcon tabKey="sows" label="SOWs" />SOWs &amp; work orders</button>
+        <button className={tab === "missing" ? "on" : ""} onClick={() => setTab("missing")}><SubTabIcon tabKey="missing" label="Missing" />Missing &amp; expiring</button>
       </div>
       {tab === "agreements" && <><ErrorBox error={agreements.error} /><DataTable id="agreements" rows={agreements.data} columns={agreementCols} onRowClick={(r) => router.push(`/contracts/agreements/${r.id}`)} toolbar={<DataButtons entity="agreements" label="agreements" />} /></>}
       {tab === "sows" && <><ErrorBox error={sows.error} /><DataTable id="sows" rows={sows.data} columns={sowCols} onRowClick={(r) => router.push(`/contracts/sows/${r.id}`)} toolbar={<DataButtons entity="sows" label="SOWs" />} /></>}
@@ -92,7 +92,8 @@ function AgreementModal({ onClose, onDone }: { onClose: () => void; onDone: (a: 
   const [ndaWith, setNdaWith] = useState<"company" | "consultant">("company");
   const personal = ["offer_letter", "ica"].includes(kind) || (kind === "nda" && ndaWith === "consultant");
   const consultantName = (c: any) =>
-    (c.user_code ? c.full_name + " · " + c.user_code : c.full_name) + (c.email ? " · " + c.email : "");
+    (c.user_code ? c.full_name + " · " + c.user_code : c.full_name) + (c.email ? " · " + c.email : "")
+    + (c.engagement ? " · " + label(c.engagement) : "");
   return (
     <Modal title="Add agreement" onClose={onClose}>
       {error && <ErrorBox error={error} />}
@@ -152,6 +153,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const agreements = useApi<any[]>("/agreements");
   const sows = useApi<any[]>("/sows", { side: "we_bill" });
   const projects = useApi<any[]>("/projects");
+  const sharedProjects = useApi<any[]>("/projects/shared");
   const [existing, setExisting] = useState(false);
   const [saving, setSaving] = useState(false);
   const { run, busy } = useAction();
@@ -159,6 +161,17 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
   const pickable = (agreements.data ?? []).filter((a: any) =>
     ["msa", "subcontract", "ica"].includes(a.kind) && a.status !== "rejected" && a.status !== "expired"
       && a.status !== "terminated");
+  // Project options: our own projects plus projects assigned to us through the chain
+  // (a SOW another company sent carries its project with it — saving the SOW creates
+  // our own copy of it, linked to the same project end to end).
+  const localProjectIds = new Set((projects.data ?? []).map((p) => p.id));
+  const projectOptions: [string, string][] = [
+    ["", "–"],
+    ...(projects.data ?? []).map((p) => [p.id, `${p.code} · ${p.name}`] as [string, string]),
+    ...(sharedProjects.data ?? [])
+      .filter((p) => !p.local_project_id && !localProjectIds.has(p.id))
+      .map((p) => [p.id, `${p.code} · ${p.name} (from ${p.assigned_by})`] as [string, string]),
+  ];
   return (
     <Modal title="Add SOW / work order" onClose={onClose}>
       <div className="seg" style={{ marginBottom: 8 }}>
@@ -177,7 +190,7 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
       }}>
         <div className="fields">
           <Field label="SOW / work order ID" name="code" placeholder="Leave blank to number it automatically" />
-          <Field label="Project" name="project_id" as="select" options={[["", "–"], ...(projects.data ?? []).map((p) => [p.id, `${p.code} · ${p.name}`] as [string, string])]} />
+          <Field label="Project" name="project_id" as="select" options={projectOptions} />
           <Field label="Under agreement" name="agreement_id" as="select" required
             options={[["", "Choose…"], ...pickable.map((a: any) => [a.id, `${a.code} · ${a.counterparty}${a.shared ? " (their MSA)" : ""}`] as [string, string])]} />
           <Field label="Side" name="side" as="select" options={[["we_bill", "We bill (client SOW)"], ["we_pay", "We pay (vendor / 1099 work order)"]]} />
@@ -185,9 +198,11 @@ function SowModal({ onClose, onDone }: { onClose: () => void; onDone: (s: any) =
           <Field label="Start" name="start_date" type="date" required />
           <Field label="End" name="end_date" type="date" required />
           <Field label="Value ceiling ($)" name="value_cap" type="number" step="0.01" min="0" />
-          <Field label="Supports client SOW (vendor SOWs)" name="flows_from_sow_id" as="select" options={[["", "–"], ...(sows.data ?? []).map((s: any) => [s.id, `${s.code}${s.project ? ` · ${s.project}` : ""}${s.project_name ? ` – ${s.project_name}` : ""}`] as [string, string])]} />
-          <Field label="Invoiced before myTrakIn ($)" name="prior_invoiced" type="number" step="0.01" min="0" />
-          <Field label="Collected / paid before myTrakIn ($)" name="prior_paid" type="number" step="0.01" min="0" />
+          <Field label="Work order SOWs (client SOW this supports)" name="flows_from_sow_id" as="select"
+            options={[["", "–"], ...(sows.data ?? []).filter((s: any) => !s.assigned)
+              .map((s: any) => [s.id, sowLabel(s)] as [string, string])]} />
+          <Field label="Invoiced before MyTrackIn ($)" name="prior_invoiced" type="number" step="0.01" min="0" />
+          <Field label="Collected / paid before MyTrackIn ($)" name="prior_paid" type="number" step="0.01" min="0" />
         </div>
         <button className="btn pri mt" disabled={busy || saving}>
           {existing ? "Save SOW" : "Save draft"}

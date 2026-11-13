@@ -142,6 +142,7 @@ class RenewalDecisionIn(BaseModel):
 @router.post("/agreements/{agreement_id}/respond")
 async def respond_to_agreement(agreement_id: UUID, body: RespondIn, db: TenantDb = Depends(tenant_db)):
     """The company an MSA was sent to accepts it (it comes into force) or rejects it with a note."""
+    db.ctx.require("legal", "account_manager")
     await db.run("select mytrakin.respond_to_agreement(:a, :d, :n)",
                  {"a": agreement_id, "d": "accept" if body.decision == "accept" else "reject", "n": body.note})
     return await get_agreement(agreement_id, db)
@@ -150,6 +151,7 @@ async def respond_to_agreement(agreement_id: UUID, body: RespondIn, db: TenantDb
 @router.post("/agreements/{agreement_id}/renewals", status_code=201)
 async def request_renewal(agreement_id: UUID, body: RenewalIn, db: TenantDb = Depends(tenant_db)):
     """Either company asks to renew an MSA until a new end date. The other company accepts or declines."""
+    db.ctx.require("legal", "account_manager")
     rid = await db.val("select mytrakin.request_renewal(:a, :e, :n)",
                        {"a": agreement_id, "e": body.expires_on, "n": body.note})
     return {"id": rid, "status": "pending"}
@@ -158,6 +160,7 @@ async def request_renewal(agreement_id: UUID, body: RenewalIn, db: TenantDb = De
 @router.post("/agreements/renewals/{renewal_id}/respond")
 async def respond_to_renewal(renewal_id: UUID, body: RenewalDecisionIn, db: TenantDb = Depends(tenant_db)):
     """Accept a renewal (the end date moves to the one proposed) or decline it with a note."""
+    db.ctx.require("legal", "account_manager")
     await db.run("select mytrakin.respond_to_renewal(:r, :d, :n)",
                  {"r": renewal_id, "d": "accept" if body.decision == "accept" else "decline", "n": body.note})
     return {"id": renewal_id, "decision": body.decision}
@@ -259,6 +262,26 @@ where (cast(:side as text) is null or s.side = :side)
         for k in ("value_cap", "invoiced", "collected_or_paid", "remaining", "burn_pct"):
             r[k] = None
     rows += incoming
+    # Consumption (T011303-1128): an SOW is a slot for one engagement. It is consumed once a
+    # placement references it (assigned to a consultant) or a downstream SOW flows from it
+    # (assigned to another company). Consumed SOWs stop appearing in assignment pickers.
+    consumed = {
+        r["sow_id"]: r["role"]
+        for r in await db.all(
+            """with refs as (
+                 select p.ar_sow_id as sow_id, p.role_title as role from placements p where p.ar_sow_id is not null
+                 union all
+                 select p.ap_sow_id, p.role_title from placements p where p.ap_sow_id is not null
+                 union all
+                 select ds.flows_from_sow_id, null from sows ds where ds.flows_from_sow_id is not null)
+               select sow_id, (array_remove(array_agg(role), null))[1] as role
+                 from refs group by sow_id""")
+    }
+    for r in rows:
+        role = consumed.get(r["id"])
+        r["assigned"] = r["id"] in consumed
+        # The role shown for the SOW: the placement's role when there is one, else the SOW's own title.
+        r["role_name"] = role or r.get("title")
     if not show_value:
         for r in rows:
             for k in ("value_cap", "invoiced", "collected_or_paid", "remaining"):
@@ -312,11 +335,17 @@ async def add_sow(body: SowIn, db: TenantDb = Depends(tenant_db)):
     await workflow.require_nda_between(db, company_id=company, other_company_id=own_company)
     project_code = None
     if body.project_id:
+        # A project assigned to us through the chain lives in the assigner's workspace —
+        # the same rule as placements: it gets our own local copy here (linked by
+        # source_project_id) instead of "Project not found", so a SOW passed down the
+        # chain stays attached to the same project end to end.
+        from .projects import _local_project
+        body.project_id = await _local_project(db, body.project_id)
         project_code = await db.val("select code from projects where id = :id", {"id": body.project_id})
-        if project_code is None:
-            raise not_found("Project")
     if body.flows_from_sow_id:
         upstream = await db.one("select end_date from sows where id = :id", {"id": body.flows_from_sow_id})
+        if upstream is None:   # an upstream SOW assigned to us through the chain — visible via the shared view
+            upstream = await db.one("select end_date from mytrakin.shared_sows() where id = :id", {"id": body.flows_from_sow_id})
         if upstream and body.end_date > upstream["end_date"]:
             raise bad_request("A vendor SOW can't run past the client SOW it supports")
     # Client SOWs and vendor / contractor work orders (the resource contract) have their own numbering.
@@ -390,6 +419,7 @@ async def submit_sow(sow_id: UUID, db: TenantDb = Depends(tenant_db)):
 async def respond_to_sow(sow_id: UUID, body: SowDecisionIn, db: TenantDb = Depends(tenant_db)):
     """The company a SOW was sent to approves it (it comes into force) or turns it down
     with a reason."""
+    db.ctx.require("legal", "account_manager")
     await db.run("select mytrakin.respond_to_sow(:s, :d, :n)",
                  {"s": sow_id, "d": body.decision, "n": body.note})
     return await get_sow(sow_id, db)

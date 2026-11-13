@@ -14,6 +14,66 @@ export function Chip({ status, children }: { status?: string | null; children?: 
   return <span className={`chip ${tone(status)}`}>{children ?? label(status)}</span>;
 }
 
+/* ---------------------------------------------------------------- sub-tab icons */
+
+const stroke = {
+  width: 15, height: 15, viewBox: "0 0 24 24", fill: "none",
+  stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+} as const;
+
+const P = (d: string) => <path d={d} />;
+
+/** One icon per sub-tab across the app, keyed by the page's tab key. */
+const TAB_ICONS: Record<string, ReactNode> = {
+  // Invoices
+  ar: <svg {...stroke}>{P("M4 4h13l3 3v13H4Z")}<path d="M12 8.5v7M9.8 10.7c0-1.2 1-1.9 2.2-1.9s2.2.7 2.2 1.7-1 1.6-2.2 1.9-2.2.9-2.2 1.9 1 1.7 2.2 1.7 2.2-.7 2.2-1.9" /></svg>,
+  ap: <svg {...stroke}>{P("M4 4h16v16H4Z")}<path d="M12 8v8M9.5 10.5 12 8l2.5 2.5M9.5 13.5 12 16l2.5-2.5" /></svg>,
+  credits: <svg {...stroke}>{P("M7 3h10a2 2 0 0 1 2 2v16l-3-2-2 2-2-2-2 2-2-2-3 2V5a2 2 0 0 1 2-2Z")}<path d="M9 8h6M9 12h4" /></svg>,
+  // Payroll, 1099 & referrals
+  payroll: <svg {...stroke}>{P("M3 7h18v12H3Z")}<circle cx="12" cy="13" r="2.6" /><path d="M7 7V5h10v2" /></svg>,
+  "1099": <svg {...stroke}>{P("M5 3h11l4 4v14H5Z")}<path d="M9 12h6M9 16h4" /><path d="m15 16 2-2" /></svg>,
+  referrals: <svg {...stroke}>{P("M6 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm12 11a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM6 9v4a4 4 0 0 0 4 4h8")}<circle cx="16.5" cy="17.5" r="0.5" /></svg>,
+  expenses: <svg {...stroke}>{P("M3 6h18v13H3Z")}<path d="M3 10h18M7 15h4" /></svg>,
+  time_off: <svg {...stroke}>{P("M4 5h16v15H4Z")}<path d="M4 9h16M9 3v4M15 3v4" /><path d="m9.5 14 1.7 1.7 3.3-3.3" /></svg>,
+  // Compliance
+  documents: <svg {...stroke}>{P("M6 3h9l4 4v14H6Z")}<circle cx="13" cy="13" r="4" /><path d="M13 11v2l1.3 1.3" /></svg>,
+  work_auth: <svg {...stroke}>{P("M4 4h16v16H4Z")}<circle cx="9" cy="10" r="2" /><path d="M6 16c.5-2 1.7-2.8 3-2.8s2.5.8 3 2.8M14 8h4M14 11.5h4M14 15h3" /></svg>,
+  policies: <svg {...stroke}>{P("M12 3 5 6v5.5c0 4.4 2.9 8 7 9.5 4.1-1.5 7-5.1 7-9.5V6Z")}<path d="m9.2 11.8 2 2 3.6-3.8" /></svg>,
+  registrations: <svg {...stroke}>{P("M4 21V5l7-2v18M11 9l9 2v10")}<path d="M7 8h.01M7 12h.01M7 16h.01M15 14h.01M15 17h.01" /></svg>,
+  reminders: <svg {...stroke}>{P("M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z")}<path d="M10 19a2 2 0 0 0 4 0" /></svg>,
+  // Consultants
+  onboarding: <svg {...stroke}>{P("M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z")}<path d="M2.5 20c.6-3.2 3-5 6.5-5M18 8v6M15 11h6" /></svg>,
+  active: <svg {...stroke}>{P("M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z")}<path d="M2.5 20c.6-3.2 3-5 6.5-5s5.9 1.8 6.5 5" /><path d="m15 11.5 2 2 3.5-3.5" /></svg>,
+  former: <svg {...stroke}>{P("M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z")}<path d="M2.5 20c.6-3.2 3-5 6.5-5s5.9 1.8 6.5 5" /><path d="m15 9.5 5 5M20 9.5l-5 5" /></svg>,
+  all_people: <svg {...stroke}>{P("M8.5 11a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z")}<path d="M2.5 19c.6-3 2.8-4.7 6-4.7s5.4 1.7 6 4.7" /><path d="M16.5 8.5a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2ZM18.6 12.4c2 .6 3.4 2 3.9 4.3" /></svg>,
+  // MSAs & SOWs
+  agreements: <svg {...stroke}>{P("M6 3h9l4 4v14H6Z")}<path d="M9 8h7M9 12h7M9 16h3" /><path d="M9 18.5 10.5 20l3-3" /></svg>,
+  sows: <svg {...stroke}>{P("m12 3 9 4.5-9 4.5L3 7.5Z")}<path d="m3 12.5 9 4.5 9-4.5M3 16.5 12 21l9-4.5" /></svg>,
+  missing: <svg {...stroke}>{P("m12 4 9.5 16h-19Z")}<path d="M12 10.5v4M12 17.2h.01" /></svg>,
+  // Timesheets
+  week: <svg {...stroke}>{P("M4 5h16v15H4Z")}<path d="M4 9h16M9 3v4M15 3v4" /><path d="m9 14 1.7 1.7L14 12.4" /></svg>,
+  history: <svg {...stroke}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>,
+  // Platform
+  overview: <svg {...stroke}>{P("M4 20V4")}<path d="M4 20h16M8 16v-5M12 16V8M16 16v-3" /></svg>,
+  companies: <svg {...stroke}>{P("M4 21V8l8-3v16M12 21V12l8 2v7")}<path d="M7.5 10h.01M7.5 13h.01M7.5 16h.01M16 16h.01M16 18.5h.01" /></svg>,
+  queue: <svg {...stroke}>{P("M4 5h16v6a8 8 0 0 1-16 0Z")}<path d="M9 19h6M12 11v-2" /></svg>,
+  admins: <svg {...stroke}>{P("M10.5 3.5 5 6v5.2c0 4 2.3 7.3 5.5 8.8 3.2-1.5 5.5-4.8 5.5-8.8V6Z")}<circle cx="16.5" cy="16.5" r="3" /><path d="m18.8 18.8 2 2" /></svg>,
+  // Projects & placements
+  projects: <svg {...stroke}>{P("M4 7h5l2 2h9v11H4Z")}<path d="M4 7V5h5l2 2" /></svg>,
+  placements: <svg {...stroke}>{P("M9 11a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z")}<path d="M3.5 19c.5-2.9 2.6-4.5 5.5-4.5 1.2 0 2.2.2 3.1.7" /><rect x="13.5" y="13.5" width="7" height="7" rx="1" /><path d="M15.5 13.5V12a1.5 1.5 0 0 1 3 0v1.5" /></svg>,
+};
+
+const TAB_ICONS_DEFAULT: ReactNode = <svg {...stroke}><circle cx="12" cy="12" r="8.5" /><path d="M12 8.5h.01M12 11.5V16" /></svg>;
+
+/** Icon shown inside a module's sub-tab; falls back to a neutral marker for unknown keys. */
+export function SubTabIcon({ tabKey, label }: { tabKey: string; label?: string }) {
+  return (
+    <span className="tab-ico" aria-hidden="true" title={label}>
+      {TAB_ICONS[tabKey] ?? TAB_ICONS_DEFAULT}
+    </span>
+  );
+}
+
 export function Kpi({ label: l, value, detail, tone: t }: { label: string; value: ReactNode; detail?: ReactNode; tone?: "bad" | "warn" }) {
   return (
     <div className={`card kpi ${t ?? ""}`}>

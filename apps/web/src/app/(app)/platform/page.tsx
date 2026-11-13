@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { DataTable } from "@/components/DataTable";
-import { Chip, Drawer, ErrorBox, Field, formValues, Kpi, Loading, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, Drawer, ErrorBox, Field, formValues, Kpi, Loading, Modal, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, dateTime, label, money } from "@/lib/format";
 import { useSession } from "@/lib/session";
@@ -11,7 +11,7 @@ import { useApi } from "@/lib/useApi";
 type Tab = "overview" | "companies" | "queue" | "admins";
 const num = (v: unknown) => Number(v ?? 0);
 
-/** For the team running myTrakIn: platform analytics, every company, the activation queue and platform admins. */
+/** For the team running MyTrackIn: platform analytics, every company, the activation queue and platform admins. */
 export default function Platform() {
   const metrics = useApi("/platform/metrics");
   const tenants = useApi<any[]>("/platform/tenants");
@@ -29,12 +29,12 @@ export default function Platform() {
 
   return (
     <>
-      <PageHead title="Platform admin" sub="Every company on myTrakIn, how the platform is growing, and the money moving through it." />
+      <PageHead title="Platform admin" sub="Every company on MyTrackIn, how the platform is growing, and the money moving through it." />
       <div className="tabs">
-        <button className={tab === "overview" ? "on" : ""} onClick={() => setTab("overview")}>Overview</button>
-        <button className={tab === "companies" ? "on" : ""} onClick={() => setTab("companies")}>Companies</button>
-        <button className={tab === "queue" ? "on" : ""} onClick={() => setTab("queue")}>Waiting for activation{waiting ? ` (${waiting})` : ""}</button>
-        <button className={tab === "admins" ? "on" : ""} onClick={() => setTab("admins")}>Platform admins</button>
+        <button className={tab === "overview" ? "on" : ""} onClick={() => setTab("overview")}><SubTabIcon tabKey="overview" label="Overview" />Overview</button>
+        <button className={tab === "companies" ? "on" : ""} onClick={() => setTab("companies")}><SubTabIcon tabKey="companies" label="Companies" />Companies</button>
+        <button className={tab === "queue" ? "on" : ""} onClick={() => setTab("queue")}><SubTabIcon tabKey="queue" label="Waiting" />Waiting for activation{waiting ? ` (${waiting})` : ""}</button>
+        <button className={tab === "admins" ? "on" : ""} onClick={() => setTab("admins")}><SubTabIcon tabKey="admins" label="Admins" />Platform admins</button>
       </div>
 
       {tab === "overview" && <Overview m={m} openQueue={() => setTab("queue")} />}
@@ -85,7 +85,7 @@ function Overview({ m, openQueue }: { m: any; openQueue: () => void }) {
         <Kpi label="MRR" value={money(m.revenue.mrr, true)} detail={`ARR ${money(m.revenue.arr, true)} · ${m.revenue.paying_companies} paying`} />
         <Kpi label="Revenue per user" value={money(m.revenue.arpu)} detail={`${m.activity.consultants} consultants · ${m.activity.active_placements} placements`} />
       </div>
-      <h3 className="mt">Money moving through myTrakIn</h3>
+      <h3 className="mt">Money moving through MyTrackIn</h3>
       <div className="grid k4">
         <Kpi label="Invoiced to clients" value={money(m.money.ar_invoiced, true)} detail={`${money(m.money.invoiced_30d, true)} in the last 30 days`} />
         <Kpi label="Collected" value={money(m.money.ar_collected, true)} detail={`${money(m.money.collected_30d, true)} in the last 30 days`} />
@@ -160,7 +160,7 @@ function TenantDrawer({ tenant, onClose, onSaved }: { tenant: any; onClose: () =
             if (await run(() => api(`/platform/tenants/${tenant.id}`, { method: "PATCH", body: formValues(e.currentTarget) }), "Saved")) onSaved();
           }}>
             <Field label="Plan" name="plan" as="select" defaultValue={tenant.plan} options={["starter", "growth", "enterprise"]} />
-            <Field label="Status" name="status" as="select" defaultValue={tenant.status} options={[["onboarding", "Waiting for activation"], ["active", "Active"], ["suspended", "Suspended (no sign-in)"], ["rejected", "Rejected (owner can fix and resubmit)"], ["closed", "Closed"]]} />
+            <Field label="Status" name="status" as="select" defaultValue={tenant.status} options={[["onboarding", "Waiting for activation"], ["active", "Active"], ["suspended", "Suspended (view only)"], ["rejected", "Rejected (owner can fix and resubmit)"], ["closed", "Closed"]]} />
             <Field label="Trial ends" name="trial_ends_on" type="date" defaultValue={tenant.trial_ends_on ?? ""} />
             <button className="btn pri mt" disabled={busy}>Save</button>
           </form>
@@ -281,7 +281,7 @@ function Admins({ rows, reload }: { rows: any[]; reload: () => void }) {
             e.preventDefault();
             if (await run(() => api("/platform/admins", { body: formValues(e.currentTarget) }), "Platform admin added")) { setAdding(false); reload(); }
           }}>
-            <p className="muted">They get the full platform console: every company, activation and analytics. They must have signed in to myTrakIn once.</p>
+            <p className="muted">They get the full platform console: every company, activation and analytics. They must have signed in to MyTrackIn once.</p>
             <Field label="E-mail" name="email" type="email" required full />
             <button className="btn pri mt" disabled={busy}>Add</button>
           </form>

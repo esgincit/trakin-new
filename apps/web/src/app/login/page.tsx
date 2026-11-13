@@ -9,6 +9,24 @@ import { useSession } from "@/lib/session";
 
 type Step = "choose" | "email" | "email_code" | "phone" | "phone_code" | "password" | "forgot" | "forgot_sent" | "sso" | "mfa";
 
+/** Only pages inside myTrakIn. Parsed the way the browser will (it drops tabs/newlines and reads "\" as "/"),
+ *  so "//x", "/\x" or "/<tab>/x" can never point to another site. */
+const safeNext = (raw: string | null) => {
+  const base = "https://mytrakin.invalid";
+  try {
+    const url = raw?.startsWith("/") ? new URL(raw, base) : null;
+    return url && url.origin === base ? url.pathname + url.search + url.hash : "/";
+  } catch {
+    return "/";
+  }
+};
+
+/** Our own wording for a sign-in that failed at the provider; nothing from the address is ever shown. */
+const providerFailure = (code: string) =>
+  /access_denied/i.test(code) ? "Sign-in was cancelled. Try again or choose another way."
+  : /otp_expired/i.test(code) ? "That link has expired. Send a new code and try again."
+  : "Sign-in didn't complete. Please try again.";
+
 export default function LoginPage() {
   return (
     <Suspense>
@@ -21,7 +39,7 @@ function Login() {
   const params = useSearchParams();
   const router = useRouter();
   const { refresh } = useSession();
-  const next = params.get("next") || "/";
+  const next = safeNext(params.get("next"));
   const [step, setStep] = useState<Step>(params.get("step") === "mfa" ? "mfa" : params.get("email") ? "email" : "choose");
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [phone, setPhone] = useState("");
@@ -124,8 +142,9 @@ function Login() {
   // Returning from SSO / Google / Microsoft: the session is already in the URL, or the provider sent an error.
   useEffect(() => {
     const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
-    const failure = params.get("error_description") ?? hash.get("error_description") ?? params.get("error") ?? hash.get("error");
-    if (failure) setError(friendlyAuthError(failure.replace(/\+/g, " ")));
+    const failure = params.get("error_code") ?? hash.get("error_code") ?? params.get("error") ?? hash.get("error")
+      ?? params.get("error_description") ?? hash.get("error_description");
+    if (failure) setError(providerFailure(failure));
     sb.auth.getSession().then(({ data }) => {
       if (step === "mfa" && !data.session) setStep("choose"); // an expired two-step link with nobody signed in
       else if (data.session && step === "choose" && !failure) finish();

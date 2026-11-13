@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, ErrorBox, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -48,8 +48,8 @@ export default function Timesheets() {
           }}>Approve all that pass ({passing})</button>
         )} />
       <div className="tabs">
-        <button className={tab === "week" ? "on" : ""} onClick={() => setTab("week")}>Week</button>
-        <button className={tab === "history" ? "on" : ""} onClick={() => setTab("history")}>History</button>
+        <button className={tab === "week" ? "on" : ""} onClick={() => setTab("week")}><SubTabIcon tabKey="week" label="Week" />Week</button>
+        <button className={tab === "history" ? "on" : ""} onClick={() => setTab("history")}><SubTabIcon tabKey="history" label="History" />History</button>
       </div>
       {tab === "week" ? (
         <>

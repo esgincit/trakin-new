@@ -464,6 +464,12 @@ async def test_large_file_direct_upload(client, auth):
     bad = await client.post("/files/confirm", headers=admin, json={"owner_type": "company", "owner_id": company["id"],
                                                                    "path": "someone-else/company/x/file.pdf", "name": "x.pdf"})
     assert bad.status_code == 403
+    # Only the user the key was issued to can record it, and only a key the API issued.
+    for who, path in ((auth("finance"), start["path"]),
+                      (admin, f"{start['path'].rsplit('/', 1)[0]}/000000000000-forged.pdf")):
+        other = await client.post("/files/confirm", headers=who, json={
+            "owner_type": "company", "owner_id": company["id"], "path": path, "name": "x.pdf"})
+        assert other.status_code == 403, other.text
     confirmed = await client.post("/files/confirm", headers=admin, json={
         "owner_type": "company", "owner_id": company["id"], "path": start["path"], "name": "signed msa scan.pdf",
         "content_type": "application/pdf"})

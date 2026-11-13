@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable, type Column } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { label } from "@/lib/format";
 import { allows, canEdit as permits, useSession } from "@/lib/session";
@@ -55,7 +55,7 @@ function Consultants() {
           <button className="btn pri" onClick={() => setAdding(true)}>Onboard someone</button>
         </>} />
       <div className="tabs">
-        {TABS.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t}</button>)}
+        {TABS.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}><SubTabIcon tabKey={k || "all_people"} label={t} />{t}</button>)}
       </div>
       <ErrorBox error={error} retry={reload} />
       <DataTable id={`consultants-${tab}`} rows={data} columns={columns} onRowClick={(r) => router.push(`/consultants/${r.id}`)}
@@ -68,7 +68,7 @@ function Consultants() {
 function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: string) => void }) {
   const [engagement, setEngagement] = useState("w2_contract");
   const vendors = useApi<any[]>("/companies", { kind: "vendor" });
-  // The consultant is someone who already has an account somewhere on myTrakIn:
+  // The consultant is someone who already has an account somewhere on MyTrackIn:
   // search every registered user by name, U-ID or e-mail, and their details come
   // from their profile. They may be new to this workspace.
   const [term, setTerm] = useState("");
@@ -80,7 +80,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
   useEffect(() => {
     if (person) return;
     const q = term.trim();
-    if (q.length < 2) { setFound([]); return; }
+    if (!q.includes("@")) { setFound([]); return; }
     let live = true;
     setLooking(true);
     const t = setTimeout(() => {
@@ -126,13 +126,15 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
               </div>
             ) : (
               <>
-                <input id="who" className="ctl" autoFocus value={term} placeholder="Name, U-ID or e-mail"
+                <input id="who" className="ctl" autoFocus value={term} placeholder="Their exact e-mail address"
                   onChange={(e) => setTerm(e.target.value)} role="combobox" aria-expanded={found.length > 0}
                   aria-controls="who-list" autoComplete="off" />
                 {looking && <p className="note" style={{ marginTop: -6 }}>Searching…</p>}
                 {!looking && term.trim().length >= 2 && !found.length && (
                   <p className="note" style={{ marginTop: -6 }}>
-                    Nobody matches “{term.trim()}”. The person needs a myTrakIn account somewhere on the platform before they can be onboarded.
+                    {term.includes("@")
+                      ? <>Nobody has a MyTrackIn account with “{term.trim()}”. They need an account before they can be onboarded.</>
+                      : <>Type their full e-mail address — search by name isn't available.</>}
                   </p>
                 )}
                 {found.length > 0 && (
@@ -154,7 +156,7 @@ function OnboardModal({ onClose, onDone }: { onClose: () => void; onDone: (id: s
               </>
             )}
             <p className="note" style={{ marginTop: -6 }}>
-              Pick anyone registered on myTrakIn — their name, e-mail and mobile come from their profile, and onboarding gives them access here.
+              Find the person by their exact e-mail address — their name, e-mail and mobile come from their profile, and onboarding gives them access here.
             </p>
           </div>
           <Field label="E-mail" name="email" type="email" readOnly value={person?.email ?? ""} placeholder="Filled in when you pick someone" />

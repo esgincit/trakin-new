@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { DataButtons } from "@/components/DataButtons";
 import { DataTable } from "@/components/DataTable";
-import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, useAction } from "@/components/ui";
+import { Chip, ErrorBox, Field, formValues, ImportButton, Modal, PageHead, SubTabIcon, useAction } from "@/components/ui";
 import { api } from "@/lib/api";
 import { date, label, money } from "@/lib/format";
 import { allows, useSession } from "@/lib/session";
@@ -25,7 +25,7 @@ export default function PeoplePay() {
   return (
     <>
       <PageHead title="Payroll, 1099 & referrals" sub="W-2 salaries, referral fees and contractor payments for year-end 1099s, plus expense and time-off approvals." />
-      <div className="tabs">{visible.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t}</button>)}</div>
+      <div className="tabs">{visible.map(([k, t]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}><SubTabIcon tabKey={k} label={t} />{t}</button>)}</div>
       {tab === "payroll" && <Payroll />}
       {tab === "1099" && <Form1099 />}
       {tab === "referrals" && <Referrals />}

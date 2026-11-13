@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { PageHead, useAction } from "@/components/ui";
+import { PageHead, useAction, useToast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { MAX_UPLOAD, uploadDirect } from "@/lib/upload";
 
@@ -37,6 +37,7 @@ function NewEnvelope() {
   const [signers, setSigners] = useState<Signer[]>([]);
   const picker = useRef<HTMLInputElement>(null);
   const { run, busy } = useAction();
+  const toast = useToast();
 
   // Who is expected to sign: us (fixed, first) and the other company's admins.
   useEffect(() => {
@@ -103,7 +104,11 @@ function NewEnvelope() {
       for (const f of files) paths.push(await uploadDirect(f, { purpose: "esign" }));
       form.set("document_paths", JSON.stringify(paths));
       const created = await api("/envelopes", { form });
-      if (send) await api(`/envelopes/${created.id}/send`, { method: "POST" });
+      if (send) {
+        const sent = await api<any>(`/envelopes/${created.id}/send`, { method: "POST" });
+        const failed = (sent?.delivery?.failed ?? []).join(", ");
+        if (failed) toast(`Saved and sent, but the e-mail to ${failed} was NOT delivered — check this environment's e-mail settings (RESEND_API_KEY or SMTP). "Remind now" on the envelope page retries.`);
+      }
       return created;
     }, send ? "Sent — the first signer has the link" : "Saved as draft");
     if (env) router.push(`/esign/${env.id}`);
